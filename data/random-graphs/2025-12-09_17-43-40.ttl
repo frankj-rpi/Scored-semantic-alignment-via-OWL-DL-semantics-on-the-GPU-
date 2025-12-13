@@ -1,0 +1,3628 @@
+@prefix ex: <http://example.org/random#> .
+
+ex:n62 a ex:C5 ;
+    ex:p0 ex:n16,
+        ex:n17,
+        ex:n26,
+        ex:n29,
+        ex:n39,
+        ex:n57,
+        ex:n64,
+        ex:n70,
+        ex:n96 ;
+    ex:p1 ex:n23,
+        ex:n49,
+        ex:n59,
+        ex:n7 ;
+    ex:p2 ex:n77 ;
+    ex:p3 ex:n22,
+        ex:n25,
+        ex:n31,
+        ex:n41,
+        ex:n43,
+        ex:n51,
+        ex:n61,
+        ex:n74,
+        ex:n77,
+        ex:n91 ;
+    ex:p4 ex:n31,
+        ex:n64,
+        ex:n69,
+        ex:n7,
+        ex:n8 ;
+    ex:p5 ex:n1,
+        ex:n31,
+        ex:n41,
+        ex:n5,
+        ex:n54,
+        ex:n83,
+        ex:n89 ;
+    ex:p6 ex:n13,
+        ex:n28,
+        ex:n4,
+        ex:n49,
+        ex:n58 .
+
+ex:n95 a ex:C2 ;
+    ex:p0 ex:n0,
+        ex:n23,
+        ex:n29,
+        ex:n43,
+        ex:n44,
+        ex:n49,
+        ex:n71 ;
+    ex:p1 ex:n34,
+        ex:n45,
+        ex:n51,
+        ex:n75,
+        ex:n87,
+        ex:n88 ;
+    ex:p2 ex:n33,
+        ex:n69,
+        ex:n74,
+        ex:n79,
+        ex:n86 ;
+    ex:p3 ex:n14,
+        ex:n40,
+        ex:n44,
+        ex:n60 ;
+    ex:p4 ex:n0,
+        ex:n55,
+        ex:n63,
+        ex:n90 ;
+    ex:p5 ex:n16,
+        ex:n19,
+        ex:n29,
+        ex:n31,
+        ex:n38,
+        ex:n48,
+        ex:n53,
+        ex:n55,
+        ex:n56,
+        ex:n75,
+        ex:n91 ;
+    ex:p6 ex:n24,
+        ex:n28,
+        ex:n37,
+        ex:n77 .
+
+ex:n46 a ex:C0 ;
+    ex:p0 ex:n37,
+        ex:n74 ;
+    ex:p1 ex:n43,
+        ex:n53 ;
+    ex:p2 ex:n15,
+        ex:n27,
+        ex:n47,
+        ex:n49,
+        ex:n61,
+        ex:n80,
+        ex:n87 ;
+    ex:p3 ex:n26,
+        ex:n49,
+        ex:n6,
+        ex:n60 ;
+    ex:p4 ex:n23,
+        ex:n6,
+        ex:n79 ;
+    ex:p5 ex:n50,
+        ex:n52,
+        ex:n62,
+        ex:n63,
+        ex:n80,
+        ex:n97 ;
+    ex:p6 ex:n16,
+        ex:n43,
+        ex:n58,
+        ex:n81,
+        ex:n84 .
+
+ex:n5 a ex:C3 ;
+    ex:p0 ex:n12,
+        ex:n37,
+        ex:n38,
+        ex:n55,
+        ex:n74,
+        ex:n77,
+        ex:n99 ;
+    ex:p1 ex:n3,
+        ex:n74,
+        ex:n89 ;
+    ex:p2 ex:n11,
+        ex:n15,
+        ex:n27,
+        ex:n34,
+        ex:n57,
+        ex:n72,
+        ex:n87 ;
+    ex:p3 ex:n42,
+        ex:n71,
+        ex:n72 ;
+    ex:p4 ex:n16,
+        ex:n22,
+        ex:n39,
+        ex:n68,
+        ex:n81,
+        ex:n86 ;
+    ex:p5 ex:n4,
+        ex:n77 ;
+    ex:p6 ex:n21,
+        ex:n23,
+        ex:n30,
+        ex:n52 .
+
+ex:n57 a ex:C2 ;
+    ex:p0 ex:n0,
+        ex:n47,
+        ex:n50,
+        ex:n54,
+        ex:n68,
+        ex:n84,
+        ex:n9 ;
+    ex:p1 ex:n14,
+        ex:n23,
+        ex:n41,
+        ex:n47 ;
+    ex:p2 ex:n11,
+        ex:n60,
+        ex:n65,
+        ex:n85,
+        ex:n96 ;
+    ex:p3 ex:n0,
+        ex:n32,
+        ex:n63,
+        ex:n81 ;
+    ex:p4 ex:n50,
+        ex:n57,
+        ex:n62,
+        ex:n71,
+        ex:n73,
+        ex:n77 ;
+    ex:p5 ex:n10,
+        ex:n17,
+        ex:n6,
+        ex:n63,
+        ex:n89 ;
+    ex:p6 ex:n1,
+        ex:n13,
+        ex:n17,
+        ex:n83 .
+
+ex:n86 a ex:C1 ;
+    ex:p0 ex:n48,
+        ex:n63,
+        ex:n82,
+        ex:n92 ;
+    ex:p1 ex:n21,
+        ex:n40,
+        ex:n41 ;
+    ex:p2 ex:n31,
+        ex:n69,
+        ex:n89 ;
+    ex:p3 ex:n38 ;
+    ex:p4 ex:n1,
+        ex:n3,
+        ex:n41,
+        ex:n55,
+        ex:n62,
+        ex:n86,
+        ex:n92 ;
+    ex:p5 ex:n3,
+        ex:n35,
+        ex:n4,
+        ex:n43,
+        ex:n59,
+        ex:n77 ;
+    ex:p6 ex:n19,
+        ex:n21,
+        ex:n3,
+        ex:n66 .
+
+ex:n42 a ex:C6 ;
+    ex:p0 ex:n22,
+        ex:n33,
+        ex:n40,
+        ex:n58,
+        ex:n73 ;
+    ex:p1 ex:n6 ;
+    ex:p2 ex:n19,
+        ex:n20,
+        ex:n34,
+        ex:n52,
+        ex:n58,
+        ex:n65,
+        ex:n66,
+        ex:n68,
+        ex:n85 ;
+    ex:p3 ex:n15,
+        ex:n17,
+        ex:n21,
+        ex:n35,
+        ex:n89 ;
+    ex:p4 ex:n19,
+        ex:n2,
+        ex:n27,
+        ex:n55,
+        ex:n67,
+        ex:n91 ;
+    ex:p5 ex:n1,
+        ex:n13,
+        ex:n30,
+        ex:n64,
+        ex:n72,
+        ex:n74 ;
+    ex:p6 ex:n12,
+        ex:n22,
+        ex:n42 .
+
+ex:n66 a ex:C6 ;
+    ex:p0 ex:n17,
+        ex:n2,
+        ex:n21,
+        ex:n22,
+        ex:n98 ;
+    ex:p1 ex:n42,
+        ex:n53,
+        ex:n86 ;
+    ex:p2 ex:n19,
+        ex:n2,
+        ex:n44,
+        ex:n68,
+        ex:n92,
+        ex:n96,
+        ex:n98 ;
+    ex:p3 ex:n22,
+        ex:n47,
+        ex:n73,
+        ex:n75,
+        ex:n84 ;
+    ex:p4 ex:n10,
+        ex:n20,
+        ex:n28,
+        ex:n68,
+        ex:n80 ;
+    ex:p5 ex:n1,
+        ex:n67,
+        ex:n70,
+        ex:n8,
+        ex:n97 ;
+    ex:p6 ex:n35,
+        ex:n37,
+        ex:n55,
+        ex:n6,
+        ex:n83,
+        ex:n85 .
+
+ex:n4 a ex:C3 ;
+    ex:p0 ex:n59,
+        ex:n61 ;
+    ex:p1 ex:n11,
+        ex:n35,
+        ex:n38,
+        ex:n42,
+        ex:n44,
+        ex:n6,
+        ex:n70,
+        ex:n82,
+        ex:n91,
+        ex:n93 ;
+    ex:p2 ex:n45,
+        ex:n55,
+        ex:n62,
+        ex:n64 ;
+    ex:p3 ex:n6,
+        ex:n63,
+        ex:n74,
+        ex:n87,
+        ex:n96 ;
+    ex:p4 ex:n28,
+        ex:n68 ;
+    ex:p5 ex:n27 ;
+    ex:p6 ex:n37,
+        ex:n53,
+        ex:n63,
+        ex:n78,
+        ex:n92 .
+
+ex:n38 a ex:C4 ;
+    ex:p0 ex:n14,
+        ex:n48,
+        ex:n70 ;
+    ex:p1 ex:n10,
+        ex:n33,
+        ex:n82,
+        ex:n96 ;
+    ex:p2 ex:n0,
+        ex:n18,
+        ex:n44,
+        ex:n57,
+        ex:n74 ;
+    ex:p3 ex:n11,
+        ex:n14,
+        ex:n32,
+        ex:n46,
+        ex:n5,
+        ex:n69,
+        ex:n73,
+        ex:n82,
+        ex:n9,
+        ex:n91 ;
+    ex:p4 ex:n61,
+        ex:n73,
+        ex:n9,
+        ex:n97 ;
+    ex:p5 ex:n24,
+        ex:n55,
+        ex:n78,
+        ex:n79,
+        ex:n87 ;
+    ex:p6 ex:n23,
+        ex:n29,
+        ex:n32,
+        ex:n4,
+        ex:n67,
+        ex:n96 .
+
+ex:n59 a ex:C5 ;
+    ex:p0 ex:n22,
+        ex:n26,
+        ex:n37,
+        ex:n46,
+        ex:n51,
+        ex:n54,
+        ex:n68,
+        ex:n97 ;
+    ex:p1 ex:n22,
+        ex:n67,
+        ex:n90 ;
+    ex:p2 ex:n21,
+        ex:n23,
+        ex:n34,
+        ex:n46,
+        ex:n67,
+        ex:n77 ;
+    ex:p3 ex:n33,
+        ex:n47,
+        ex:n5,
+        ex:n81,
+        ex:n95 ;
+    ex:p4 ex:n22,
+        ex:n35,
+        ex:n42,
+        ex:n48,
+        ex:n52,
+        ex:n53,
+        ex:n68,
+        ex:n82,
+        ex:n91 ;
+    ex:p5 ex:n22,
+        ex:n44,
+        ex:n76,
+        ex:n87 ;
+    ex:p6 ex:n43 .
+
+ex:n71 a ex:C2 ;
+    ex:p0 ex:n19,
+        ex:n30,
+        ex:n39,
+        ex:n42,
+        ex:n51,
+        ex:n6,
+        ex:n64,
+        ex:n73,
+        ex:n78,
+        ex:n90 ;
+    ex:p1 ex:n11,
+        ex:n8,
+        ex:n82 ;
+    ex:p2 ex:n2,
+        ex:n78,
+        ex:n91,
+        ex:n92 ;
+    ex:p3 ex:n22,
+        ex:n26,
+        ex:n48,
+        ex:n59,
+        ex:n64,
+        ex:n93 ;
+    ex:p4 ex:n4,
+        ex:n49,
+        ex:n63,
+        ex:n84,
+        ex:n98 ;
+    ex:p5 ex:n16,
+        ex:n18,
+        ex:n53,
+        ex:n64,
+        ex:n75,
+        ex:n76 ;
+    ex:p6 ex:n1,
+        ex:n30,
+        ex:n37,
+        ex:n53,
+        ex:n57 .
+
+ex:n73 a ex:C6 ;
+    ex:p0 ex:n15,
+        ex:n2,
+        ex:n37,
+        ex:n39,
+        ex:n55,
+        ex:n67,
+        ex:n71,
+        ex:n85,
+        ex:n92 ;
+    ex:p1 ex:n36,
+        ex:n61 ;
+    ex:p2 ex:n15,
+        ex:n54,
+        ex:n67 ;
+    ex:p3 ex:n14,
+        ex:n3,
+        ex:n40,
+        ex:n55,
+        ex:n82 ;
+    ex:p4 ex:n1,
+        ex:n56,
+        ex:n58,
+        ex:n69,
+        ex:n85,
+        ex:n94 ;
+    ex:p5 ex:n21,
+        ex:n39,
+        ex:n63,
+        ex:n7,
+        ex:n86,
+        ex:n99 ;
+    ex:p6 ex:n10,
+        ex:n20,
+        ex:n27,
+        ex:n56,
+        ex:n81 .
+
+ex:n13 a ex:C4 ;
+    ex:p0 ex:n13,
+        ex:n27,
+        ex:n52,
+        ex:n70,
+        ex:n93 ;
+    ex:p1 ex:n36,
+        ex:n42,
+        ex:n52,
+        ex:n58 ;
+    ex:p2 ex:n23,
+        ex:n24,
+        ex:n35,
+        ex:n8 ;
+    ex:p3 ex:n19,
+        ex:n30,
+        ex:n5,
+        ex:n64,
+        ex:n7 ;
+    ex:p4 ex:n14,
+        ex:n29,
+        ex:n53,
+        ex:n55,
+        ex:n56,
+        ex:n70,
+        ex:n80 ;
+    ex:p5 ex:n13,
+        ex:n14,
+        ex:n31,
+        ex:n4 ;
+    ex:p6 ex:n0,
+        ex:n21,
+        ex:n27,
+        ex:n86,
+        ex:n88 .
+
+ex:n17 a ex:C6 ;
+    ex:p0 ex:n11,
+        ex:n15,
+        ex:n64,
+        ex:n82,
+        ex:n9 ;
+    ex:p1 ex:n19,
+        ex:n24,
+        ex:n57,
+        ex:n62,
+        ex:n67,
+        ex:n68,
+        ex:n72 ;
+    ex:p2 ex:n51,
+        ex:n73 ;
+    ex:p3 ex:n16,
+        ex:n22,
+        ex:n25,
+        ex:n40,
+        ex:n50,
+        ex:n54,
+        ex:n87 ;
+    ex:p4 ex:n61,
+        ex:n68,
+        ex:n74,
+        ex:n87 ;
+    ex:p5 ex:n11,
+        ex:n13,
+        ex:n29,
+        ex:n36,
+        ex:n42,
+        ex:n65,
+        ex:n71 ;
+    ex:p6 ex:n14,
+        ex:n3,
+        ex:n45,
+        ex:n50,
+        ex:n67,
+        ex:n77,
+        ex:n85 .
+
+ex:n41 a ex:C3 ;
+    ex:p0 ex:n27,
+        ex:n77,
+        ex:n78 ;
+    ex:p1 ex:n17,
+        ex:n24,
+        ex:n39,
+        ex:n42,
+        ex:n60 ;
+    ex:p2 ex:n12,
+        ex:n5,
+        ex:n85 ;
+    ex:p3 ex:n83 ;
+    ex:p4 ex:n1,
+        ex:n10,
+        ex:n25,
+        ex:n43 ;
+    ex:p5 ex:n12,
+        ex:n27,
+        ex:n40,
+        ex:n44,
+        ex:n65,
+        ex:n80,
+        ex:n83,
+        ex:n99 ;
+    ex:p6 ex:n49,
+        ex:n50,
+        ex:n63,
+        ex:n71,
+        ex:n92,
+        ex:n93 .
+
+ex:n74 a ex:C1 ;
+    ex:p0 ex:n15,
+        ex:n21,
+        ex:n39,
+        ex:n68,
+        ex:n88 ;
+    ex:p1 ex:n15,
+        ex:n22,
+        ex:n81,
+        ex:n85,
+        ex:n91 ;
+    ex:p2 ex:n15,
+        ex:n30,
+        ex:n55,
+        ex:n58,
+        ex:n68,
+        ex:n84 ;
+    ex:p3 ex:n16,
+        ex:n75 ;
+    ex:p4 ex:n10,
+        ex:n23,
+        ex:n53,
+        ex:n58,
+        ex:n78,
+        ex:n80,
+        ex:n98 ;
+    ex:p5 ex:n15,
+        ex:n22,
+        ex:n44,
+        ex:n51,
+        ex:n66 ;
+    ex:p6 ex:n20,
+        ex:n34,
+        ex:n5,
+        ex:n51,
+        ex:n61,
+        ex:n7,
+        ex:n8,
+        ex:n85 .
+
+ex:n94 a ex:C5 ;
+    ex:p0 ex:n1,
+        ex:n38,
+        ex:n6,
+        ex:n79 ;
+    ex:p1 ex:n33,
+        ex:n37,
+        ex:n78,
+        ex:n92 ;
+    ex:p2 ex:n13,
+        ex:n22,
+        ex:n59,
+        ex:n6,
+        ex:n64,
+        ex:n79,
+        ex:n84,
+        ex:n94,
+        ex:n95 ;
+    ex:p3 ex:n12,
+        ex:n25,
+        ex:n29,
+        ex:n6,
+        ex:n65,
+        ex:n67,
+        ex:n68,
+        ex:n74,
+        ex:n8 ;
+    ex:p4 ex:n35,
+        ex:n37,
+        ex:n38,
+        ex:n56,
+        ex:n67,
+        ex:n76,
+        ex:n85,
+        ex:n9 ;
+    ex:p5 ex:n15,
+        ex:n28,
+        ex:n43,
+        ex:n83,
+        ex:n90 ;
+    ex:p6 ex:n18,
+        ex:n43,
+        ex:n97 .
+
+ex:n96 a ex:C2 ;
+    ex:p0 ex:n56,
+        ex:n87,
+        ex:n91 ;
+    ex:p1 ex:n1,
+        ex:n21,
+        ex:n34,
+        ex:n50,
+        ex:n83,
+        ex:n89,
+        ex:n90 ;
+    ex:p2 ex:n18,
+        ex:n67,
+        ex:n80,
+        ex:n92 ;
+    ex:p3 ex:n19,
+        ex:n36,
+        ex:n68,
+        ex:n84,
+        ex:n91 ;
+    ex:p4 ex:n67 ;
+    ex:p5 ex:n19,
+        ex:n71,
+        ex:n73 ;
+    ex:p6 ex:n23,
+        ex:n30,
+        ex:n44,
+        ex:n94 .
+
+ex:n0 a ex:C2 ;
+    ex:p0 ex:n14,
+        ex:n25 ;
+    ex:p1 ex:n32,
+        ex:n49,
+        ex:n53,
+        ex:n61,
+        ex:n64,
+        ex:n69,
+        ex:n84 ;
+    ex:p2 ex:n12,
+        ex:n16,
+        ex:n23,
+        ex:n41,
+        ex:n42,
+        ex:n66,
+        ex:n90 ;
+    ex:p3 ex:n31,
+        ex:n43,
+        ex:n60,
+        ex:n92,
+        ex:n97 ;
+    ex:p4 ex:n30,
+        ex:n31,
+        ex:n34,
+        ex:n5,
+        ex:n63,
+        ex:n97 ;
+    ex:p5 ex:n14,
+        ex:n41,
+        ex:n55,
+        ex:n7,
+        ex:n80 ;
+    ex:p6 ex:n41,
+        ex:n58 .
+
+ex:n19 a ex:C0 ;
+    ex:p0 ex:n19,
+        ex:n6,
+        ex:n72,
+        ex:n75,
+        ex:n79 ;
+    ex:p1 ex:n0,
+        ex:n15,
+        ex:n2,
+        ex:n29,
+        ex:n45,
+        ex:n72,
+        ex:n76,
+        ex:n87 ;
+    ex:p2 ex:n1,
+        ex:n11,
+        ex:n14,
+        ex:n27,
+        ex:n55,
+        ex:n72,
+        ex:n80,
+        ex:n87,
+        ex:n93 ;
+    ex:p3 ex:n0,
+        ex:n25,
+        ex:n41,
+        ex:n91,
+        ex:n99 ;
+    ex:p4 ex:n18,
+        ex:n61,
+        ex:n68,
+        ex:n94 ;
+    ex:p5 ex:n20,
+        ex:n37,
+        ex:n51 ;
+    ex:p6 ex:n0,
+        ex:n21,
+        ex:n26,
+        ex:n35,
+        ex:n71,
+        ex:n78 .
+
+ex:n36 a ex:C1 ;
+    ex:p0 ex:n28,
+        ex:n3,
+        ex:n30,
+        ex:n31,
+        ex:n60,
+        ex:n9 ;
+    ex:p1 ex:n45,
+        ex:n63 ;
+    ex:p2 ex:n14,
+        ex:n2,
+        ex:n51,
+        ex:n55,
+        ex:n58,
+        ex:n75,
+        ex:n96 ;
+    ex:p3 ex:n10,
+        ex:n24,
+        ex:n82,
+        ex:n86,
+        ex:n96 ;
+    ex:p4 ex:n31,
+        ex:n35,
+        ex:n39,
+        ex:n78,
+        ex:n85 ;
+    ex:p5 ex:n39,
+        ex:n52,
+        ex:n9,
+        ex:n97 ;
+    ex:p6 ex:n38,
+        ex:n54,
+        ex:n93 .
+
+ex:n88 a ex:C4 ;
+    ex:p0 ex:n26,
+        ex:n49 ;
+    ex:p1 ex:n20,
+        ex:n27,
+        ex:n50,
+        ex:n75,
+        ex:n89,
+        ex:n93 ;
+    ex:p2 ex:n10,
+        ex:n66,
+        ex:n88,
+        ex:n93 ;
+    ex:p3 ex:n29,
+        ex:n32,
+        ex:n39,
+        ex:n50,
+        ex:n62,
+        ex:n64,
+        ex:n88 ;
+    ex:p4 ex:n56,
+        ex:n69,
+        ex:n7,
+        ex:n97 ;
+    ex:p5 ex:n25,
+        ex:n32,
+        ex:n56 ;
+    ex:p6 ex:n43,
+        ex:n56 .
+
+ex:n25 a ex:C3 ;
+    ex:p0 ex:n24,
+        ex:n36,
+        ex:n40,
+        ex:n72,
+        ex:n92 ;
+    ex:p1 ex:n11,
+        ex:n20,
+        ex:n42,
+        ex:n60,
+        ex:n63 ;
+    ex:p2 ex:n24,
+        ex:n31,
+        ex:n43,
+        ex:n44,
+        ex:n51,
+        ex:n77 ;
+    ex:p3 ex:n44,
+        ex:n70,
+        ex:n93 ;
+    ex:p4 ex:n35,
+        ex:n44,
+        ex:n92 ;
+    ex:p5 ex:n10,
+        ex:n26,
+        ex:n3,
+        ex:n30,
+        ex:n6 ;
+    ex:p6 ex:n0,
+        ex:n25,
+        ex:n36,
+        ex:n48,
+        ex:n77,
+        ex:n8 .
+
+ex:n28 a ex:C0 ;
+    ex:p0 ex:n23,
+        ex:n33,
+        ex:n84,
+        ex:n98,
+        ex:n99 ;
+    ex:p1 ex:n16,
+        ex:n52,
+        ex:n79 ;
+    ex:p2 ex:n20,
+        ex:n27,
+        ex:n40,
+        ex:n6,
+        ex:n94 ;
+    ex:p3 ex:n1,
+        ex:n43,
+        ex:n7,
+        ex:n87 ;
+    ex:p4 ex:n4,
+        ex:n69 ;
+    ex:p5 ex:n60,
+        ex:n71,
+        ex:n8 ;
+    ex:p6 ex:n11,
+        ex:n27,
+        ex:n3,
+        ex:n69,
+        ex:n94 .
+
+ex:n49 a ex:C0 ;
+    ex:p0 ex:n12,
+        ex:n3,
+        ex:n89 ;
+    ex:p1 ex:n35,
+        ex:n58,
+        ex:n64,
+        ex:n68,
+        ex:n8 ;
+    ex:p2 ex:n48,
+        ex:n81,
+        ex:n83 ;
+    ex:p3 ex:n1,
+        ex:n15 ;
+    ex:p4 ex:n10,
+        ex:n21,
+        ex:n48,
+        ex:n50,
+        ex:n70 ;
+    ex:p5 ex:n18,
+        ex:n30,
+        ex:n5,
+        ex:n62 ;
+    ex:p6 ex:n36,
+        ex:n54,
+        ex:n60,
+        ex:n68 .
+
+ex:n50 a ex:C3 ;
+    ex:p0 ex:n11,
+        ex:n18,
+        ex:n86,
+        ex:n88 ;
+    ex:p1 ex:n58,
+        ex:n65,
+        ex:n67,
+        ex:n91,
+        ex:n99 ;
+    ex:p2 ex:n20,
+        ex:n43,
+        ex:n82,
+        ex:n91 ;
+    ex:p3 ex:n29,
+        ex:n35,
+        ex:n47,
+        ex:n49,
+        ex:n60,
+        ex:n82,
+        ex:n97 ;
+    ex:p4 ex:n15,
+        ex:n18,
+        ex:n47,
+        ex:n56,
+        ex:n79,
+        ex:n90 ;
+    ex:p5 ex:n16,
+        ex:n32,
+        ex:n34,
+        ex:n50,
+        ex:n84,
+        ex:n90 ;
+    ex:p6 ex:n23,
+        ex:n27,
+        ex:n73,
+        ex:n83 .
+
+ex:n52 a ex:C3 ;
+    ex:p0 ex:n29,
+        ex:n33,
+        ex:n43,
+        ex:n87,
+        ex:n90,
+        ex:n94 ;
+    ex:p1 ex:n12,
+        ex:n30,
+        ex:n31,
+        ex:n53,
+        ex:n9 ;
+    ex:p2 ex:n30,
+        ex:n69 ;
+    ex:p3 ex:n12,
+        ex:n17,
+        ex:n72,
+        ex:n74,
+        ex:n89 ;
+    ex:p4 ex:n2,
+        ex:n42,
+        ex:n60,
+        ex:n70,
+        ex:n72,
+        ex:n83,
+        ex:n97 ;
+    ex:p5 ex:n25,
+        ex:n27,
+        ex:n31,
+        ex:n64,
+        ex:n70,
+        ex:n72,
+        ex:n76,
+        ex:n79,
+        ex:n92 ;
+    ex:p6 ex:n31,
+        ex:n33,
+        ex:n4,
+        ex:n48,
+        ex:n50,
+        ex:n6,
+        ex:n64,
+        ex:n74,
+        ex:n80,
+        ex:n86,
+        ex:n91 .
+
+ex:n9 a ex:C4 ;
+    ex:p0 ex:n21,
+        ex:n24,
+        ex:n45,
+        ex:n53,
+        ex:n6,
+        ex:n61,
+        ex:n79,
+        ex:n89,
+        ex:n98 ;
+    ex:p1 ex:n56,
+        ex:n6,
+        ex:n75,
+        ex:n78,
+        ex:n96 ;
+    ex:p2 ex:n2,
+        ex:n24,
+        ex:n30,
+        ex:n31,
+        ex:n55 ;
+    ex:p3 ex:n23,
+        ex:n36,
+        ex:n50,
+        ex:n77,
+        ex:n81,
+        ex:n89,
+        ex:n94 ;
+    ex:p4 ex:n16,
+        ex:n30 ;
+    ex:p5 ex:n33,
+        ex:n67,
+        ex:n93 ;
+    ex:p6 ex:n48,
+        ex:n86 .
+
+ex:n18 a ex:C2 ;
+    ex:p0 ex:n26,
+        ex:n38,
+        ex:n91 ;
+    ex:p1 ex:n63,
+        ex:n69,
+        ex:n82,
+        ex:n88 ;
+    ex:p2 ex:n23,
+        ex:n37,
+        ex:n6,
+        ex:n60,
+        ex:n69,
+        ex:n76,
+        ex:n9 ;
+    ex:p3 ex:n37 ;
+    ex:p4 ex:n31,
+        ex:n54,
+        ex:n9,
+        ex:n97 ;
+    ex:p5 ex:n26,
+        ex:n35,
+        ex:n48,
+        ex:n67,
+        ex:n68 ;
+    ex:p6 ex:n14,
+        ex:n44,
+        ex:n45,
+        ex:n80,
+        ex:n98 .
+
+ex:n29 a ex:C0 ;
+    ex:p0 ex:n12,
+        ex:n39,
+        ex:n45 ;
+    ex:p1 ex:n22,
+        ex:n36,
+        ex:n43,
+        ex:n46,
+        ex:n52,
+        ex:n59,
+        ex:n98 ;
+    ex:p2 ex:n19,
+        ex:n43,
+        ex:n50,
+        ex:n71,
+        ex:n8,
+        ex:n82 ;
+    ex:p3 ex:n26,
+        ex:n30,
+        ex:n82 ;
+    ex:p4 ex:n41,
+        ex:n45,
+        ex:n64 ;
+    ex:p5 ex:n17,
+        ex:n27,
+        ex:n28,
+        ex:n4,
+        ex:n53,
+        ex:n61 ;
+    ex:p6 ex:n1,
+        ex:n10,
+        ex:n23,
+        ex:n58,
+        ex:n66,
+        ex:n68 .
+
+ex:n32 a ex:C3 ;
+    ex:p0 ex:n11,
+        ex:n43,
+        ex:n67 ;
+    ex:p1 ex:n11,
+        ex:n16,
+        ex:n25,
+        ex:n71,
+        ex:n72,
+        ex:n83 ;
+    ex:p2 ex:n61,
+        ex:n77,
+        ex:n88 ;
+    ex:p3 ex:n40,
+        ex:n79,
+        ex:n87 ;
+    ex:p4 ex:n45,
+        ex:n54,
+        ex:n57,
+        ex:n79,
+        ex:n93 ;
+    ex:p5 ex:n2,
+        ex:n65,
+        ex:n80 ;
+    ex:p6 ex:n74,
+        ex:n94 .
+
+ex:n47 a ex:C1 ;
+    ex:p0 ex:n12,
+        ex:n27,
+        ex:n54,
+        ex:n75,
+        ex:n76 ;
+    ex:p1 ex:n56,
+        ex:n63,
+        ex:n90 ;
+    ex:p2 ex:n70,
+        ex:n9 ;
+    ex:p3 ex:n22,
+        ex:n34,
+        ex:n37,
+        ex:n47,
+        ex:n80,
+        ex:n9,
+        ex:n98,
+        ex:n99 ;
+    ex:p4 ex:n0,
+        ex:n12,
+        ex:n38,
+        ex:n48,
+        ex:n50,
+        ex:n79 ;
+    ex:p5 ex:n16,
+        ex:n37,
+        ex:n46,
+        ex:n74 ;
+    ex:p6 ex:n15,
+        ex:n3,
+        ex:n53,
+        ex:n6,
+        ex:n68,
+        ex:n69 .
+
+ex:n72 a ex:C5 ;
+    ex:p0 ex:n29,
+        ex:n47,
+        ex:n84,
+        ex:n93 ;
+    ex:p1 ex:n16,
+        ex:n34,
+        ex:n4,
+        ex:n47,
+        ex:n66 ;
+    ex:p2 ex:n10,
+        ex:n12,
+        ex:n22,
+        ex:n27,
+        ex:n51,
+        ex:n76,
+        ex:n77,
+        ex:n94,
+        ex:n99 ;
+    ex:p3 ex:n17,
+        ex:n18,
+        ex:n25,
+        ex:n34,
+        ex:n4,
+        ex:n94,
+        ex:n97 ;
+    ex:p4 ex:n25,
+        ex:n54,
+        ex:n58 ;
+    ex:p5 ex:n26,
+        ex:n32,
+        ex:n37,
+        ex:n40,
+        ex:n52,
+        ex:n58,
+        ex:n59,
+        ex:n92 ;
+    ex:p6 ex:n38,
+        ex:n42,
+        ex:n58,
+        ex:n65,
+        ex:n66,
+        ex:n85 .
+
+ex:n80 a ex:C0 ;
+    ex:p0 ex:n18,
+        ex:n25,
+        ex:n48,
+        ex:n73,
+        ex:n77 ;
+    ex:p1 ex:n21,
+        ex:n27,
+        ex:n8,
+        ex:n80,
+        ex:n95 ;
+    ex:p2 ex:n18,
+        ex:n98 ;
+    ex:p3 ex:n37,
+        ex:n56,
+        ex:n64,
+        ex:n69 ;
+    ex:p4 ex:n26,
+        ex:n43,
+        ex:n45 ;
+    ex:p5 ex:n56,
+        ex:n64,
+        ex:n92 ;
+    ex:p6 ex:n27,
+        ex:n33,
+        ex:n45,
+        ex:n53,
+        ex:n8 .
+
+ex:n83 a ex:C4 ;
+    ex:p0 ex:n39,
+        ex:n41,
+        ex:n49,
+        ex:n58,
+        ex:n60,
+        ex:n65,
+        ex:n83 ;
+    ex:p1 ex:n20,
+        ex:n23,
+        ex:n29,
+        ex:n34 ;
+    ex:p2 ex:n21,
+        ex:n34,
+        ex:n67 ;
+    ex:p3 ex:n36,
+        ex:n49,
+        ex:n85 ;
+    ex:p4 ex:n28,
+        ex:n46,
+        ex:n6,
+        ex:n65,
+        ex:n96 ;
+    ex:p5 ex:n29,
+        ex:n30,
+        ex:n59,
+        ex:n61,
+        ex:n81,
+        ex:n88,
+        ex:n99 ;
+    ex:p6 ex:n29,
+        ex:n73,
+        ex:n83 .
+
+ex:n89 a ex:C0 ;
+    ex:p0 ex:n30,
+        ex:n45,
+        ex:n56,
+        ex:n64,
+        ex:n69,
+        ex:n83,
+        ex:n94 ;
+    ex:p1 ex:n11,
+        ex:n17,
+        ex:n53,
+        ex:n58,
+        ex:n59 ;
+    ex:p2 ex:n35,
+        ex:n39,
+        ex:n53,
+        ex:n56,
+        ex:n67,
+        ex:n68 ;
+    ex:p3 ex:n25,
+        ex:n29,
+        ex:n60,
+        ex:n79,
+        ex:n99 ;
+    ex:p4 ex:n20,
+        ex:n67,
+        ex:n78 ;
+    ex:p5 ex:n27,
+        ex:n33,
+        ex:n37,
+        ex:n5,
+        ex:n92 ;
+    ex:p6 ex:n38,
+        ex:n5,
+        ex:n84 .
+
+ex:n90 a ex:C5 ;
+    ex:p0 ex:n32,
+        ex:n38,
+        ex:n5,
+        ex:n65,
+        ex:n82 ;
+    ex:p1 ex:n10,
+        ex:n32,
+        ex:n41,
+        ex:n5,
+        ex:n77,
+        ex:n80,
+        ex:n83,
+        ex:n89 ;
+    ex:p2 ex:n1,
+        ex:n26,
+        ex:n3,
+        ex:n30,
+        ex:n35,
+        ex:n58,
+        ex:n70 ;
+    ex:p3 ex:n12,
+        ex:n42,
+        ex:n44,
+        ex:n72,
+        ex:n88 ;
+    ex:p4 ex:n32,
+        ex:n38,
+        ex:n67,
+        ex:n89 ;
+    ex:p5 ex:n15,
+        ex:n61 ;
+    ex:p6 ex:n14,
+        ex:n34,
+        ex:n48 .
+
+ex:n61 a ex:C1 ;
+    ex:p0 ex:n13,
+        ex:n65,
+        ex:n75 ;
+    ex:p1 ex:n16,
+        ex:n81 ;
+    ex:p2 ex:n17,
+        ex:n27,
+        ex:n32,
+        ex:n42,
+        ex:n51,
+        ex:n86 ;
+    ex:p3 ex:n21,
+        ex:n28 ;
+    ex:p4 ex:n47,
+        ex:n59,
+        ex:n63,
+        ex:n69,
+        ex:n71 ;
+    ex:p5 ex:n14,
+        ex:n15,
+        ex:n60 ;
+    ex:p6 ex:n12,
+        ex:n16,
+        ex:n21,
+        ex:n26,
+        ex:n35,
+        ex:n45 .
+
+ex:n64 a ex:C5 ;
+    ex:p0 ex:n21,
+        ex:n29,
+        ex:n40,
+        ex:n49,
+        ex:n58 ;
+    ex:p1 ex:n28,
+        ex:n39,
+        ex:n54,
+        ex:n76 ;
+    ex:p2 ex:n27,
+        ex:n92 ;
+    ex:p3 ex:n20,
+        ex:n33,
+        ex:n67,
+        ex:n87 ;
+    ex:p4 ex:n10,
+        ex:n16,
+        ex:n2,
+        ex:n47,
+        ex:n59,
+        ex:n8 ;
+    ex:p5 ex:n57,
+        ex:n96 ;
+    ex:p6 ex:n42,
+        ex:n44 .
+
+ex:n76 a ex:C0 ;
+    ex:p0 ex:n11,
+        ex:n20,
+        ex:n48,
+        ex:n63,
+        ex:n7,
+        ex:n70,
+        ex:n75,
+        ex:n84,
+        ex:n95 ;
+    ex:p1 ex:n0,
+        ex:n12,
+        ex:n33,
+        ex:n46,
+        ex:n48,
+        ex:n55,
+        ex:n81 ;
+    ex:p2 ex:n11,
+        ex:n22,
+        ex:n3,
+        ex:n33,
+        ex:n42,
+        ex:n44,
+        ex:n63,
+        ex:n77,
+        ex:n93 ;
+    ex:p3 ex:n19,
+        ex:n46,
+        ex:n96 ;
+    ex:p4 ex:n26,
+        ex:n27,
+        ex:n41,
+        ex:n67,
+        ex:n71,
+        ex:n89 ;
+    ex:p5 ex:n16,
+        ex:n36,
+        ex:n60,
+        ex:n99 ;
+    ex:p6 ex:n20,
+        ex:n3,
+        ex:n33,
+        ex:n61,
+        ex:n7,
+        ex:n75,
+        ex:n77,
+        ex:n86 .
+
+ex:n78 a ex:C2 ;
+    ex:p0 ex:n22,
+        ex:n30,
+        ex:n59 ;
+    ex:p1 ex:n2,
+        ex:n31,
+        ex:n34,
+        ex:n49,
+        ex:n52,
+        ex:n6,
+        ex:n83,
+        ex:n89,
+        ex:n98 ;
+    ex:p2 ex:n11,
+        ex:n40,
+        ex:n67 ;
+    ex:p3 ex:n15,
+        ex:n32,
+        ex:n35,
+        ex:n39,
+        ex:n6,
+        ex:n63,
+        ex:n78,
+        ex:n84,
+        ex:n85 ;
+    ex:p4 ex:n12,
+        ex:n39,
+        ex:n40,
+        ex:n74,
+        ex:n92 ;
+    ex:p5 ex:n52,
+        ex:n76,
+        ex:n87 ;
+    ex:p6 ex:n46,
+        ex:n70,
+        ex:n8 .
+
+ex:n87 a ex:C5 ;
+    ex:p0 ex:n26,
+        ex:n35,
+        ex:n48 ;
+    ex:p1 ex:n2,
+        ex:n37,
+        ex:n49,
+        ex:n55,
+        ex:n73,
+        ex:n74,
+        ex:n77,
+        ex:n99 ;
+    ex:p2 ex:n20,
+        ex:n68,
+        ex:n92,
+        ex:n93 ;
+    ex:p3 ex:n33,
+        ex:n78 ;
+    ex:p4 ex:n26,
+        ex:n42,
+        ex:n43 ;
+    ex:p5 ex:n56,
+        ex:n65,
+        ex:n91 ;
+    ex:p6 ex:n38,
+        ex:n77,
+        ex:n91 .
+
+ex:n11 a ex:C0 ;
+    ex:p0 ex:n34,
+        ex:n37,
+        ex:n65,
+        ex:n74,
+        ex:n96 ;
+    ex:p1 ex:n1,
+        ex:n23,
+        ex:n24,
+        ex:n48,
+        ex:n58,
+        ex:n74,
+        ex:n77,
+        ex:n8,
+        ex:n88 ;
+    ex:p2 ex:n51,
+        ex:n54 ;
+    ex:p3 ex:n31,
+        ex:n35,
+        ex:n39,
+        ex:n50,
+        ex:n55,
+        ex:n87,
+        ex:n94 ;
+    ex:p4 ex:n0,
+        ex:n27,
+        ex:n50,
+        ex:n99 ;
+    ex:p5 ex:n2,
+        ex:n3,
+        ex:n67,
+        ex:n82,
+        ex:n99 ;
+    ex:p6 ex:n57,
+        ex:n98 .
+
+ex:n24 a ex:C2 ;
+    ex:p0 ex:n47,
+        ex:n59,
+        ex:n70,
+        ex:n83,
+        ex:n88,
+        ex:n95 ;
+    ex:p1 ex:n98 ;
+    ex:p2 ex:n23,
+        ex:n32,
+        ex:n6,
+        ex:n68,
+        ex:n73,
+        ex:n81,
+        ex:n94 ;
+    ex:p3 ex:n33,
+        ex:n69 ;
+    ex:p4 ex:n27,
+        ex:n36,
+        ex:n5,
+        ex:n7,
+        ex:n78,
+        ex:n84 ;
+    ex:p5 ex:n30,
+        ex:n40,
+        ex:n43,
+        ex:n7,
+        ex:n8,
+        ex:n97 ;
+    ex:p6 ex:n12,
+        ex:n14,
+        ex:n20,
+        ex:n23,
+        ex:n56 .
+
+ex:n51 a ex:C3 ;
+    ex:p0 ex:n10,
+        ex:n24,
+        ex:n3,
+        ex:n51,
+        ex:n63,
+        ex:n7,
+        ex:n91,
+        ex:n99 ;
+    ex:p1 ex:n26,
+        ex:n29,
+        ex:n45,
+        ex:n49,
+        ex:n7,
+        ex:n86 ;
+    ex:p2 ex:n14,
+        ex:n26,
+        ex:n93 ;
+    ex:p3 ex:n25,
+        ex:n48,
+        ex:n82,
+        ex:n98 ;
+    ex:p4 ex:n3,
+        ex:n32,
+        ex:n36,
+        ex:n40,
+        ex:n44,
+        ex:n74,
+        ex:n81,
+        ex:n95 ;
+    ex:p5 ex:n1,
+        ex:n20,
+        ex:n26,
+        ex:n67 ;
+    ex:p6 ex:n20,
+        ex:n22,
+        ex:n30,
+        ex:n67,
+        ex:n85,
+        ex:n86,
+        ex:n94 .
+
+ex:n65 a ex:C4 ;
+    ex:p0 ex:n14,
+        ex:n2,
+        ex:n27,
+        ex:n32,
+        ex:n37,
+        ex:n54,
+        ex:n77,
+        ex:n82,
+        ex:n9,
+        ex:n99 ;
+    ex:p1 ex:n3,
+        ex:n33,
+        ex:n47,
+        ex:n62,
+        ex:n91 ;
+    ex:p2 ex:n45 ;
+    ex:p3 ex:n13,
+        ex:n14,
+        ex:n65,
+        ex:n68,
+        ex:n72,
+        ex:n8 ;
+    ex:p4 ex:n41,
+        ex:n56,
+        ex:n90,
+        ex:n99 ;
+    ex:p5 ex:n0,
+        ex:n20,
+        ex:n29,
+        ex:n49,
+        ex:n55,
+        ex:n56,
+        ex:n66,
+        ex:n7 ;
+    ex:p6 ex:n0,
+        ex:n40,
+        ex:n43,
+        ex:n71,
+        ex:n77,
+        ex:n97 .
+
+ex:n75 a ex:C4 ;
+    ex:p0 ex:n69,
+        ex:n90,
+        ex:n92 ;
+    ex:p1 ex:n12,
+        ex:n2,
+        ex:n40,
+        ex:n54,
+        ex:n95 ;
+    ex:p2 ex:n0,
+        ex:n30,
+        ex:n48,
+        ex:n5,
+        ex:n54,
+        ex:n71,
+        ex:n82,
+        ex:n90 ;
+    ex:p3 ex:n15,
+        ex:n31,
+        ex:n35,
+        ex:n44,
+        ex:n5,
+        ex:n61,
+        ex:n79,
+        ex:n80,
+        ex:n91,
+        ex:n99 ;
+    ex:p4 ex:n13,
+        ex:n39,
+        ex:n43,
+        ex:n55,
+        ex:n58,
+        ex:n67,
+        ex:n78,
+        ex:n8,
+        ex:n82 ;
+    ex:p5 ex:n10,
+        ex:n98 ;
+    ex:p6 ex:n65 .
+
+ex:n79 a ex:C1 ;
+    ex:p0 ex:n23,
+        ex:n70,
+        ex:n77,
+        ex:n89,
+        ex:n90 ;
+    ex:p1 ex:n1,
+        ex:n24,
+        ex:n27,
+        ex:n30,
+        ex:n37,
+        ex:n64 ;
+    ex:p2 ex:n38,
+        ex:n50,
+        ex:n60,
+        ex:n76 ;
+    ex:p3 ex:n45,
+        ex:n7,
+        ex:n70 ;
+    ex:p4 ex:n40,
+        ex:n48,
+        ex:n52,
+        ex:n78,
+        ex:n79,
+        ex:n91 ;
+    ex:p5 ex:n27,
+        ex:n3,
+        ex:n34,
+        ex:n63,
+        ex:n7,
+        ex:n70,
+        ex:n93 ;
+    ex:p6 ex:n27,
+        ex:n31,
+        ex:n93 .
+
+ex:n82 a ex:C4 ;
+    ex:p0 ex:n31,
+        ex:n39,
+        ex:n40,
+        ex:n42,
+        ex:n53,
+        ex:n57,
+        ex:n77 ;
+    ex:p1 ex:n24,
+        ex:n33,
+        ex:n72 ;
+    ex:p2 ex:n11,
+        ex:n21,
+        ex:n25,
+        ex:n53,
+        ex:n60,
+        ex:n73,
+        ex:n96,
+        ex:n99 ;
+    ex:p3 ex:n22,
+        ex:n24,
+        ex:n5,
+        ex:n53,
+        ex:n93,
+        ex:n97 ;
+    ex:p4 ex:n70,
+        ex:n96 ;
+    ex:p5 ex:n10,
+        ex:n12,
+        ex:n13,
+        ex:n17,
+        ex:n2,
+        ex:n23,
+        ex:n29,
+        ex:n31,
+        ex:n40,
+        ex:n44,
+        ex:n49,
+        ex:n51,
+        ex:n69,
+        ex:n73 ;
+    ex:p6 ex:n25,
+        ex:n35,
+        ex:n48,
+        ex:n59,
+        ex:n65,
+        ex:n82,
+        ex:n83,
+        ex:n98 .
+
+ex:n20 a ex:C3 ;
+    ex:p0 ex:n19,
+        ex:n35,
+        ex:n51,
+        ex:n63 ;
+    ex:p1 ex:n24,
+        ex:n28,
+        ex:n63,
+        ex:n77,
+        ex:n80,
+        ex:n90 ;
+    ex:p2 ex:n32,
+        ex:n40,
+        ex:n60,
+        ex:n70,
+        ex:n95 ;
+    ex:p3 ex:n1,
+        ex:n19,
+        ex:n30,
+        ex:n63,
+        ex:n64,
+        ex:n67,
+        ex:n82,
+        ex:n87 ;
+    ex:p4 ex:n13,
+        ex:n26,
+        ex:n31,
+        ex:n41,
+        ex:n78 ;
+    ex:p5 ex:n71 ;
+    ex:p6 ex:n59,
+        ex:n68,
+        ex:n73,
+        ex:n76,
+        ex:n85 .
+
+ex:n31 a ex:C5 ;
+    ex:p0 ex:n15,
+        ex:n26,
+        ex:n36,
+        ex:n80,
+        ex:n92 ;
+    ex:p1 ex:n18,
+        ex:n31,
+        ex:n38,
+        ex:n53,
+        ex:n60,
+        ex:n95 ;
+    ex:p2 ex:n22,
+        ex:n25 ;
+    ex:p3 ex:n37,
+        ex:n53,
+        ex:n76,
+        ex:n9 ;
+    ex:p4 ex:n12,
+        ex:n2,
+        ex:n44,
+        ex:n45,
+        ex:n7,
+        ex:n9 ;
+    ex:p6 ex:n13,
+        ex:n4,
+        ex:n78,
+        ex:n99 .
+
+ex:n48 a ex:C0 ;
+    ex:p0 ex:n43,
+        ex:n7,
+        ex:n81 ;
+    ex:p1 ex:n19,
+        ex:n48,
+        ex:n52,
+        ex:n75,
+        ex:n81,
+        ex:n97 ;
+    ex:p2 ex:n17,
+        ex:n52 ;
+    ex:p3 ex:n13,
+        ex:n19,
+        ex:n23,
+        ex:n4,
+        ex:n48,
+        ex:n93,
+        ex:n98 ;
+    ex:p4 ex:n44,
+        ex:n57,
+        ex:n72,
+        ex:n75 ;
+    ex:p5 ex:n13,
+        ex:n3,
+        ex:n41,
+        ex:n65 ;
+    ex:p6 ex:n16,
+        ex:n25,
+        ex:n37,
+        ex:n51,
+        ex:n63,
+        ex:n7,
+        ex:n78,
+        ex:n99 .
+
+ex:n56 a ex:C3 ;
+    ex:p0 ex:n16,
+        ex:n59,
+        ex:n83,
+        ex:n88 ;
+    ex:p1 ex:n18,
+        ex:n45,
+        ex:n51,
+        ex:n55,
+        ex:n9 ;
+    ex:p2 ex:n67,
+        ex:n96 ;
+    ex:p3 ex:n32,
+        ex:n35,
+        ex:n48,
+        ex:n72,
+        ex:n90,
+        ex:n94,
+        ex:n96 ;
+    ex:p4 ex:n55,
+        ex:n67,
+        ex:n69,
+        ex:n91 ;
+    ex:p5 ex:n23,
+        ex:n44,
+        ex:n59 ;
+    ex:p6 ex:n10,
+        ex:n15,
+        ex:n26,
+        ex:n47,
+        ex:n6,
+        ex:n87 .
+
+ex:n81 a ex:C5 ;
+    ex:p0 ex:n16,
+        ex:n21,
+        ex:n79 ;
+    ex:p1 ex:n13,
+        ex:n47,
+        ex:n65,
+        ex:n92 ;
+    ex:p2 ex:n23,
+        ex:n27,
+        ex:n79,
+        ex:n83,
+        ex:n85,
+        ex:n88 ;
+    ex:p3 ex:n36,
+        ex:n4,
+        ex:n56,
+        ex:n76 ;
+    ex:p4 ex:n10,
+        ex:n22,
+        ex:n52,
+        ex:n81 ;
+    ex:p5 ex:n12,
+        ex:n93 ;
+    ex:p6 ex:n48,
+        ex:n64,
+        ex:n85 .
+
+ex:n97 a ex:C5 ;
+    ex:p0 ex:n26,
+        ex:n86 ;
+    ex:p1 ex:n35,
+        ex:n40,
+        ex:n91,
+        ex:n94,
+        ex:n96 ;
+    ex:p2 ex:n0,
+        ex:n40,
+        ex:n55,
+        ex:n70,
+        ex:n85 ;
+    ex:p3 ex:n16,
+        ex:n25,
+        ex:n32,
+        ex:n37,
+        ex:n4,
+        ex:n54,
+        ex:n65,
+        ex:n69,
+        ex:n72,
+        ex:n9,
+        ex:n98 ;
+    ex:p4 ex:n18,
+        ex:n33,
+        ex:n70,
+        ex:n89,
+        ex:n9,
+        ex:n95,
+        ex:n99 ;
+    ex:p5 ex:n53,
+        ex:n59,
+        ex:n8,
+        ex:n80 ;
+    ex:p6 ex:n10,
+        ex:n26,
+        ex:n33,
+        ex:n35,
+        ex:n75,
+        ex:n94 .
+
+ex:n1 a ex:C1 ;
+    ex:p0 ex:n16,
+        ex:n17,
+        ex:n21,
+        ex:n63,
+        ex:n73,
+        ex:n76,
+        ex:n9 ;
+    ex:p1 ex:n51,
+        ex:n72 ;
+    ex:p2 ex:n0,
+        ex:n16,
+        ex:n46,
+        ex:n54,
+        ex:n67 ;
+    ex:p3 ex:n30,
+        ex:n39,
+        ex:n65 ;
+    ex:p4 ex:n23,
+        ex:n34,
+        ex:n62,
+        ex:n76,
+        ex:n86,
+        ex:n92,
+        ex:n96 ;
+    ex:p5 ex:n1,
+        ex:n29,
+        ex:n62,
+        ex:n84 ;
+    ex:p6 ex:n36,
+        ex:n40,
+        ex:n70,
+        ex:n85 .
+
+ex:n12 a ex:C3 ;
+    ex:p0 ex:n55,
+        ex:n78,
+        ex:n90 ;
+    ex:p1 ex:n33,
+        ex:n52,
+        ex:n78,
+        ex:n98 ;
+    ex:p2 ex:n15,
+        ex:n65,
+        ex:n72,
+        ex:n95 ;
+    ex:p3 ex:n12,
+        ex:n18,
+        ex:n64,
+        ex:n8,
+        ex:n82,
+        ex:n91,
+        ex:n93 ;
+    ex:p4 ex:n28,
+        ex:n34,
+        ex:n39,
+        ex:n41 ;
+    ex:p5 ex:n26,
+        ex:n30,
+        ex:n39,
+        ex:n61,
+        ex:n89,
+        ex:n90,
+        ex:n91,
+        ex:n98 ;
+    ex:p6 ex:n19,
+        ex:n39,
+        ex:n99 .
+
+ex:n14 a ex:C6 ;
+    ex:p0 ex:n10,
+        ex:n27,
+        ex:n73,
+        ex:n76,
+        ex:n85 ;
+    ex:p1 ex:n22,
+        ex:n53,
+        ex:n54,
+        ex:n63,
+        ex:n68,
+        ex:n89 ;
+    ex:p2 ex:n2,
+        ex:n22,
+        ex:n5,
+        ex:n54,
+        ex:n62,
+        ex:n64,
+        ex:n71,
+        ex:n75,
+        ex:n90 ;
+    ex:p3 ex:n14,
+        ex:n39,
+        ex:n69,
+        ex:n93,
+        ex:n94,
+        ex:n98 ;
+    ex:p4 ex:n31,
+        ex:n33,
+        ex:n76,
+        ex:n81,
+        ex:n83 ;
+    ex:p5 ex:n59,
+        ex:n83,
+        ex:n85 ;
+    ex:p6 ex:n2,
+        ex:n32,
+        ex:n47,
+        ex:n87,
+        ex:n96,
+        ex:n98 .
+
+ex:n21 a ex:C3 ;
+    ex:p0 ex:n16,
+        ex:n63,
+        ex:n66,
+        ex:n68,
+        ex:n79 ;
+    ex:p1 ex:n35,
+        ex:n37,
+        ex:n95 ;
+    ex:p2 ex:n21,
+        ex:n3,
+        ex:n32,
+        ex:n37,
+        ex:n50,
+        ex:n9,
+        ex:n99 ;
+    ex:p3 ex:n24,
+        ex:n51,
+        ex:n68 ;
+    ex:p4 ex:n12,
+        ex:n22,
+        ex:n33,
+        ex:n75,
+        ex:n82,
+        ex:n92,
+        ex:n99 ;
+    ex:p5 ex:n15,
+        ex:n28,
+        ex:n65,
+        ex:n73 ;
+    ex:p6 ex:n25,
+        ex:n36,
+        ex:n62,
+        ex:n81,
+        ex:n9 .
+
+ex:n26 a ex:C3 ;
+    ex:p0 ex:n21,
+        ex:n44,
+        ex:n52,
+        ex:n6,
+        ex:n64,
+        ex:n75,
+        ex:n8 ;
+    ex:p1 ex:n23,
+        ex:n38,
+        ex:n45,
+        ex:n85 ;
+    ex:p2 ex:n1,
+        ex:n11,
+        ex:n34,
+        ex:n48,
+        ex:n56,
+        ex:n66,
+        ex:n92 ;
+    ex:p3 ex:n36,
+        ex:n64,
+        ex:n72,
+        ex:n83,
+        ex:n96 ;
+    ex:p4 ex:n30,
+        ex:n54 ;
+    ex:p5 ex:n2,
+        ex:n4,
+        ex:n85,
+        ex:n87 ;
+    ex:p6 ex:n18,
+        ex:n3,
+        ex:n56,
+        ex:n8 .
+
+ex:n3 a ex:C5 ;
+    ex:p0 ex:n6,
+        ex:n66,
+        ex:n96 ;
+    ex:p1 ex:n10,
+        ex:n15,
+        ex:n54,
+        ex:n6,
+        ex:n62,
+        ex:n70 ;
+    ex:p2 ex:n68,
+        ex:n70,
+        ex:n74,
+        ex:n92,
+        ex:n97 ;
+    ex:p3 ex:n49,
+        ex:n59 ;
+    ex:p4 ex:n12,
+        ex:n16,
+        ex:n18,
+        ex:n22,
+        ex:n23,
+        ex:n86 ;
+    ex:p5 ex:n35,
+        ex:n36,
+        ex:n61,
+        ex:n80,
+        ex:n84 ;
+    ex:p6 ex:n43,
+        ex:n6,
+        ex:n66,
+        ex:n89,
+        ex:n91,
+        ex:n92,
+        ex:n97 .
+
+ex:n45 a ex:C0 ;
+    ex:p0 ex:n40,
+        ex:n63 ;
+    ex:p1 ex:n35,
+        ex:n39,
+        ex:n49,
+        ex:n96 ;
+    ex:p2 ex:n24,
+        ex:n28,
+        ex:n32,
+        ex:n59,
+        ex:n81,
+        ex:n99 ;
+    ex:p3 ex:n10,
+        ex:n20,
+        ex:n40,
+        ex:n6,
+        ex:n8 ;
+    ex:p4 ex:n44,
+        ex:n65,
+        ex:n66,
+        ex:n92 ;
+    ex:p5 ex:n14,
+        ex:n36,
+        ex:n39,
+        ex:n53,
+        ex:n75,
+        ex:n88,
+        ex:n89 ;
+    ex:p6 ex:n15,
+        ex:n23,
+        ex:n38,
+        ex:n54,
+        ex:n55,
+        ex:n88 .
+
+ex:n54 a ex:C0 ;
+    ex:p0 ex:n26,
+        ex:n33,
+        ex:n51 ;
+    ex:p1 ex:n30,
+        ex:n38,
+        ex:n41,
+        ex:n80 ;
+    ex:p2 ex:n28,
+        ex:n40,
+        ex:n57,
+        ex:n90 ;
+    ex:p3 ex:n19,
+        ex:n49,
+        ex:n93 ;
+    ex:p4 ex:n22,
+        ex:n26,
+        ex:n40,
+        ex:n63 ;
+    ex:p5 ex:n15,
+        ex:n48,
+        ex:n60,
+        ex:n65,
+        ex:n81,
+        ex:n87,
+        ex:n90 ;
+    ex:p6 ex:n20,
+        ex:n66,
+        ex:n67 .
+
+ex:n7 a ex:C3 ;
+    ex:p0 ex:n11,
+        ex:n5,
+        ex:n51,
+        ex:n58,
+        ex:n62,
+        ex:n84,
+        ex:n93,
+        ex:n97,
+        ex:n99 ;
+    ex:p1 ex:n32,
+        ex:n44,
+        ex:n50,
+        ex:n72,
+        ex:n77,
+        ex:n87 ;
+    ex:p2 ex:n12,
+        ex:n16,
+        ex:n28,
+        ex:n34,
+        ex:n81,
+        ex:n84 ;
+    ex:p3 ex:n24,
+        ex:n45,
+        ex:n60,
+        ex:n69,
+        ex:n72 ;
+    ex:p4 ex:n10,
+        ex:n39,
+        ex:n44,
+        ex:n47,
+        ex:n74 ;
+    ex:p5 ex:n18,
+        ex:n44,
+        ex:n51,
+        ex:n84 ;
+    ex:p6 ex:n18,
+        ex:n23,
+        ex:n44,
+        ex:n45,
+        ex:n46,
+        ex:n60,
+        ex:n67,
+        ex:n68 .
+
+ex:n43 a ex:C1 ;
+    ex:p0 ex:n74,
+        ex:n85,
+        ex:n91 ;
+    ex:p1 ex:n24,
+        ex:n46,
+        ex:n55,
+        ex:n77 ;
+    ex:p2 ex:n10,
+        ex:n93 ;
+    ex:p3 ex:n38,
+        ex:n39,
+        ex:n84,
+        ex:n92 ;
+    ex:p4 ex:n19,
+        ex:n32,
+        ex:n34,
+        ex:n52,
+        ex:n58,
+        ex:n61,
+        ex:n76,
+        ex:n90 ;
+    ex:p5 ex:n24,
+        ex:n28,
+        ex:n35,
+        ex:n58,
+        ex:n82 ;
+    ex:p6 ex:n0,
+        ex:n25,
+        ex:n67,
+        ex:n79 .
+
+ex:n77 a ex:C6 ;
+    ex:p0 ex:n32,
+        ex:n55,
+        ex:n69,
+        ex:n79,
+        ex:n89 ;
+    ex:p1 ex:n6,
+        ex:n69,
+        ex:n70 ;
+    ex:p2 ex:n17,
+        ex:n36,
+        ex:n60,
+        ex:n85,
+        ex:n93,
+        ex:n99 ;
+    ex:p3 ex:n16,
+        ex:n30,
+        ex:n50 ;
+    ex:p4 ex:n10,
+        ex:n67 ;
+    ex:p5 ex:n21,
+        ex:n52,
+        ex:n64,
+        ex:n66,
+        ex:n73,
+        ex:n99 ;
+    ex:p6 ex:n10,
+        ex:n18,
+        ex:n21,
+        ex:n3,
+        ex:n66,
+        ex:n82 .
+
+ex:n92 a ex:C1 ;
+    ex:p0 ex:n2,
+        ex:n25,
+        ex:n3,
+        ex:n91 ;
+    ex:p1 ex:n2,
+        ex:n55,
+        ex:n57,
+        ex:n9 ;
+    ex:p2 ex:n57,
+        ex:n83 ;
+    ex:p3 ex:n17 ;
+    ex:p4 ex:n26,
+        ex:n3,
+        ex:n42,
+        ex:n65,
+        ex:n70,
+        ex:n78,
+        ex:n87 ;
+    ex:p5 ex:n37 ;
+    ex:p6 ex:n18,
+        ex:n28,
+        ex:n60,
+        ex:n63,
+        ex:n66 .
+
+ex:n98 a ex:C5 ;
+    ex:p0 ex:n7,
+        ex:n79 ;
+    ex:p1 ex:n14,
+        ex:n18,
+        ex:n33,
+        ex:n87 ;
+    ex:p2 ex:n16,
+        ex:n18,
+        ex:n34,
+        ex:n45,
+        ex:n53,
+        ex:n69,
+        ex:n7,
+        ex:n98 ;
+    ex:p3 ex:n0,
+        ex:n23,
+        ex:n44,
+        ex:n84 ;
+    ex:p4 ex:n27,
+        ex:n52,
+        ex:n54 ;
+    ex:p5 ex:n36,
+        ex:n53,
+        ex:n56,
+        ex:n62,
+        ex:n68,
+        ex:n79 ;
+    ex:p6 ex:n24,
+        ex:n4,
+        ex:n53,
+        ex:n6,
+        ex:n79,
+        ex:n86,
+        ex:n93 .
+
+ex:n99 a ex:C0 ;
+    ex:p0 ex:n16,
+        ex:n25,
+        ex:n35,
+        ex:n38,
+        ex:n4,
+        ex:n44,
+        ex:n50,
+        ex:n71,
+        ex:n8 ;
+    ex:p1 ex:n35,
+        ex:n46,
+        ex:n48,
+        ex:n77 ;
+    ex:p2 ex:n16,
+        ex:n54,
+        ex:n7,
+        ex:n8,
+        ex:n84,
+        ex:n97 ;
+    ex:p3 ex:n19,
+        ex:n24,
+        ex:n39,
+        ex:n6,
+        ex:n66,
+        ex:n7 ;
+    ex:p4 ex:n17 ;
+    ex:p5 ex:n15,
+        ex:n28,
+        ex:n43,
+        ex:n47,
+        ex:n60,
+        ex:n65 ;
+    ex:p6 ex:n10,
+        ex:n28,
+        ex:n30,
+        ex:n53,
+        ex:n77 .
+
+ex:n30 a ex:C1 ;
+    ex:p0 ex:n26,
+        ex:n56,
+        ex:n85,
+        ex:n94 ;
+    ex:p1 ex:n17,
+        ex:n52 ;
+    ex:p2 ex:n11,
+        ex:n2,
+        ex:n21,
+        ex:n5,
+        ex:n51,
+        ex:n60,
+        ex:n81,
+        ex:n97 ;
+    ex:p3 ex:n12,
+        ex:n15,
+        ex:n2,
+        ex:n29,
+        ex:n41,
+        ex:n45,
+        ex:n7,
+        ex:n73,
+        ex:n75,
+        ex:n8,
+        ex:n83,
+        ex:n84 ;
+    ex:p4 ex:n0,
+        ex:n2,
+        ex:n54,
+        ex:n61,
+        ex:n84,
+        ex:n88 ;
+    ex:p5 ex:n11,
+        ex:n23,
+        ex:n3,
+        ex:n35,
+        ex:n55,
+        ex:n79,
+        ex:n82,
+        ex:n94 ;
+    ex:p6 ex:n15,
+        ex:n20,
+        ex:n28,
+        ex:n43,
+        ex:n49,
+        ex:n75 .
+
+ex:n33 a ex:C3 ;
+    ex:p0 ex:n10,
+        ex:n17,
+        ex:n33,
+        ex:n51,
+        ex:n55,
+        ex:n57,
+        ex:n80 ;
+    ex:p1 ex:n10,
+        ex:n36,
+        ex:n53,
+        ex:n69,
+        ex:n70,
+        ex:n79,
+        ex:n80,
+        ex:n81,
+        ex:n90 ;
+    ex:p2 ex:n10,
+        ex:n60,
+        ex:n84,
+        ex:n87 ;
+    ex:p3 ex:n13,
+        ex:n24,
+        ex:n27,
+        ex:n37,
+        ex:n63,
+        ex:n7,
+        ex:n81 ;
+    ex:p4 ex:n10,
+        ex:n32,
+        ex:n86,
+        ex:n90 ;
+    ex:p5 ex:n25,
+        ex:n38 ;
+    ex:p6 ex:n22,
+        ex:n27,
+        ex:n30,
+        ex:n43,
+        ex:n47,
+        ex:n7,
+        ex:n83,
+        ex:n86 .
+
+ex:n35 a ex:C0 ;
+    ex:p0 ex:n13,
+        ex:n19,
+        ex:n51,
+        ex:n54,
+        ex:n63 ;
+    ex:p1 ex:n24,
+        ex:n26,
+        ex:n37,
+        ex:n69,
+        ex:n70 ;
+    ex:p2 ex:n14,
+        ex:n36,
+        ex:n40,
+        ex:n60,
+        ex:n70,
+        ex:n76,
+        ex:n77 ;
+    ex:p3 ex:n43,
+        ex:n97 ;
+    ex:p4 ex:n28,
+        ex:n38,
+        ex:n48,
+        ex:n50,
+        ex:n59 ;
+    ex:p5 ex:n14,
+        ex:n18,
+        ex:n56,
+        ex:n88,
+        ex:n9 ;
+    ex:p6 ex:n32,
+        ex:n4,
+        ex:n46,
+        ex:n54,
+        ex:n60,
+        ex:n78,
+        ex:n8,
+        ex:n80,
+        ex:n90,
+        ex:n99 .
+
+ex:n37 a ex:C6 ;
+    ex:p0 ex:n10,
+        ex:n49,
+        ex:n65 ;
+    ex:p1 ex:n2,
+        ex:n54,
+        ex:n78,
+        ex:n81,
+        ex:n97 ;
+    ex:p2 ex:n17,
+        ex:n23,
+        ex:n34,
+        ex:n89 ;
+    ex:p3 ex:n91,
+        ex:n98 ;
+    ex:p4 ex:n11,
+        ex:n18,
+        ex:n3,
+        ex:n33,
+        ex:n41,
+        ex:n43,
+        ex:n57,
+        ex:n8,
+        ex:n9 ;
+    ex:p5 ex:n44,
+        ex:n56,
+        ex:n76 ;
+    ex:p6 ex:n8,
+        ex:n91 .
+
+ex:n53 a ex:C2 ;
+    ex:p0 ex:n2,
+        ex:n40,
+        ex:n45,
+        ex:n54,
+        ex:n66,
+        ex:n78 ;
+    ex:p1 ex:n0,
+        ex:n22,
+        ex:n27,
+        ex:n92 ;
+    ex:p2 ex:n17,
+        ex:n21,
+        ex:n73,
+        ex:n85,
+        ex:n99 ;
+    ex:p3 ex:n60,
+        ex:n74,
+        ex:n88 ;
+    ex:p4 ex:n1,
+        ex:n21,
+        ex:n23,
+        ex:n31,
+        ex:n96 ;
+    ex:p5 ex:n14,
+        ex:n33,
+        ex:n40,
+        ex:n65,
+        ex:n84,
+        ex:n97 ;
+    ex:p6 ex:n34,
+        ex:n55,
+        ex:n60,
+        ex:n67,
+        ex:n90,
+        ex:n96 .
+
+ex:n58 a ex:C3 ;
+    ex:p0 ex:n15,
+        ex:n23,
+        ex:n33,
+        ex:n61,
+        ex:n7 ;
+    ex:p1 ex:n20,
+        ex:n71,
+        ex:n8,
+        ex:n82 ;
+    ex:p2 ex:n13,
+        ex:n2,
+        ex:n20,
+        ex:n31,
+        ex:n44,
+        ex:n69,
+        ex:n79,
+        ex:n85,
+        ex:n93 ;
+    ex:p3 ex:n21,
+        ex:n38,
+        ex:n39,
+        ex:n44,
+        ex:n50,
+        ex:n72,
+        ex:n73,
+        ex:n85 ;
+    ex:p4 ex:n4,
+        ex:n45,
+        ex:n48,
+        ex:n72,
+        ex:n84,
+        ex:n86,
+        ex:n95 ;
+    ex:p5 ex:n36,
+        ex:n52,
+        ex:n64,
+        ex:n68,
+        ex:n69,
+        ex:n79,
+        ex:n97 ;
+    ex:p6 ex:n21,
+        ex:n60,
+        ex:n93 .
+
+ex:n84 a ex:C5 ;
+    ex:p0 ex:n44,
+        ex:n63,
+        ex:n88 ;
+    ex:p1 ex:n32,
+        ex:n49,
+        ex:n55,
+        ex:n7,
+        ex:n74,
+        ex:n77 ;
+    ex:p2 ex:n0,
+        ex:n71,
+        ex:n8,
+        ex:n80 ;
+    ex:p3 ex:n2,
+        ex:n29,
+        ex:n40 ;
+    ex:p4 ex:n12,
+        ex:n13,
+        ex:n21,
+        ex:n36,
+        ex:n6,
+        ex:n78,
+        ex:n80,
+        ex:n89,
+        ex:n98 ;
+    ex:p5 ex:n16,
+        ex:n33,
+        ex:n35,
+        ex:n68,
+        ex:n69,
+        ex:n76,
+        ex:n84,
+        ex:n85,
+        ex:n9 ;
+    ex:p6 ex:n1,
+        ex:n16,
+        ex:n49,
+        ex:n6,
+        ex:n75,
+        ex:n85 .
+
+ex:n27 a ex:C3 ;
+    ex:p0 ex:n26,
+        ex:n34,
+        ex:n59,
+        ex:n98 ;
+    ex:p1 ex:n11,
+        ex:n12,
+        ex:n75 ;
+    ex:p2 ex:n4,
+        ex:n62 ;
+    ex:p3 ex:n1,
+        ex:n34,
+        ex:n85,
+        ex:n91 ;
+    ex:p4 ex:n12,
+        ex:n36,
+        ex:n47,
+        ex:n49,
+        ex:n87,
+        ex:n94 ;
+    ex:p5 ex:n19,
+        ex:n2,
+        ex:n50,
+        ex:n8 ;
+    ex:p6 ex:n1,
+        ex:n26,
+        ex:n39,
+        ex:n63,
+        ex:n86,
+        ex:n95 .
+
+ex:n68 a ex:C4 ;
+    ex:p0 ex:n41,
+        ex:n61,
+        ex:n73,
+        ex:n87 ;
+    ex:p1 ex:n30,
+        ex:n45,
+        ex:n55,
+        ex:n84,
+        ex:n98,
+        ex:n99 ;
+    ex:p2 ex:n7,
+        ex:n75 ;
+    ex:p3 ex:n14,
+        ex:n70,
+        ex:n82,
+        ex:n94 ;
+    ex:p4 ex:n14,
+        ex:n46,
+        ex:n67,
+        ex:n90 ;
+    ex:p5 ex:n26 ;
+    ex:p6 ex:n11,
+        ex:n39,
+        ex:n89 .
+
+ex:n10 a ex:C5 ;
+    ex:p0 ex:n37,
+        ex:n5,
+        ex:n75,
+        ex:n79,
+        ex:n80 ;
+    ex:p1 ex:n17,
+        ex:n21,
+        ex:n42,
+        ex:n43,
+        ex:n7,
+        ex:n75,
+        ex:n88 ;
+    ex:p2 ex:n20,
+        ex:n34,
+        ex:n37,
+        ex:n8,
+        ex:n81 ;
+    ex:p3 ex:n11,
+        ex:n18,
+        ex:n31,
+        ex:n33,
+        ex:n39,
+        ex:n55,
+        ex:n69,
+        ex:n85,
+        ex:n92 ;
+    ex:p4 ex:n13,
+        ex:n16,
+        ex:n20,
+        ex:n35,
+        ex:n45,
+        ex:n46 ;
+    ex:p5 ex:n13,
+        ex:n37,
+        ex:n62,
+        ex:n63,
+        ex:n90 ;
+    ex:p6 ex:n10,
+        ex:n15,
+        ex:n24,
+        ex:n42,
+        ex:n67,
+        ex:n82 .
+
+ex:n15 a ex:C6 ;
+    ex:p0 ex:n16,
+        ex:n2,
+        ex:n52 ;
+    ex:p1 ex:n29,
+        ex:n41,
+        ex:n64,
+        ex:n67,
+        ex:n69,
+        ex:n74,
+        ex:n88,
+        ex:n92 ;
+    ex:p2 ex:n15,
+        ex:n60,
+        ex:n98 ;
+    ex:p3 ex:n22,
+        ex:n27,
+        ex:n30,
+        ex:n42 ;
+    ex:p4 ex:n10,
+        ex:n15,
+        ex:n5,
+        ex:n50,
+        ex:n58,
+        ex:n66,
+        ex:n72 ;
+    ex:p5 ex:n44,
+        ex:n46,
+        ex:n6,
+        ex:n91 ;
+    ex:p6 ex:n14,
+        ex:n34,
+        ex:n67,
+        ex:n88,
+        ex:n93 .
+
+ex:n16 a ex:C4 ;
+    ex:p0 ex:n0,
+        ex:n15,
+        ex:n42,
+        ex:n44,
+        ex:n47,
+        ex:n58 ;
+    ex:p1 ex:n25,
+        ex:n6,
+        ex:n60,
+        ex:n78,
+        ex:n91,
+        ex:n93 ;
+    ex:p2 ex:n11,
+        ex:n41,
+        ex:n9 ;
+    ex:p3 ex:n17,
+        ex:n28,
+        ex:n70,
+        ex:n76 ;
+    ex:p4 ex:n2,
+        ex:n3,
+        ex:n54,
+        ex:n69,
+        ex:n71,
+        ex:n97 ;
+    ex:p5 ex:n18,
+        ex:n41,
+        ex:n56,
+        ex:n70 ;
+    ex:p6 ex:n1,
+        ex:n2,
+        ex:n41,
+        ex:n58,
+        ex:n7,
+        ex:n70,
+        ex:n87 .
+
+ex:n22 a ex:C0 ;
+    ex:p0 ex:n27,
+        ex:n37,
+        ex:n50,
+        ex:n51,
+        ex:n89 ;
+    ex:p1 ex:n1,
+        ex:n17,
+        ex:n20,
+        ex:n45,
+        ex:n66,
+        ex:n8,
+        ex:n98 ;
+    ex:p2 ex:n45,
+        ex:n67,
+        ex:n84 ;
+    ex:p3 ex:n22,
+        ex:n28,
+        ex:n29,
+        ex:n46,
+        ex:n75,
+        ex:n79,
+        ex:n80 ;
+    ex:p4 ex:n34,
+        ex:n54,
+        ex:n95,
+        ex:n96,
+        ex:n99 ;
+    ex:p5 ex:n26,
+        ex:n53,
+        ex:n61,
+        ex:n83,
+        ex:n91,
+        ex:n99 ;
+    ex:p6 ex:n13,
+        ex:n34,
+        ex:n63 .
+
+ex:n23 a ex:C6 ;
+    ex:p0 ex:n28 ;
+    ex:p1 ex:n63,
+        ex:n87 ;
+    ex:p2 ex:n44 ;
+    ex:p3 ex:n0,
+        ex:n33,
+        ex:n63,
+        ex:n75,
+        ex:n80,
+        ex:n89,
+        ex:n91 ;
+    ex:p4 ex:n52,
+        ex:n77,
+        ex:n93 ;
+    ex:p5 ex:n11,
+        ex:n12,
+        ex:n2,
+        ex:n36,
+        ex:n61,
+        ex:n70,
+        ex:n75 ;
+    ex:p6 ex:n31,
+        ex:n56,
+        ex:n71,
+        ex:n74 .
+
+ex:n34 a ex:C6 ;
+    ex:p0 ex:n1,
+        ex:n12,
+        ex:n53,
+        ex:n8,
+        ex:n81 ;
+    ex:p1 ex:n12,
+        ex:n16,
+        ex:n3,
+        ex:n53,
+        ex:n68,
+        ex:n88,
+        ex:n9 ;
+    ex:p2 ex:n18,
+        ex:n22,
+        ex:n57,
+        ex:n6,
+        ex:n74,
+        ex:n93,
+        ex:n96 ;
+    ex:p3 ex:n24,
+        ex:n28,
+        ex:n30,
+        ex:n52,
+        ex:n58,
+        ex:n66,
+        ex:n94 ;
+    ex:p4 ex:n1,
+        ex:n2,
+        ex:n25,
+        ex:n40,
+        ex:n42,
+        ex:n92 ;
+    ex:p5 ex:n12,
+        ex:n17,
+        ex:n41,
+        ex:n54 ;
+    ex:p6 ex:n20,
+        ex:n28,
+        ex:n29,
+        ex:n36,
+        ex:n51,
+        ex:n70,
+        ex:n91,
+        ex:n97 .
+
+ex:n39 a ex:C4 ;
+    ex:p0 ex:n1,
+        ex:n73 ;
+    ex:p1 ex:n24,
+        ex:n40,
+        ex:n47,
+        ex:n51 ;
+    ex:p2 ex:n13,
+        ex:n23,
+        ex:n3,
+        ex:n30,
+        ex:n79,
+        ex:n95 ;
+    ex:p3 ex:n14,
+        ex:n20,
+        ex:n25,
+        ex:n43,
+        ex:n68,
+        ex:n91 ;
+    ex:p4 ex:n35,
+        ex:n6,
+        ex:n97 ;
+    ex:p5 ex:n29,
+        ex:n58,
+        ex:n66 ;
+    ex:p6 ex:n30,
+        ex:n45,
+        ex:n57,
+        ex:n58 .
+
+ex:n40 a ex:C4 ;
+    ex:p0 ex:n21,
+        ex:n61 ;
+    ex:p1 ex:n31,
+        ex:n42,
+        ex:n61,
+        ex:n65,
+        ex:n67,
+        ex:n77 ;
+    ex:p2 ex:n30,
+        ex:n31,
+        ex:n37,
+        ex:n47,
+        ex:n59,
+        ex:n62,
+        ex:n76,
+        ex:n87,
+        ex:n88,
+        ex:n89,
+        ex:n95 ;
+    ex:p3 ex:n22 ;
+    ex:p4 ex:n61,
+        ex:n77,
+        ex:n84 ;
+    ex:p5 ex:n11,
+        ex:n14,
+        ex:n20,
+        ex:n68,
+        ex:n73 ;
+    ex:p6 ex:n34,
+        ex:n50,
+        ex:n71,
+        ex:n78 .
+
+ex:n44 a ex:C6 ;
+    ex:p0 ex:n23,
+        ex:n38,
+        ex:n4,
+        ex:n9,
+        ex:n94 ;
+    ex:p1 ex:n3,
+        ex:n32,
+        ex:n98 ;
+    ex:p2 ex:n21,
+        ex:n22,
+        ex:n48,
+        ex:n58,
+        ex:n7,
+        ex:n81,
+        ex:n92 ;
+    ex:p3 ex:n14,
+        ex:n22,
+        ex:n53,
+        ex:n59,
+        ex:n75,
+        ex:n87,
+        ex:n97 ;
+    ex:p4 ex:n0,
+        ex:n20,
+        ex:n31,
+        ex:n43,
+        ex:n46,
+        ex:n57,
+        ex:n65,
+        ex:n91,
+        ex:n94 ;
+    ex:p5 ex:n39,
+        ex:n65,
+        ex:n69,
+        ex:n88,
+        ex:n93 ;
+    ex:p6 ex:n23,
+        ex:n34,
+        ex:n39,
+        ex:n61,
+        ex:n64,
+        ex:n72,
+        ex:n83,
+        ex:n9 .
+
+ex:n55 a ex:C1 ;
+    ex:p0 ex:n0,
+        ex:n19,
+        ex:n35,
+        ex:n5,
+        ex:n76 ;
+    ex:p1 ex:n3,
+        ex:n63,
+        ex:n72,
+        ex:n80,
+        ex:n89 ;
+    ex:p2 ex:n16,
+        ex:n34,
+        ex:n76 ;
+    ex:p3 ex:n22,
+        ex:n38,
+        ex:n71,
+        ex:n75,
+        ex:n81 ;
+    ex:p4 ex:n14,
+        ex:n34,
+        ex:n36,
+        ex:n56 ;
+    ex:p5 ex:n31,
+        ex:n58,
+        ex:n70,
+        ex:n76,
+        ex:n81,
+        ex:n94 ;
+    ex:p6 ex:n2,
+        ex:n50,
+        ex:n71,
+        ex:n90 .
+
+ex:n69 a ex:C1 ;
+    ex:p0 ex:n18,
+        ex:n56 ;
+    ex:p1 ex:n56,
+        ex:n66,
+        ex:n85 ;
+    ex:p2 ex:n1,
+        ex:n13,
+        ex:n15,
+        ex:n25,
+        ex:n37,
+        ex:n40,
+        ex:n55,
+        ex:n8,
+        ex:n93 ;
+    ex:p3 ex:n37,
+        ex:n67 ;
+    ex:p4 ex:n41,
+        ex:n50,
+        ex:n52 ;
+    ex:p5 ex:n24,
+        ex:n33,
+        ex:n53,
+        ex:n87,
+        ex:n88 ;
+    ex:p6 ex:n29,
+        ex:n34,
+        ex:n4,
+        ex:n45,
+        ex:n74,
+        ex:n97 .
+
+ex:n85 a ex:C4 ;
+    ex:p0 ex:n13,
+        ex:n24,
+        ex:n3,
+        ex:n81,
+        ex:n90,
+        ex:n91 ;
+    ex:p1 ex:n40,
+        ex:n43,
+        ex:n47 ;
+    ex:p2 ex:n54,
+        ex:n71 ;
+    ex:p3 ex:n10,
+        ex:n14,
+        ex:n2,
+        ex:n35,
+        ex:n52,
+        ex:n55,
+        ex:n57,
+        ex:n62,
+        ex:n64 ;
+    ex:p4 ex:n15,
+        ex:n51,
+        ex:n72 ;
+    ex:p5 ex:n12,
+        ex:n23,
+        ex:n31,
+        ex:n34,
+        ex:n6,
+        ex:n82,
+        ex:n88,
+        ex:n93,
+        ex:n99 ;
+    ex:p6 ex:n1,
+        ex:n56,
+        ex:n77,
+        ex:n82 .
+
+ex:n2 a ex:C0 ;
+    ex:p0 ex:n10,
+        ex:n18,
+        ex:n52 ;
+    ex:p1 ex:n34,
+        ex:n53,
+        ex:n78 ;
+    ex:p2 ex:n32,
+        ex:n45 ;
+    ex:p3 ex:n29,
+        ex:n34,
+        ex:n67,
+        ex:n73,
+        ex:n8,
+        ex:n86,
+        ex:n94 ;
+    ex:p4 ex:n15,
+        ex:n45,
+        ex:n58,
+        ex:n70,
+        ex:n8,
+        ex:n80,
+        ex:n89,
+        ex:n90 ;
+    ex:p5 ex:n15,
+        ex:n25,
+        ex:n51,
+        ex:n54,
+        ex:n59,
+        ex:n97 ;
+    ex:p6 ex:n81,
+        ex:n83 .
+
+ex:n91 a ex:C6 ;
+    ex:p0 ex:n39,
+        ex:n41,
+        ex:n60,
+        ex:n64,
+        ex:n76,
+        ex:n90 ;
+    ex:p1 ex:n18,
+        ex:n19,
+        ex:n43,
+        ex:n57,
+        ex:n58,
+        ex:n61,
+        ex:n83,
+        ex:n92 ;
+    ex:p2 ex:n19,
+        ex:n6,
+        ex:n70,
+        ex:n76,
+        ex:n85 ;
+    ex:p3 ex:n3,
+        ex:n81 ;
+    ex:p4 ex:n2,
+        ex:n38,
+        ex:n47,
+        ex:n59,
+        ex:n60,
+        ex:n78,
+        ex:n8 ;
+    ex:p5 ex:n29,
+        ex:n4,
+        ex:n46 ;
+    ex:p6 ex:n21,
+        ex:n7 .
+
+ex:n93 a ex:C2 ;
+    ex:p0 ex:n1,
+        ex:n11,
+        ex:n21,
+        ex:n44,
+        ex:n49,
+        ex:n88 ;
+    ex:p1 ex:n13,
+        ex:n15,
+        ex:n46,
+        ex:n60,
+        ex:n62,
+        ex:n69,
+        ex:n98 ;
+    ex:p2 ex:n28,
+        ex:n33,
+        ex:n39,
+        ex:n60,
+        ex:n73,
+        ex:n79 ;
+    ex:p3 ex:n40,
+        ex:n53,
+        ex:n72 ;
+    ex:p4 ex:n39,
+        ex:n57,
+        ex:n58,
+        ex:n85,
+        ex:n97 ;
+    ex:p5 ex:n39,
+        ex:n96 ;
+    ex:p6 ex:n10,
+        ex:n27,
+        ex:n51,
+        ex:n61,
+        ex:n65,
+        ex:n78,
+        ex:n99 .
+
+ex:n70 a ex:C2 ;
+    ex:p0 ex:n15,
+        ex:n22,
+        ex:n47,
+        ex:n71,
+        ex:n75,
+        ex:n8,
+        ex:n93 ;
+    ex:p1 ex:n2 ;
+    ex:p2 ex:n1,
+        ex:n39,
+        ex:n40,
+        ex:n44,
+        ex:n69,
+        ex:n85,
+        ex:n94 ;
+    ex:p3 ex:n19,
+        ex:n20,
+        ex:n22,
+        ex:n28,
+        ex:n54,
+        ex:n6,
+        ex:n79 ;
+    ex:p4 ex:n19,
+        ex:n4,
+        ex:n49,
+        ex:n55,
+        ex:n66 ;
+    ex:p5 ex:n0,
+        ex:n44,
+        ex:n47,
+        ex:n49,
+        ex:n7,
+        ex:n8,
+        ex:n84,
+        ex:n86,
+        ex:n98 ;
+    ex:p6 ex:n0,
+        ex:n14,
+        ex:n34,
+        ex:n56,
+        ex:n76,
+        ex:n85,
+        ex:n89,
+        ex:n95 .
+
+ex:n8 a ex:C5 ;
+    ex:p0 ex:n24,
+        ex:n29,
+        ex:n32,
+        ex:n57 ;
+    ex:p1 ex:n1,
+        ex:n43,
+        ex:n75,
+        ex:n92 ;
+    ex:p2 ex:n17,
+        ex:n23,
+        ex:n45,
+        ex:n81,
+        ex:n98 ;
+    ex:p3 ex:n11,
+        ex:n40 ;
+    ex:p4 ex:n17,
+        ex:n20,
+        ex:n49,
+        ex:n51,
+        ex:n57 ;
+    ex:p5 ex:n19,
+        ex:n20,
+        ex:n31,
+        ex:n60,
+        ex:n68,
+        ex:n78,
+        ex:n83,
+        ex:n84 ;
+    ex:p6 ex:n28,
+        ex:n33,
+        ex:n41,
+        ex:n98 .
+
+ex:n60 a ex:C1 ;
+    ex:p0 ex:n11,
+        ex:n65,
+        ex:n70,
+        ex:n95,
+        ex:n99 ;
+    ex:p1 ex:n10,
+        ex:n24,
+        ex:n33,
+        ex:n5,
+        ex:n64,
+        ex:n68,
+        ex:n98 ;
+    ex:p2 ex:n4,
+        ex:n61,
+        ex:n63,
+        ex:n67 ;
+    ex:p3 ex:n81,
+        ex:n83,
+        ex:n96,
+        ex:n97 ;
+    ex:p4 ex:n14,
+        ex:n47,
+        ex:n6,
+        ex:n86 ;
+    ex:p5 ex:n43 ;
+    ex:p6 ex:n11,
+        ex:n12,
+        ex:n17,
+        ex:n5,
+        ex:n69,
+        ex:n89 .
+
+ex:n6 a ex:C2 ;
+    ex:p0 ex:n13,
+        ex:n18,
+        ex:n28,
+        ex:n58,
+        ex:n60,
+        ex:n76,
+        ex:n93 ;
+    ex:p1 ex:n0,
+        ex:n33,
+        ex:n52,
+        ex:n84,
+        ex:n93 ;
+    ex:p2 ex:n24,
+        ex:n45,
+        ex:n47,
+        ex:n50,
+        ex:n63,
+        ex:n85 ;
+    ex:p3 ex:n46,
+        ex:n6,
+        ex:n63,
+        ex:n93 ;
+    ex:p4 ex:n16,
+        ex:n60,
+        ex:n93 ;
+    ex:p5 ex:n16,
+        ex:n69,
+        ex:n76,
+        ex:n84 ;
+    ex:p6 ex:n3,
+        ex:n35,
+        ex:n48,
+        ex:n82,
+        ex:n88,
+        ex:n92 .
+
+ex:n63 a ex:C0 ;
+    ex:p0 ex:n2,
+        ex:n38,
+        ex:n52,
+        ex:n55,
+        ex:n60,
+        ex:n7 ;
+    ex:p1 ex:n47,
+        ex:n51,
+        ex:n6,
+        ex:n61,
+        ex:n78 ;
+    ex:p2 ex:n17,
+        ex:n37,
+        ex:n79,
+        ex:n91 ;
+    ex:p3 ex:n72 ;
+    ex:p4 ex:n11,
+        ex:n13 ;
+    ex:p5 ex:n25,
+        ex:n26,
+        ex:n63,
+        ex:n70,
+        ex:n71,
+        ex:n74,
+        ex:n84,
+        ex:n97 ;
+    ex:p6 ex:n10,
+        ex:n53,
+        ex:n55,
+        ex:n57,
+        ex:n63 .
+
+ex:n67 a ex:C4 ;
+    ex:p0 ex:n14,
+        ex:n61,
+        ex:n68,
+        ex:n9 ;
+    ex:p1 ex:n32,
+        ex:n48,
+        ex:n56,
+        ex:n80,
+        ex:n91,
+        ex:n95 ;
+    ex:p2 ex:n1,
+        ex:n59,
+        ex:n98 ;
+    ex:p3 ex:n16,
+        ex:n19,
+        ex:n29,
+        ex:n3,
+        ex:n47,
+        ex:n9,
+        ex:n98 ;
+    ex:p4 ex:n24,
+        ex:n40,
+        ex:n58,
+        ex:n76 ;
+    ex:p5 ex:n20,
+        ex:n4,
+        ex:n48,
+        ex:n49,
+        ex:n69,
+        ex:n82 ;
+    ex:p6 ex:n70,
+        ex:n72,
+        ex:n8,
+        ex:n84 .
+

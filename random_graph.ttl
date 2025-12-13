@@ -1,0 +1,56 @@
+@prefix ex: <http://example.org/random#> .
+
+ex:n0 a ex:C1 ;
+    ex:p0 ex:n1,
+        ex:n2,
+        ex:n3 ;
+    ex:p1 ex:n0,
+        ex:n1,
+        ex:n2 ;
+    ex:p2 ex:n0,
+        ex:n3,
+        ex:n4 .
+
+ex:n2 a ex:C0 ;
+    ex:p0 ex:n0,
+        ex:n1,
+        ex:n3 ;
+    ex:p1 ex:n0,
+        ex:n2,
+        ex:n3 ;
+    ex:p2 ex:n0,
+        ex:n2,
+        ex:n4 .
+
+ex:n4 a ex:C1 ;
+    ex:p0 ex:n1,
+        ex:n3,
+        ex:n4 ;
+    ex:p1 ex:n1,
+        ex:n3,
+        ex:n4 ;
+    ex:p2 ex:n0,
+        ex:n1,
+        ex:n2,
+        ex:n4 .
+
+ex:n1 a ex:C1 ;
+    ex:p0 ex:n0,
+        ex:n1,
+        ex:n2,
+        ex:n3,
+        ex:n4 ;
+    ex:p1 ex:n1,
+        ex:n2,
+        ex:n3 ;
+    ex:p2 ex:n0,
+        ex:n1,
+        ex:n3,
+        ex:n4 .
+
+ex:n3 a ex:C0 ;
+    ex:p0 ex:n2 ;
+    ex:p1 ex:n3 ;
+    ex:p2 ex:n1,
+        ex:n4 .
+
