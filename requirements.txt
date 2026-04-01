@@ -1,0 +1,4 @@
+torch>=2.0
+rdflib>=6.0
+requests>=2.25
+numpy>=1.23
