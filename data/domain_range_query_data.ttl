@@ -1,0 +1,15 @@
+@prefix ex: <http://example.org/domainrange#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:alice ex:collaboratesWith ex:bob ;
+    ex:age "23"^^xsd:integer .
+
+ex:bob a ex:Engineer .
+
+ex:carol a foaf:Person ;
+    ex:age "17"^^xsd:integer .
+
+ex:dave ex:collaboratesWith ex:erin .
+
+ex:erin a foaf:Person .

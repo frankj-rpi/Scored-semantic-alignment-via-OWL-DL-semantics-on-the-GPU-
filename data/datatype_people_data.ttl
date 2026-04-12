@@ -1,0 +1,19 @@
+@prefix ex: <http://example.org/datatypes#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:alice a foaf:Person ;
+    ex:age "23"^^xsd:integer ;
+    ex:nickname "Alice" .
+
+ex:bob a foaf:Person ;
+    ex:age "15"^^xsd:integer ;
+    ex:nickname "Bobby" .
+
+ex:carol a foaf:Person ;
+    ex:age "18"^^xsd:integer ;
+    ex:nickname "Carol" .
+
+ex:dave a foaf:Person ;
+    ex:age "21.5"^^xsd:decimal ;
+    ex:nickname "Dave" .

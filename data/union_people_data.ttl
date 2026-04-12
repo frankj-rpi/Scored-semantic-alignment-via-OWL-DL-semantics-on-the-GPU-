@@ -1,0 +1,14 @@
+@prefix ex: <http://example.org/union#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+ex:alice a foaf:Person ;
+    foaf:knows ex:bob .
+
+ex:bob a ex:Engineer .
+
+ex:carol a ex:Artist .
+
+ex:dave a foaf:Person ;
+    foaf:knows ex:erin .
+
+ex:erin a foaf:Person .

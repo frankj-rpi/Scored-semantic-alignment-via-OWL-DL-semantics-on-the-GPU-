@@ -1,0 +1,25 @@
+@prefix ex: <http://example.org/roles#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:RoleSaturationOntology a owl:Ontology .
+
+ex:allyOf a owl:ObjectProperty ;
+    rdfs:subPropertyOf foaf:knows .
+
+ex:knowsBy a owl:ObjectProperty ;
+    owl:inverseOf foaf:knows .
+
+ex:relayOf a owl:ObjectProperty .
+
+foaf:knows a owl:ObjectProperty , owl:TransitiveProperty ;
+    owl:propertyChainAxiom ( ex:relayOf ex:allyOf ) .
+
+ex:RoleSaturatedPerson a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty foaf:knows ;
+        owl:someValuesFrom foaf:Person
+    ] .

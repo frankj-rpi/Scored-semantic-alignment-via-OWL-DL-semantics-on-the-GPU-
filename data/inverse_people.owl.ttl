@@ -1,0 +1,26 @@
+@prefix ex: <http://example.org/inverse#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:InverseOntology a owl:Ontology .
+
+ex:KnownByPerson a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty [
+            owl:inverseOf foaf:knows
+        ] ;
+        owl:someValuesFrom foaf:Person
+    ] .
+
+ex:OnlyKnownByPeople a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty [
+            owl:inverseOf foaf:knows
+        ] ;
+        owl:allValuesFrom foaf:Person
+    ] .

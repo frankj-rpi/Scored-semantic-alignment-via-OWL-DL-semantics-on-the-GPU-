@@ -1,0 +1,33 @@
+@prefix ex: <http://example.org/domainrangehorn#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:DomainRangeHornOntology a owl:Ontology .
+
+ex:Engineer a owl:Class ;
+    rdfs:subClassOf foaf:Person .
+
+ex:Verified a owl:Class .
+
+ex:MentorSubject a owl:Class ;
+    owl:equivalentClass [
+        a owl:Class ;
+        owl:intersectionOf ( foaf:Person ex:Verified )
+    ] .
+
+ex:MentorTarget a owl:Class ;
+    owl:equivalentClass [
+        a owl:Class ;
+        owl:intersectionOf ( ex:Engineer ex:Verified )
+    ] .
+
+ex:mentors a owl:ObjectProperty ;
+    rdfs:domain [
+        a owl:Class ;
+        owl:intersectionOf ( foaf:Person ex:Verified )
+    ] ;
+    rdfs:range [
+        a owl:Class ;
+        owl:intersectionOf ( ex:Engineer ex:Verified )
+    ] .

@@ -1,0 +1,31 @@
+@prefix ex: <http://example.org/domainrange#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:DomainRangeOntology a owl:Ontology .
+
+ex:Engineer a owl:Class ;
+    rdfs:subClassOf foaf:Person .
+
+ex:Artist a owl:Class ;
+    rdfs:subClassOf foaf:Person .
+
+ex:collaboratesWith a owl:ObjectProperty ;
+    rdfs:domain foaf:Person ;
+    rdfs:range [
+        a owl:Class ;
+        owl:unionOf ( ex:Engineer ex:Artist )
+    ] .
+
+ex:age a owl:DatatypeProperty ;
+    rdfs:domain foaf:Person ;
+    rdfs:range [
+        a rdfs:Datatype ;
+        owl:onDatatype xsd:integer ;
+        owl:withRestrictions (
+            [ xsd:minInclusive "18"^^xsd:integer ]
+            [ xsd:maxInclusive "65"^^xsd:integer ]
+        )
+    ] .

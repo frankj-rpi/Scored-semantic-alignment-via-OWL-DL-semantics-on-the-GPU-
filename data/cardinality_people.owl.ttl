@@ -1,0 +1,42 @@
+@prefix ex: <http://example.org/cardinality#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:CardinalityOntology a owl:Ontology .
+
+ex:ExactlyTwoKnownPeople a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty foaf:knows ;
+        owl:onClass foaf:Person ;
+        owl:qualifiedCardinality "2"^^xsd:nonNegativeInteger
+    ] .
+
+ex:AtLeastTwoKnownPeople a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty foaf:knows ;
+        owl:onClass foaf:Person ;
+        owl:minQualifiedCardinality "2"^^xsd:nonNegativeInteger
+    ] .
+
+ex:AtMostOneKnownPerson a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty foaf:knows ;
+        owl:onClass foaf:Person ;
+        owl:maxQualifiedCardinality "1"^^xsd:nonNegativeInteger
+    ] .
+
+ex:ExactlyTwoContacts a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty foaf:knows ;
+        owl:cardinality "2"^^xsd:nonNegativeInteger
+    ] .

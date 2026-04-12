@@ -1,0 +1,66 @@
+@prefix ns1: <urn:dag-consistency:3#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+ns1:node6 a owl:NamedIndividual,
+        ns1:BaseClass0,
+        ns1:BaseClass1,
+        ns1:BaseClass4 ;
+    ns1:prop0 ns1:node2 ;
+    ns1:prop2 ns1:node1,
+        ns1:node3,
+        ns1:node4 ;
+    ns1:prop3 ns1:node3,
+        ns1:node4 .
+
+ns1:node4 a owl:NamedIndividual,
+        ns1:BaseClass4,
+        ns1:BaseClass5 ;
+    ns1:prop1 ns1:node2 ;
+    ns1:prop2 ns1:node0 ;
+    ns1:prop3 ns1:node0,
+        ns1:node1,
+        ns1:node3 .
+
+ns1:node5 a owl:NamedIndividual,
+        ns1:BaseClass0,
+        ns1:BaseClass1,
+        ns1:BaseClass2 ;
+    ns1:prop0 ns1:node3 ;
+    ns1:prop1 ns1:node4 ;
+    ns1:prop2 ns1:node0,
+        ns1:node2,
+        ns1:node6 ;
+    ns1:prop3 ns1:node1,
+        ns1:node2 .
+
+ns1:node0 a owl:NamedIndividual,
+        ns1:BaseClass3 ;
+    ns1:prop0 ns1:node1 ;
+    ns1:prop1 ns1:node3 ;
+    ns1:prop2 ns1:node3 ;
+    ns1:prop3 ns1:node3,
+        ns1:node5 .
+
+ns1:node1 a owl:NamedIndividual,
+        ns1:BaseClass0,
+        ns1:BaseClass4,
+        ns1:BaseClass5 ;
+    ns1:prop0 ns1:node2 ;
+    ns1:prop1 ns1:node0 ;
+    ns1:prop3 ns1:node0,
+        ns1:node5 .
+
+ns1:node2 a owl:NamedIndividual,
+        ns1:BaseClass3,
+        ns1:BaseClass4 ;
+    ns1:prop1 ns1:node1 ;
+    ns1:prop2 ns1:node0 .
+
+ns1:node3 a owl:NamedIndividual,
+        ns1:BaseClass0,
+        ns1:BaseClass3 ;
+    ns1:prop0 ns1:node6 ;
+    ns1:prop1 ns1:node2 ;
+    ns1:prop2 ns1:node5 ;
+    ns1:prop3 ns1:node1 .
+

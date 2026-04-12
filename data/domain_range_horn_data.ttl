@@ -1,0 +1,3 @@
+@prefix ex: <http://example.org/domainrangehorn#> .
+
+ex:alice ex:mentors ex:bob .

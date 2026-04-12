@@ -1,0 +1,34 @@
+@prefix ex: <http://example.org/roles#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+ex:alice a foaf:Person ;
+    ex:allyOf ex:bob ;
+    foaf:name "Alice" .
+
+ex:bob a foaf:Person ;
+    foaf:name "Bob" .
+
+ex:erin a foaf:Person ;
+    foaf:name "Erin" .
+
+ex:frank a foaf:Person ;
+    ex:knowsBy ex:erin ;
+    foaf:name "Frank" .
+
+ex:gina a foaf:Person ;
+    ex:relayOf ex:helper0 ;
+    foaf:name "Gina" .
+
+ex:helper0 ex:allyOf ex:irene .
+
+ex:irene a foaf:Person ;
+    foaf:name "Irene" .
+
+ex:jack a foaf:Person ;
+    ex:allyOf ex:mid0 ;
+    foaf:name "Jack" .
+
+ex:mid0 ex:allyOf ex:liam .
+
+ex:liam a foaf:Person ;
+    foaf:name "Liam" .

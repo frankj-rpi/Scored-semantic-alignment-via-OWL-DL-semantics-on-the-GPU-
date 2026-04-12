@@ -1,0 +1,41 @@
+{
+  "attempts": 2,
+  "base_consistent_cases": 1,
+  "buckets": {
+    "atomic, datatype, exists, range, subclass, union": {
+      "examples": [],
+      "failures": 0,
+      "tested": 3
+    },
+    "atomic, exists, intersection, range, subclass, union": {
+      "examples": [],
+      "failures": 0,
+      "tested": 3
+    },
+    "atomic, exists, range, subclass, union": {
+      "examples": [],
+      "failures": 0,
+      "tested": 4
+    },
+    "atomic, intersection, subclass": {
+      "examples": [],
+      "failures": 0,
+      "tested": 1
+    }
+  },
+  "generated_cases": 1,
+  "requested_cases": 1,
+  "timings_ms": {
+    "assertion_consistency_check": 11852.953399997205,
+    "base_consistency_check": 1988.3868000470102,
+    "dag_compile": 3.6825002171099186,
+    "dag_evaluation": 8.94689979031682,
+    "dataset_build": 6.698899902403355,
+    "error_checking_total": 13841.340200044215,
+    "generation": 4.23220032826066,
+    "preprocessing_total": 10.381400119513273
+  },
+  "total_checked_assertions": 11,
+  "total_failures": 0,
+  "total_perfect_scores": 11
+}

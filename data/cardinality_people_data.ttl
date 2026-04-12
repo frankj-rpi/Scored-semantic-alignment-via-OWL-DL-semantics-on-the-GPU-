@@ -1,0 +1,26 @@
+@prefix ex: <http://example.org/cardinality#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+ex:alice a foaf:Person ;
+    foaf:knows ex:bob, ex:carol ;
+    foaf:name "Alice" .
+
+ex:bob a foaf:Person ;
+    foaf:name "Bob" .
+
+ex:carol a foaf:Person ;
+    foaf:name "Carol" .
+
+ex:dave a foaf:Person ;
+    foaf:knows ex:bob ;
+    foaf:name "Dave" .
+
+ex:erin a foaf:Person ;
+    foaf:knows ex:bob, ex:projectX ;
+    foaf:name "Erin" .
+
+ex:frank a foaf:Person ;
+    foaf:knows ex:bob, ex:carol, ex:dave ;
+    foaf:name "Frank" .
+
+ex:projectX foaf:name "Project X" .

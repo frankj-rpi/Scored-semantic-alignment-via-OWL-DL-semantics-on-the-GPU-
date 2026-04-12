@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 import torch
 
 @dataclass
@@ -11,4 +12,6 @@ class KGraph:
     neighbors_p: list[torch.Tensor]  # list of int32 tensors, concatenated neighbors
     # Types: node -> bitmask or multi-hot vector over classes
     node_types: torch.Tensor  # [num_nodes, num_classes] or [num_nodes] with class IDs
-    # Class hierarchy / other metadata can be added later
+    # Datatype support for lifted literal nodes.
+    literal_datatype_idx: Optional[torch.Tensor] = None  # [num_nodes], -1 for non-literals / untyped
+    literal_numeric_value: Optional[torch.Tensor] = None  # [num_nodes], NaN where non-numeric

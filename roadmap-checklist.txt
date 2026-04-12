@@ -1,0 +1,243 @@
+App Roadmap Checklist
+Cross-referenced from `conversation.html` and the current `src/` implementation.
+
+Legend
+[x] Implemented
+[~] Partially implemented
+[ ] Planned / not implemented
+[!] Probably a separate architecture or out of scope for the current DAG design
+
+Conversation anchors used for this checklist
+- MVP / phase plan for `KGraph`, `ConstraintDAG`, and `eval_dag_scores`
+- Phase 5 ontology -> DAG compiler discussion
+- Exact/fuzzy benchmark to-do list and triplestore comparison plan
+- OWL/DL construct compatibility summary for the DAG approach
+- Epistemic truth-state / "[truth, openness]" extension discussion
+
+Current implementation status
+[x] CSR-style graph representation with per-property adjacency and node type matrix (`src/graph.py`)
+[x] Core constraint DAG data model (`src/constraints.py`)
+[x] GPU/Torch evaluation engine for:
+    - `ATOMIC_CLASS`
+    - `EXISTS_RESTRICTION`
+    - `INTERSECTION`
+    - `UNION`
+    - `PATH_STEP`
+  (`src/dag_eval.py`)
+[x] Multi-concept wrapper plus helpers like `top_k_for_concept`, `top_k_for_node`, and `satisfying_nodes` (`src/dag_reasoner.py`)
+[x] Hand-built example DAGs for existential, conjunction, and multi-hop typed path reasoning (`src/simple_examples.py`, `src/reasoner_examples.py`)
+[x] Seedable random graph generator and random typed path-pattern generator (`src/random_graphs.py`)
+[x] `PathPattern` -> `ConstraintDAG` compiler for typed path chains (`src/patterns.py`)
+[x] Class-similarity-based graded atomic matching via `sim_class` (`src/dag_eval.py`, `src/simple_examples.py`)
+[~] Partial / continuous scoring for typed paths only
+    - Current behavior: normalized best-path score for `PATH_STEP` chains
+    - Not yet generalized to arbitrary OWL-like class expressions
+    (`src/patterns.py`, `src/dag_eval.py`, `src/sparql_patterns.py`)
+[x] Synthetic `KGraph` -> RDFLib graph / Turtle export (`src/rdf_export.py`)
+[x] Typed path -> SPARQL compilation for exact and partial-score queries (`src/sparql_patterns.py`)
+[~] rdflib / Fuseki comparison and benchmark harness for synthetic path patterns (`src/compare_exact.py`, `src/fuseki_client.py`)
+[~] Python-side oracle comparison against existing reasoners (`src/oracle_compare.py`)
+    - Current status: compares engine target-class matches against `owlrl` and `owlready2`
+    - Supports both raw DAG-query comparison and an optional Horn/fixpoint-aligned comparison mode
+    - Also now includes a dedicated randomized consistency-guarantee harness in `src/consistency_harness.py`
+    - Current randomized generator now covers a bounded query fragment including subclass, intersection, union, existential, universal, Horn-safe query-time domain/range augmentation, datatype restrictions, nominals, `>= k` cardinality, and disjointness
+    - Harness runs now persist accepted cases with schema/data/metadata for replay
+    - Still missing: broader fragment coverage in the random generator and deeper automation/reporting around mismatch diagnosis
+[~] Auto preprocessing policy selection and reporting
+    - Implemented in `src/ontology_parse.py` as a preprocessing planner with `auto/on/off` decisions for hierarchy materialization, Horn-safe domain/range materialization, targeted role saturation, and query-time domain/range augmentation
+    - Current user-facing behavior: defaults now favor `auto`, while examples and saved harness cases report the actual chosen decisions and reasons
+    - Still missing: broader rollout of the same reporting into every entrypoint and more refined dependency-sensitive heuristics
+[~] Explanation / witness generation for debugging query scores
+    - Implemented as an on-demand reconstruction path in `src/explanations.py`
+    - Current scope: replays the compiled DAG over a saved dataset and reports local witnesses / blockers for the supported node types used in the validation fragment
+    - Deliberately not a default backpointer mode; explanations are generated only when requested to avoid memory overhead
+    - Still missing: richer witness output for every node type and first-class integration into the main reasoner API
+[ ] Real automated test suite
+    - No meaningful `tests/` package exists in this repo
+
+Immediate roadmap gaps from the conversation
+[~] Ontology -> DAG compiler for the supported OWL fragment
+    - Current status: minimal compiler implemented in `src/ontology_parse.py`
+    - Supported now: named atomic classes, `rdfs:subClassOf`, `owl:equivalentClass`, `owl:intersectionOf`, `owl:complementOf`, direct `owl:disjointWith`, `owl:Restriction` with `owl:onProperty` + `owl:someValuesFrom`, and `owl:allValuesFrom`
+    - Still missing: broader OWL coverage and integration into a cleaner end-to-end reasoning workflow
+[~] RDF / ontology / KG -> `KGraph` loader for real data
+    - Current status: implemented in `src/ontology_parse.py`
+    - Includes a clean TBox/ABox workflow via separate schema and data loading
+    - Still missing: more robust filtering policies for mixed schema+data files and dedicated higher-level examples/tests
+[~] Real ontology and KG fixtures for development
+    - Current status: FOAF plus several small schema/data fixtures exist under `data/`
+    - Still missing: larger / less toy development fixtures and repeatable fixture-generation helpers
+[ ] Repeatable benchmark workflow on real datasets
+    - Current status: synthetic random graphs only
+[ ] Cleaner triplestore setup / warmup / fairness automation
+    - Current status: Fuseki helpers exist, but setup is still ad hoc
+[ ] Property similarity (`sim_prop`) and richer fuzzy scoring
+    - Current status: class similarity only
+
+Remaining OWL/DL work that still fits the DAG direction
+[x] `FORALL` / universal restriction
+    - Implemented in `src/constraints.py`, `src/dag_eval.py`, and `src/ontology_parse.py`
+    - Current semantics: min over neighbor scores, with vacuous truth when no outgoing edges exist for that property
+[x] Negation / complement-like scoring
+    - Implemented as a `NEGATION` DAG node in `src/constraints.py` and `src/dag_eval.py`
+    - Current semantics: `score(not D) = 1 - score(D)`
+[~] Disjointness / contradiction penalties
+    - Compiler now supports direct `owl:disjointWith` by compiling it to a negated class constraint
+    - Still missing: broader contradiction-handling machinery and richer disjointness patterns such as global conflict tracking
+[x] Subclass and subproperty hierarchy propagation
+    - Implemented as optional ABox materialization in `src/ontology_parse.py`
+    - Current behavior: propagate `rdf:type` over `rdfs:subClassOf` and property assertions over `rdfs:subPropertyOf`
+[~] Compilation of named OWL classes into DAGs
+    - Implemented for a useful minimal fragment in `src/ontology_parse.py`
+    - Supported now includes `owl:unionOf` compilation into native DAG `UNION` nodes
+    - Still missing: broader class-expression coverage and cleaner normalization / compilation structure
+[~] Parsing of `rdfs:domain` / `rdfs:range` expressions per property
+    - Implemented in `src/ontology_parse.py` as preserved property-axiom expression parsing
+    - Supported now: atomic classes, `owl:unionOf`, datatype ranges via `owl:onDatatype` + `owl:withRestrictions`, and other currently renderable expressions
+    - Also implemented: opt-in query-time DAG augmentation, opt-in atomic domain/range materialization, and opt-in Horn-safe antecedent materialization for atomic/intersection targets
+    - Still missing: broader ontology-style inference/materialization for complex non-atomic domain/range expressions
+[~] Cardinality restrictions
+    - Implemented natively for immediate-neighbor local semantics in `src/constraints.py`, `src/dag_eval.py`, and `src/ontology_parse.py`
+    - Supported now: exact, min, and max cardinality; qualified and unqualified; forward and backward traversal; strict top-k aggregation mode
+    - Current semantics: graph-local top-k scoring over observed neighbors, not open-world OWL cardinality semantics
+    - Deferred for later: fuzzy cardinality scoring / delta-based spread tuning
+    - Still missing: any decision about oracle-comparison treatment for max/exact cases
+[~] Inverse properties
+    - Implemented via targeted role saturation in `src/ontology_parse.py`
+    - Also implemented natively for inverse property expressions on restrictions via backward DAG traversal in `src/dag_eval.py`
+    - Current scope: reusable inverse consequences still flow through the targeted saturation path, while direct inverse query semantics can avoid materialization
+    - Still missing: the same native backward traversal support exposed more broadly for every path-pattern workflow
+[~] Property-chain / role-composition reasoning
+    - Implemented via targeted role saturation in `src/ontology_parse.py`
+    - Also implemented natively for direct query semantics by compiling relevant chain conclusions into nested DAG restrictions
+    - Current scope: reusable role consequences still flow through the targeted saturation path, while direct chain matching can avoid materialization
+    - Still missing: broader benchmarking, oracle validation wiring, and more aggressive optimization for longer chains
+[~] Transitive properties
+    - Implemented via targeted role saturation in `src/ontology_parse.py`
+    - Also implemented natively for direct existential query semantics via `EXISTS_TRANSITIVE_RESTRICTION` in `src/dag_eval.py`
+    - Current scope: reusable transitive consequences still flow through the targeted saturation path, while direct transitive matching can avoid materialization
+    - Still missing: more explicit profiling on deeper closures and any decision about a native universal-transitive operator
+
+Rule / antecedent reasoning planned in the conversation but absent in code
+[~] OWL EL / RL style completion rules or Horn-rule firing
+    - Implemented for the supported named-class fragment via DAG compilation + materialization in `src/ontology_parse.py`
+    - Now supports target-aware dependency closure so helper materialization can be restricted to inferable classes reachable from the queried target class set
+    - Also now includes an explicit normalized sufficient-condition rule schema for the positive Horn-friendly fragment, plus a compiler from those antecedents into reusable DAGs as groundwork for a dedicated OWA inference mode
+    - Still missing: a broader explicit rule language and more general OWL EL / RL coverage
+[x] Antecedent -> consequent inference
+    - Implemented as Horn-style class materialization for supported named class definitions
+    - Can chain across iterations when one inferred class enables another
+[x] Fixed-point / iterative materialization loop over inferred facts
+    - Implemented in `materialize_supported_class_inferences(...)`
+[ ] Incremental reasoning over updates
+[ ] Cycle handling / convergence policy for iterative rules
+
+Dedicated OWL EL track to revisit later
+[ ] EL normalization pass
+    - Rewrite supported EL axioms into a small completion-rule vocabulary such as:
+      `A ⊑ B`, `A ⊓ B ⊑ C`, `A ⊑ ∃R.B`, `∃R.A ⊑ B`, `R ⊑ S`, `R1 ∘ R2 ⊑ S`
+    - Introduce fresh helper classes where needed so the saturation engine only sees normalized rule shapes
+[ ] Semi-naive EL role saturation
+    - `rdfs:subPropertyOf`
+    - role chains
+    - transitive properties
+    - inverse properties where useful for the chosen extension scope
+[ ] EL class completion rules
+    - `A ⊓ B ⊑ C`
+    - `A ⊑ ∃R.B`
+    - `∃R.A ⊑ B`
+[ ] Separation between native DAG-query semantics and EL-style completion semantics
+    - Keep the current constraint-satisfaction mode available even when an EL saturation mode is added
+[ ] Targeted / relevance-aware saturation for EL mode
+    - Saturate only the class/property closure needed by the queried target DAG or target class set
+[ ] Randomized EL-fragment validation workflow
+    - Generate supported-fragment ontologies and ABoxes
+    - Compare engine entailments against `owlrl` / `owlready2`
+
+Near-term native constraint-graph semantics to pursue next
+[~] Semi-naive role saturation for the native DAG path
+    - `rdfs:subPropertyOf`
+    - role chains
+    - transitive properties
+    - inverse properties
+    - Important scope note: materialize only the property closure relevant to the queried DAG, not the full global closure
+[~] Restrict materialization to the relevance closure of the target DAG
+    - Compute the class/property dependency closure of the target DAG and only materialize facts that can affect those nodes
+    - This should apply both to role saturation and to any future antecedent-style helper passes
+    - Current status: implemented with an explicit DAG-node-level dependency report plus shared aggregate closure in `src/ontology_parse.py`
+    - Current helper reuse: targeted role saturation and Horn-style helper materialization
+    - Still missing: broader reuse across every future helper path and richer diagnostics / profiling around dependency-cut effectiveness
+[ ] Distinguish local closed-world DAG semantics from open-world oracle semantics more explicitly
+    - `FORALL`, negation, and similar constructs do not align one-for-one with classical open-world reasoners
+    - Keep oracle comparison support, but document expected mismatch cases clearly
+
+Epistemic / continuous reasoning branch
+[ ] Dual-bit truth state / epistemic bit (`[truth, openness]` style state)
+[ ] Legal state-transition rules for epistemic updates
+[ ] Contradiction detection for invalid state transitions
+[ ] Continuous reasoning generalized beyond typed-path scores
+[ ] Integration of epistemic state into DAG evaluation
+[ ] Formal semantics / documentation for tentative vs definite truth
+[ ] Optional strict-prefix mode for partial path scoring
+    - Conversation note: current path scoring is "best matching walk", not strict-prefix-only
+
+Performance / architecture follow-ups from the conversation
+[ ] Shared super-DAG / common-subexpression dedup across concepts
+[ ] Better support for repeated evaluation over many concepts
+[ ] Reverse indexes / reverse graphs where needed
+[ ] Better segmented-reduction / fixed-point GPU kernels
+[ ] Memory and timing profiling
+[ ] Benchmark plots and report generation
+[ ] Real triplestore comparisons on larger workloads
+[ ] Explicit profile choice and scope statement
+    - Most likely target: OWL EL / RL style fragment, not full OWL 2 DL
+
+Likely separate research track or out of scope for the current architecture
+[!] `sameAs` / identity merging
+[x] Nominals
+    - Implemented natively via exact node-identity leaves in `src/constraints.py` and `src/dag_eval.py`
+    - `owl:oneOf` now compiles in `src/ontology_parse.py` as a single nominal or a union of nominals
+    - Current semantics are exact/non-fuzzy by design
+[!] Non-Horn disjunction / case-splitting
+[!] Full tableau-style OWL 2 DL reasoning
+[~] General datatype / arithmetic reasoning
+    - Implemented basic strict datatype predicates over lifted literal nodes in `src/graph.py`, `src/constraints.py`, `src/dag_eval.py`, and `src/ontology_parse.py`
+    - Supported now: direct datatype fillers like `xsd:integer`, `owl:onDatatype` + `owl:withRestrictions` with basic numeric bounds, and literal `owl:oneOf` enumerations
+    - Current semantics: local predicate evaluation over observed literal nodes, not full OWL datatype entailment or fuzzy datatype scoring
+[!] Unrestricted cyclic non-monotonic reasoning
+
+Recommended implementation order
+1. Add targeted native role saturation.
+   - `subPropertyOf`
+   - inverse properties
+   - transitive properties
+   - role chains
+   - Restrict saturation to the property closure relevant to the queried DAG
+2. Add DAG relevance-closure materialization.
+   - Materialize only facts that can affect the queried class / DAG
+   - Reuse this dependency analysis for future rule and saturation passes
+3. Expand fuzzy semantics.
+   - `sim_prop`
+   - General continuous scoring beyond path chains
+   - Strict-prefix mode if wanted
+4. Strengthen validation.
+   - Randomized supported-fragment generation
+   - Compare against `owlrl` / `owlready2`
+   - Check the local consistency-preservation guarantee with randomized cases and bucket failures by construct mix
+   - Document expected mismatch cases for open-world vs local DAG semantics
+5. Revisit the OWL EL track as a separate reasoning mode.
+   - EL normalization pass
+   - Semi-naive completion rules
+   - Role saturation and relevance-aware saturation for EL entailments
+6. Add the epistemic-bit branch as a separate execution mode.
+   - Keep it separate until exact + fuzzy reasoning over real ontologies is stable
+7. Benchmark on larger real datasets.
+   - Then decide whether harder constructs are worth the architectural cost
+
+Working summary of where the project stands today
+- The repo has the core synthetic GPU-friendly DAG engine working.
+- It now parses and reasons over real RDF / ontology inputs via `src/ontology_parse.py`, with separate schema/data loading.
+- It supports a useful minimal OWL-like fragment including existential, universal, negation, direct disjointness, hierarchy propagation, and Horn-style class materialization.
+- It has end-to-end examples plus an oracle-comparison harness against `owlrl` and `owlready2`.
+- The next native-direction work is targeted role saturation and relevance-closure materialization.
+- A more explicit OWL EL completion mode is plausible, but should be treated as a separate reasoning track rather than forced into every DAG query.

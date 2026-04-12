@@ -1,0 +1,11 @@
+@prefix ex: <http://example.org/hierarchy#> .
+
+ex:alice a ex:Employee ;
+    ex:friendOf ex:bob .
+
+ex:bob a ex:Employee .
+
+ex:carol a ex:Employee ;
+    ex:friendOf ex:projectX .
+
+ex:dave a ex:Employee .

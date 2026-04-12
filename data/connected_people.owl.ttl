@@ -1,0 +1,22 @@
+@prefix ex: <http://example.org/connected#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:ConnectedOntology a owl:Ontology .
+
+ex:ConnectedPerson a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty foaf:knows ;
+        owl:someValuesFrom foaf:Person
+    ] .
+
+ex:OnlyKnowsPeople a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty foaf:knows ;
+        owl:allValuesFrom foaf:Person
+    ] .

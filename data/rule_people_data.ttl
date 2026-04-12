@@ -1,0 +1,18 @@
+@prefix ex: <http://example.org/rules#> .
+
+ex:alice a ex:Employee ;
+    ex:mentors ex:bob .
+
+ex:bob a ex:Employee ;
+    ex:friendOf ex:dave .
+
+ex:carol a ex:Employee ;
+    ex:mentors ex:dave .
+
+ex:dave a ex:Employee .
+
+ex:erin a ex:Employee ;
+    ex:friendOf ex:projectX .
+
+ex:frank a ex:Employee ;
+    ex:mentors ex:erin .

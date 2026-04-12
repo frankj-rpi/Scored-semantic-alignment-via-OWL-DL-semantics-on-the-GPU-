@@ -1,0 +1,114 @@
+Contributions of the work include:
+
+- A novel method of scoring the semantic alignment of knowledge graph instances against ontology classes, based on exact or fuzzy matching to OWL DL restriction-based constraints
+- An algorithm for generating these scores at scale, compatible with SIMD execution on GPUs and analyzed for time and memory complexity
+- An evaluation of the algorithm, comparing the results and performance of a Python implementation against equivalent SPARQL queries on Fuseki and reasoner invocations on Pellet
+- A preliminary exploration of use cases for the work, accompanied by a publically accessible Python module supporting applications in knowledge graph construction, consistency checking, SHACL constraint checking, and inference production compatible with OWL EL and the majority of OWL RL 
+
+
+The semantics of the constraint DAG are as follows:
+- Broadly: 
+  - According to known evidence, to what degree does a KG instance match necessary conditions of membership in a given class?
+  - Given a set of KG instances and a set of ontology classes, to what degree does each instance correspond to each class?
+  - Given a set of KG instances and a set of ontology classes, to what degree does evidence support that each instance meets the necessary criteria for membership in each class?
+- Answers the question:
+   - Is it safe to assume instance n meets all necessary criteria for membership in class C?
+   - Can I classify instance n as class C without introducing inconsistency?
+    - For OWL EL: yes
+- Formally: 
+  - Assume that the KG is already consistent. Given an instance n in the KG and a class C in the KG, a score of s(n,C) = 1.0 indicates that if instance n was classified as class C, the graph would remain consistent.
+    - CWA: No local inconsistencies would be identified by an OWL DL 2 reasoner based on the current KG.
+      - Possibly viable with OWL DL or OWL RL, maybe only OWL EL or positive monotone increasing subset
+      - Not likely to apply if ALL are added -- that wouldn't work I don't think
+    - OWA: If new information was added to the KG, and that information is consistent with what was already in the KG, the assertion that n is a member of C would continue to be consistent.
+      - OWL EL: only if OWL EL assertions are allowed I think
+      
+      
+about epistemic:
+- fuzzy intersecton as probabilities, rather than more generic scores, inaccurate unless it is literally treated as a Bernoulli distribution.
+- same with negation and LT / EQ cardinality restrictions
+
+if fuzzy scores are interpreted as "partial membership" not "probability of membership in":
+- existential restriction:
+  - for all p,o with s,p,o in G, max p * o
+  - fuzzy could bump score if more examples are identified. 
+- union(A,B): max(A,B)
+  - fuzzy could bump score as more examples are identified
+    - Łukasiewicz: max(A+B-1,0) 
+    - Product t-norm: A+B-AB (where AND is AB) : inherently probability based
+    - Dempster–Shafer: Dempster’s rule, etc
+- intersecton:
+  - strict: min 
+  - fuzzy: average (4 of 5 requirements met)
+    - Łukasiewicz: max(A+B-1,0)
+    - todo: check compatibility w/ basic boolean operation laws:
+                        AND                  OR
+      - identity:       min(1,A)=A           max(0,A)=A  
+      - null:           min(0,A)=0           max(1,A)=1
+      - idempotent:     min(A,A)=A           max(A,A)=A
+      - inverse:        min(1,0)=0           max(1,0)=1
+      - commutative:    min(A,B)=min(B,A)    max(A,B)=max(B,A)
+      - associative:    ABC=(AB)C=A(BC)      A+B+C=(A+B)+C=A+(B+C)
+      - distributive:   A+BC=(A+B)(A+C)      A(B+C)=AB+AC 
+      - absorption:     min(A,max(A,B))=A    max(A,min(A,B))=A
+      - de morgan:     -min(A,B)=max(-A,-B) -max(A,B)=min(-A,-B)
+- neg(x): ...1-x or -x?
+  - note: 1-x probably incompatible with proof. -x is possibly better, but results in what are essentially unmatchable statements. 
+  - possibly horn clause generation approach starts with one and then goes to the other
+  - possibly constraint matching under CWA prefers 1-x (score if just this assertion was added -- without taking into account implications of any other assertions added at the same time)
+    - 1-x is the classical one preferred by fuzzy logic anyways
+    - probably special case for -x
+  - todo: return to this
+- cardinality: 
+  - unqualified GT:
+    - probably min-based sum....
+    - ex:
+      - requirement: >= 2 of s p ?o.
+        - actual: s p[0.8] _, s p[0.7] _, s p[0.6] _
+        - score: max_2( 0.8, 0.7, 0.6) -> min( {0.8, 0.7} ) -> 0.7
+      - extends to unqualified prop restriction: >= 1
+  - qualified GT:
+    - this is hard
+    - ex:
+      - requirement: > 2 of s p o.
+        - actual: s p[0.8] o[0.8], s p[0.7] o[0.6], s p[0.6] o[0.9]
+        - score: matmult({0.8*0.8, 0.7*0.6, 0.6*0.9) -> max_2( {0.64, 0.56, 0.54} ) -> min( {0.64, 0.56} ) -> 0.56
+      - extends to qualified prop restriction: highest p * o score
+  - a better approach to GT involves normalizing over all inputs -- somehow allowing additional positive indications to bring the score upwards. 
+    - this would most likely involve changes across the board to union, cardinality, etc. but would likely be a better system overall
+  - fuzzy: 
+    - sum of top X P over C / total required
+    - e.g. 2 s,p,c out of 3: 2/3
+      - fuzzy: 
+                                strict    fuzzy                         strict k == 3              fuzzy k == 3
+        - 0.9, 0.8, 0.7, 0.6 -> 0.7       avg(0.9,0.8,0.7) = 0.8        min(0.7, 1-0.6)) = 0.4     avg(0.8, 1.0 - 0.75) = .525
+        - 0.9, 0.8, 0.7      -> 0.7       avg(0.9,0.8,0.7) = 0.8        min(0.7, 1-0.0)) = 0.7     avg(0.8, 1.0 - 0.6) = 0.6
+        - 0.9, 0.8           -> 0.0       avg(0.9,0.8,0.0) = 0.56       min(0.0, 1-0.0)) = 0.0
+        - 1.0, 1.0,          -> 0.0       avg(1.0,1.0,0.0) = 0.67       min(0.0, 1-0.0)) = 0.0
+        - 1.0, 1.0, 0.1      -> 0.1       avg(1.0,1.0,0.1) = 0.7        min(0.1, 1-0.0)) = 0.1     avg(0.7, 1-0.55) = 0.45
+        - 1.0, 1.0, 1.0      -> 1.0       
+  - EQ, LT: maybe incompatible with termination proof. likely require negative values, other care taken
+    - LT is essentially "not GT" -- in the strict setting, <=k is 1.0 - min(top_k(...))
+    - EQ is essentially the intersection of <=k and >=k at once:
+      - min(min(top_k(...)), 1.0 - min(top_k(...)))
+      - fuzzy: avg(avg(top_k(...)),1.0 - avg(top_k(...)))
+- disjunction in antecedents, distinct classes, etc.
+
+
+- cardinality: written for >=k and <=k for simplicity, but would be implemented for <k and >k
+  - given a cardinality restriction >=k on S P O: 
+    - for all triples t_i = (s,?p,?o) in G:
+      - compute score(t_i) = score(?p,P) * score(?o,O)
+    - get the set of top k scores for each triple: T_k = {t_0,...,t_(k-1)}
+    - for strict cardinality: result is min(T_k) 
+      - note: existential restriction is essentially >=1, so it should be equivalent to that (so it should be computed with property score * object score, if there are property scores provided)
+    - for fuzzy: result is sum(T_k)/k
+      - fuzzy aggregation/intersection operator should match this; I think avg is close enough for now
+  - <=k and ==k should match this
+    - <=k is essentially NOT(>=(k+1)): 
+      - strict <=k: 1.0 - min(T_(k+1))
+      - fuzzy <=k: 1.0 - sum(T_(k+1))/(k+1)
+    - ==k is essentially AND(<=k,>=k): 
+      - strict ==k: min(min(T_k), 1.0 - min(T_(k+1)))
+      - fuzzy ==k: avg(sum(T_k)/k, 1.0 -(sum(T_(k+1)))/(k+1))
+  - For fuzzy cardinality, the delta parameter would control the relative spread, if implemented; that is likely a stretch goal for no

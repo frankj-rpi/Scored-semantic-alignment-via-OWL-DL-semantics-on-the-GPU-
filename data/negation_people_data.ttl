@@ -1,0 +1,10 @@
+@prefix ex: <http://example.org/negation#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+ex:alice a foaf:Person .
+
+ex:bob a foaf:Person .
+
+ex:cyborg a foaf:Person, ex:Robot .
+
+ex:helperBot a ex:Robot .

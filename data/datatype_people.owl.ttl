@@ -1,0 +1,58 @@
+@prefix ex: <http://example.org/datatypes#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:DatatypeOntology a owl:Ontology .
+
+ex:age a owl:DatatypeProperty .
+ex:nickname a owl:DatatypeProperty .
+
+ex:HasIntegerAge a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ex:age ;
+        owl:someValuesFrom xsd:integer
+    ] .
+
+ex:AdultPerson a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ex:age ;
+        owl:someValuesFrom [
+            a rdfs:Datatype ;
+            owl:onDatatype xsd:integer ;
+            owl:withRestrictions (
+                [ xsd:minInclusive "18"^^xsd:integer ]
+            )
+        ]
+    ] .
+
+ex:TeenPerson a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ex:age ;
+        owl:someValuesFrom [
+            a rdfs:Datatype ;
+            owl:onDatatype xsd:integer ;
+            owl:withRestrictions (
+                [ xsd:minInclusive "13"^^xsd:integer ]
+                [ xsd:maxInclusive "19"^^xsd:integer ]
+            )
+        ]
+    ] .
+
+ex:NicknameAlice a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ex:nickname ;
+        owl:someValuesFrom [
+            a rdfs:Datatype ;
+            owl:oneOf ( "Alice" )
+        ]
+    ] .

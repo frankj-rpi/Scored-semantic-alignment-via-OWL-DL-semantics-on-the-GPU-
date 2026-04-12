@@ -1,0 +1,20 @@
+@prefix ex: <http://example.org/nominal#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:NominalOntology a owl:Ontology .
+
+ex:AliceSingleton a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    owl:equivalentClass [
+        a owl:Class ;
+        owl:oneOf ( ex:alice )
+    ] .
+
+ex:PreferredPair a owl:Class ;
+    rdfs:subClassOf foaf:Person ;
+    owl:equivalentClass [
+        a owl:Class ;
+        owl:oneOf ( ex:alice ex:carol )
+    ] .

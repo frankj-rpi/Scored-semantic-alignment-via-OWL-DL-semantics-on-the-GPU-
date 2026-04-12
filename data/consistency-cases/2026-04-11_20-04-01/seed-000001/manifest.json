@@ -1,0 +1,56 @@
+{
+  "augment_property_domain_range": true,
+  "base_consistent": true,
+  "config": {
+    "allowed_constructs": [
+      "subclass",
+      "exists",
+      "domain",
+      "range"
+    ],
+    "datatype_edge_probability": 0.35,
+    "disjoint_pair_probability": 0.1,
+    "domain_range_axiom_probability": 0.35,
+    "edge_probability": 0.18,
+    "max_axioms_per_target": 3,
+    "min_axioms_per_target": 1,
+    "num_datatype_properties": 2,
+    "num_individuals": 6,
+    "num_primitive_classes": 5,
+    "num_properties": 3,
+    "num_target_classes": 4,
+    "type_probability": 0.35
+  },
+  "generated_at": "2026-04-12T00:04:02+00:00",
+  "materialize_hierarchy": null,
+  "seed": 1,
+  "target_classes": [
+    "urn:dag-consistency:1#TargetClass0",
+    "urn:dag-consistency:1#TargetClass1",
+    "urn:dag-consistency:1#TargetClass2",
+    "urn:dag-consistency:1#TargetClass3"
+  ],
+  "target_constructs": {
+    "urn:dag-consistency:1#TargetClass0": [
+      "atomic",
+      "exists",
+      "range",
+      "subclass"
+    ],
+    "urn:dag-consistency:1#TargetClass1": [
+      "atomic",
+      "range",
+      "subclass"
+    ],
+    "urn:dag-consistency:1#TargetClass2": [
+      "atomic",
+      "range",
+      "subclass"
+    ],
+    "urn:dag-consistency:1#TargetClass3": [
+      "atomic",
+      "subclass"
+    ]
+  },
+  "threshold": 0.999
+}
