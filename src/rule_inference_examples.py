@@ -11,6 +11,7 @@ from .ontology_parse import (
     compile_class_to_dag,
     compile_sufficient_condition_dag,
     describe_dag_dependency_report,
+    materialize_stratified_class_inferences,
     load_rdflib_graph,
     materialize_positive_sufficient_class_inferences,
     materialize_supported_class_inferences,
@@ -22,6 +23,12 @@ def _format_assertions(rows: List[Tuple[str, str]]) -> str:
     if not rows:
         return "  (none)"
     return "\n".join(f"  - {node} :: {class_iri}" for node, class_iri in rows)
+
+
+def _format_blockers(rows: List[Tuple[str, str, str]]) -> str:
+    if not rows:
+        return "  (none)"
+    return "\n".join(f"  - {node} :: blocked {class_iri} via {blocker_iri}" for node, class_iri, blocker_iri in rows)
 
 
 def run_rule_materialization_example(
@@ -44,7 +51,21 @@ def run_rule_materialization_example(
     if device_to_use == "cuda" and not torch.cuda.is_available():
         device_to_use = "cpu"
 
-    if inference_mode == "sufficient":
+    negative_result = None
+    if inference_mode == "stratified":
+        stratified = materialize_stratified_class_inferences(
+            schema_graph=schema_graph,
+            data_graph=data_graph,
+            include_literals=include_literals,
+            materialize_hierarchy=materialize_hierarchy,
+            materialize_target_roles=materialize_target_roles,
+            target_classes=[target_class] if target_class is not None else None,
+            threshold=threshold,
+            device=device_to_use,
+        )
+        result = stratified.positive_result
+        negative_result = stratified.negative_result
+    elif inference_mode == "sufficient":
         result = materialize_positive_sufficient_class_inferences(
             schema_graph=schema_graph,
             data_graph=data_graph,
@@ -85,9 +106,34 @@ def run_rule_materialization_example(
     print("")
     print("Inferred rdf:type assertions:")
     print(_format_assertions(assertions))
+    if negative_result is not None:
+        blocker_rows = [
+            (
+                blocked.node_term.n3() if hasattr(blocked.node_term, "n3") else str(blocked.node_term),
+                blocked.target_class.n3() if hasattr(blocked.target_class, "n3") else str(blocked.target_class),
+                blocked.blocker_class.n3() if hasattr(blocked.blocker_class, "n3") else str(blocked.blocker_class),
+            )
+            for blocked in negative_result.blocked_assertions
+        ]
+        blocker_rows.sort()
+        conflict_rows = [
+            (
+                blocked.node_term.n3() if hasattr(blocked.node_term, "n3") else str(blocked.node_term),
+                blocked.target_class.n3() if hasattr(blocked.target_class, "n3") else str(blocked.target_class),
+                blocked.blocker_class.n3() if hasattr(blocked.blocker_class, "n3") else str(blocked.blocker_class),
+            )
+            for blocked in negative_result.conflicting_positive_assertions
+        ]
+        conflict_rows.sort()
+        print("")
+        print("Blocked class assignments:")
+        print(_format_blockers(blocker_rows))
+        print("")
+        print("Conflicts with positive closure:")
+        print(_format_blockers(conflict_rows))
 
     if target_class is not None:
-        if inference_mode == "sufficient":
+        if inference_mode in {"sufficient", "stratified"}:
             dag = compile_sufficient_condition_dag(
                 result.dataset.ontology_graph,
                 result.dataset.mapping,
@@ -114,12 +160,20 @@ def run_rule_materialization_example(
             print("  (currently only available for the definitional / necessary-condition compiler)")
             print("")
         print(f"Final matches for {target_class}:")
+        blocked_node_terms = set()
+        if negative_result is not None:
+            blocked_node_terms = {
+                blocked.node_term
+                for blocked in negative_result.blocked_assertions
+                if blocked.target_class == target_class
+            }
         printed = False
         for idx, node_term in enumerate(result.dataset.mapping.node_terms):
             score = float(scores[idx].item())
             if score >= threshold:
                 rendered = node_term.n3() if hasattr(node_term, "n3") else str(node_term)
-                print(f"  - {rendered}: {score:.4f}")
+                suffix = " (blocked)" if node_term in blocked_node_terms else ""
+                print(f"  - {rendered}: {score:.4f}{suffix}")
                 printed = True
         if not printed:
             print("  (none)")
@@ -161,11 +215,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--inference-mode",
-        choices=["definitional", "sufficient"],
+        choices=["definitional", "sufficient", "stratified"],
         default="definitional",
         help=(
-            "Choose between the older definitional fixpoint materializer and the "
-            "new positive OWA sufficient-condition materializer."
+            "Choose between the older definitional fixpoint materializer, the "
+            "positive OWA sufficient-condition materializer, and the initial "
+            "stratified positive+negative blocker pass."
         ),
     )
 

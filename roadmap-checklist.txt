@@ -122,8 +122,9 @@ Rule / antecedent reasoning planned in the conversation but absent in code
 [~] OWL EL / RL style completion rules or Horn-rule firing
     - Implemented for the supported named-class fragment via DAG compilation + materialization in `src/ontology_parse.py`
     - Now supports target-aware dependency closure so helper materialization can be restricted to inferable classes reachable from the queried target class set
-    - Also now includes an explicit normalized sufficient-condition rule schema for the positive Horn-friendly fragment, plus a compiler from those antecedents into reusable DAGs as groundwork for a dedicated OWA inference mode
-    - Still missing: a broader explicit rule language and more general OWL EL / RL coverage
+    - Also now includes an explicit normalized sufficient-condition rule schema for the positive Horn-friendly fragment, plus a compiler from those antecedents into reusable DAGs and an initial positive OWA fixpoint materializer
+    - Also now includes an initial negative stratum as blocker derivation over the positive closure for direct disjointness and simple named-class complements
+    - Still missing: a broader explicit rule language, richer negative stratification, and more general OWL EL / RL coverage
 [x] Antecedent -> consequent inference
     - Implemented as Horn-style class materialization for supported named class definitions
     - Can chain across iterations when one inferred class enables another

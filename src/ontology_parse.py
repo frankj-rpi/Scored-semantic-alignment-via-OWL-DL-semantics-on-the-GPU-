@@ -73,6 +73,34 @@ class ClassMaterializationResult:
 
 
 @dataclass
+class NegativeBlockerSpec:
+    target_class: URIRef
+    blocker_classes: List[URIRef]
+    skipped_negative_axioms: List[str]
+
+
+@dataclass
+class BlockedClassAssertion:
+    node_term: Identifier
+    target_class: URIRef
+    blocker_class: URIRef
+
+
+@dataclass
+class NegativeBlockerResult:
+    dataset: ReasoningDataset
+    blocker_specs: Dict[URIRef, NegativeBlockerSpec]
+    blocked_assertions: List[BlockedClassAssertion]
+    conflicting_positive_assertions: List[BlockedClassAssertion]
+
+
+@dataclass
+class StratifiedMaterializationResult:
+    positive_result: ClassMaterializationResult
+    negative_result: NegativeBlockerResult
+
+
+@dataclass
 class RoleSaturationResult:
     data_graph: Graph
     seed_properties: List[URIRef]
@@ -2406,6 +2434,143 @@ def compute_sufficient_rule_dependency_closure(
     )
 
 
+def _extract_negative_named_blockers_from_expr(
+    ontology_graph: Graph,
+    expr: Identifier,
+    *,
+    visited: set[Identifier],
+    blocker_classes: set[URIRef],
+    skipped_axioms: set[str],
+) -> None:
+    if expr in visited:
+        return
+    visited.add(expr)
+
+    complement_target = ontology_graph.value(expr, OWL.complementOf)
+    if complement_target is not None:
+        if isinstance(complement_target, URIRef) and not _is_datatype_term(complement_target):
+            blocker_classes.add(complement_target)
+        else:
+            skipped_axioms.add(
+                "complementOf(" + describe_owl_expression(ontology_graph, complement_target) + ")"
+            )
+        return
+
+    if isinstance(expr, URIRef):
+        for disjoint_expr in ontology_graph.objects(expr, OWL.disjointWith):
+            if isinstance(disjoint_expr, URIRef) and not _is_datatype_term(disjoint_expr):
+                blocker_classes.add(disjoint_expr)
+            else:
+                skipped_axioms.add(
+                    "disjointWith(" + describe_owl_expression(ontology_graph, disjoint_expr) + ")"
+                )
+        for disjoint_expr in ontology_graph.subjects(OWL.disjointWith, expr):
+            if disjoint_expr == expr:
+                continue
+            if isinstance(disjoint_expr, URIRef) and not _is_datatype_term(disjoint_expr):
+                blocker_classes.add(disjoint_expr)
+            else:
+                skipped_axioms.add(
+                    "disjointWith(" + describe_owl_expression(ontology_graph, disjoint_expr) + ")"
+                )
+
+    for head in ontology_graph.objects(expr, OWL.intersectionOf):
+        if isinstance(head, BNode):
+            for member in Collection(ontology_graph, head):
+                _extract_negative_named_blockers_from_expr(
+                    ontology_graph,
+                    member,
+                    visited=visited,
+                    blocker_classes=blocker_classes,
+                    skipped_axioms=skipped_axioms,
+                )
+
+    for sub_expr in ontology_graph.objects(expr, RDFS.subClassOf):
+        _extract_negative_named_blockers_from_expr(
+            ontology_graph,
+            sub_expr,
+            visited=visited,
+            blocker_classes=blocker_classes,
+            skipped_axioms=skipped_axioms,
+        )
+    for eq_expr in ontology_graph.objects(expr, OWL.equivalentClass):
+        if eq_expr != expr:
+            _extract_negative_named_blockers_from_expr(
+                ontology_graph,
+                eq_expr,
+                visited=visited,
+                blocker_classes=blocker_classes,
+                skipped_axioms=skipped_axioms,
+            )
+    for eq_expr in ontology_graph.subjects(OWL.equivalentClass, expr):
+        if eq_expr != expr:
+            _extract_negative_named_blockers_from_expr(
+                ontology_graph,
+                eq_expr,
+                visited=visited,
+                blocker_classes=blocker_classes,
+                skipped_axioms=skipped_axioms,
+            )
+
+
+def collect_negative_blocker_specs(
+    ontology_graph: Graph,
+    target_classes: Optional[Sequence[str | URIRef]] = None,
+) -> Dict[URIRef, NegativeBlockerSpec]:
+    target_terms = (
+        [URIRef(term) if isinstance(term, str) else term for term in target_classes]
+        if target_classes is not None
+        else sorted(
+            [
+                class_term
+                for class_term in _collect_named_class_terms(ontology_graph)
+                if isinstance(class_term, URIRef) and _has_nontrivial_definition(ontology_graph, class_term)
+            ],
+            key=str,
+        )
+    )
+
+    specs: Dict[URIRef, NegativeBlockerSpec] = {}
+    for target_term in target_terms:
+        blocker_classes: set[URIRef] = set()
+        skipped_axioms: set[str] = set()
+        visited: set[Identifier] = set()
+
+        for disjoint_expr in ontology_graph.objects(target_term, OWL.disjointWith):
+            if isinstance(disjoint_expr, URIRef) and not _is_datatype_term(disjoint_expr):
+                blocker_classes.add(disjoint_expr)
+            else:
+                skipped_axioms.add(
+                    "disjointWith(" + describe_owl_expression(ontology_graph, disjoint_expr) + ")"
+                )
+        for disjoint_expr in ontology_graph.subjects(OWL.disjointWith, target_term):
+            if disjoint_expr == target_term:
+                continue
+            if isinstance(disjoint_expr, URIRef) and not _is_datatype_term(disjoint_expr):
+                blocker_classes.add(disjoint_expr)
+            else:
+                skipped_axioms.add(
+                    "disjointWith(" + describe_owl_expression(ontology_graph, disjoint_expr) + ")"
+                )
+
+        for root_expr in _collect_target_root_expressions(ontology_graph, target_term):
+            _extract_negative_named_blockers_from_expr(
+                ontology_graph,
+                root_expr,
+                visited=visited,
+                blocker_classes=blocker_classes,
+                skipped_axioms=skipped_axioms,
+            )
+
+        specs[target_term] = NegativeBlockerSpec(
+            target_class=target_term,
+            blocker_classes=sorted(blocker_classes, key=str),
+            skipped_negative_axioms=sorted(skipped_axioms),
+        )
+
+    return specs
+
+
 def compile_normalized_sufficient_condition_to_dag(
     mapping: RDFKGraphMapping,
     condition: NormalizedSufficientCondition,
@@ -3802,6 +3967,98 @@ def materialize_positive_sufficient_class_inferences(
         dataset=dataset,
         inferred_assertions=inferred_assertions,
         iterations=iterations,
+    )
+
+
+def materialize_negative_class_blockers(
+    *,
+    dataset: ReasoningDataset,
+    target_classes: Optional[Sequence[str | URIRef]] = None,
+) -> NegativeBlockerResult:
+    """
+    Compute blocked (node, class) assignments from the already-materialized
+    positive closure for the currently supported negative fragment.
+
+    Current blocker sources:
+    - direct or inherited `owl:disjointWith`
+    - direct or inherited named `owl:complementOf`
+
+    This pass does not retract or materialize negative facts. It reports
+    forbidden assignments and conflicts against the positive closure.
+    """
+
+    blocker_specs = collect_negative_blocker_specs(dataset.ontology_graph, target_classes)
+    node_types = dataset.kg.node_types.detach().cpu()
+
+    blocked_assertions: List[BlockedClassAssertion] = []
+    conflicting_positive_assertions: List[BlockedClassAssertion] = []
+
+    for target_class, spec in blocker_specs.items():
+        if target_class not in dataset.mapping.class_to_idx:
+            continue
+        target_class_idx = dataset.mapping.class_to_idx[target_class]
+        for blocker_class in spec.blocker_classes:
+            if blocker_class not in dataset.mapping.class_to_idx:
+                continue
+            blocker_idx = dataset.mapping.class_to_idx[blocker_class]
+            for node_idx, node_term in enumerate(dataset.mapping.node_terms):
+                if float(node_types[node_idx, blocker_idx].item()) < 0.999:
+                    continue
+                blocked = BlockedClassAssertion(
+                    node_term=node_term,
+                    target_class=target_class,
+                    blocker_class=blocker_class,
+                )
+                blocked_assertions.append(blocked)
+                if float(node_types[node_idx, target_class_idx].item()) >= 0.999:
+                    conflicting_positive_assertions.append(blocked)
+
+    blocked_assertions.sort(
+        key=lambda item: (str(item.target_class), str(item.node_term), str(item.blocker_class))
+    )
+    conflicting_positive_assertions.sort(
+        key=lambda item: (str(item.target_class), str(item.node_term), str(item.blocker_class))
+    )
+    return NegativeBlockerResult(
+        dataset=dataset,
+        blocker_specs=blocker_specs,
+        blocked_assertions=blocked_assertions,
+        conflicting_positive_assertions=conflicting_positive_assertions,
+    )
+
+
+def materialize_stratified_class_inferences(
+    *,
+    schema_graph: Graph,
+    data_graph: Graph,
+    include_literals: bool = True,
+    include_type_edges: bool = False,
+    materialize_hierarchy: bool = True,
+    materialize_target_roles: bool = False,
+    target_classes: Optional[Sequence[str | URIRef]] = None,
+    threshold: float = 0.999,
+    max_iterations: int = 10,
+    device: str = "cpu",
+) -> StratifiedMaterializationResult:
+    positive_result = materialize_positive_sufficient_class_inferences(
+        schema_graph=schema_graph,
+        data_graph=data_graph,
+        include_literals=include_literals,
+        include_type_edges=include_type_edges,
+        materialize_hierarchy=materialize_hierarchy,
+        materialize_target_roles=materialize_target_roles,
+        target_classes=target_classes,
+        threshold=threshold,
+        max_iterations=max_iterations,
+        device=device,
+    )
+    negative_result = materialize_negative_class_blockers(
+        dataset=positive_result.dataset,
+        target_classes=target_classes,
+    )
+    return StratifiedMaterializationResult(
+        positive_result=positive_result,
+        negative_result=negative_result,
     )
 
 

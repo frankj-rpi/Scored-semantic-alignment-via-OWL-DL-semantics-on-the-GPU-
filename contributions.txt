@@ -111,4 +111,47 @@ if fuzzy scores are interpreted as "partial membership" not "probability of memb
     - ==k is essentially AND(<=k,>=k): 
       - strict ==k: min(min(T_k), 1.0 - min(T_(k+1)))
       - fuzzy ==k: avg(sum(T_k)/k, 1.0 -(sum(T_(k+1)))/(k+1))
-  - For fuzzy cardinality, the delta parameter would control the relative spread, if implemented; that is likely a stretch goal for no
+  - For fuzzy cardinality, the delta parameter would control the relative spread, if implemented; that is likely a stretch goal for now
+  
+  
+## TODO NEXT
+  
+- OWL DL constructs:
+  - functional properties
+
+- explanation generation mode
+
+- test suite / oracle:
+  - identify supported fragment
+  - performance metrics for pellet
+  - sparql oracle
+  
+- fuzzy:
+  - constraint aggregation ()
+  - fuzzy cardinality restrictions
+  - fuzzy disjoint antecedents
+  
+- OWA/CWA epistemic semantics
+  
+- strict OWA mode 
+  - instance checking
+  - consistency checking
+  
+- inference:
+  - single pass sufficient conditions
+  - 2-pass pos/neg conditions
+  - continuous inference
+  
+- error checking:
+  - Cycle detection and handling
+  - Detecting unparseable input
+  - materialization in the presence of unsupported constructs; 
+
+- document:
+  - tf is going on with all these different modes and options???
+  - clean up code
+  - clean up data
+  - write good readme
+
+- A single pass of the DAG for checking satisfaction of necessary conditions
+- A single pass of the DAG for inference from superclass 
