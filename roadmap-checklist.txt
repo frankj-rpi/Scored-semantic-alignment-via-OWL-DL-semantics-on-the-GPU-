@@ -124,6 +124,7 @@ Rule / antecedent reasoning planned in the conversation but absent in code
     - Now supports target-aware dependency closure so helper materialization can be restricted to inferable classes reachable from the queried target class set
     - Also now includes an explicit normalized sufficient-condition rule schema for the positive Horn-friendly fragment, plus a compiler from those antecedents into reusable DAGs and an initial positive OWA fixpoint materializer
     - Also now includes an initial negative stratum as blocker derivation over the positive closure for direct disjointness and simple named-class complements
+    - Also now includes assignment-status bookkeeping and an initial conflict-policy layer (`report_only`, `suppress_derived_keep_asserted`, `strict_fail_on_conflict`) for the stratified path
     - Still missing: a broader explicit rule language, richer negative stratification, and more general OWL EL / RL coverage
 [x] Antecedent -> consequent inference
     - Implemented as Horn-style class materialization for supported named class definitions

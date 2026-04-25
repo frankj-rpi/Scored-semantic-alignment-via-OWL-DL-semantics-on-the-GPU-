@@ -95,9 +95,44 @@ class NegativeBlockerResult:
 
 
 @dataclass
+class ClassAssignmentStatus:
+    node_term: Identifier
+    target_class: URIRef
+    asserted: bool = False
+    positively_derived: bool = False
+    blocked: bool = False
+    conflicted: bool = False
+    blocker_classes: List[URIRef] = None
+
+    def __post_init__(self) -> None:
+        if self.blocker_classes is None:
+            self.blocker_classes = []
+
+
+class ConflictPolicy(Enum):
+    REPORT_ONLY = "report_only"
+    SUPPRESS_DERIVED_KEEP_ASSERTED = "suppress_derived_keep_asserted"
+    STRICT_FAIL_ON_CONFLICT = "strict_fail_on_conflict"
+
+
+@dataclass
+class ConflictPolicyResult:
+    policy: ConflictPolicy
+    emitted_assignments: List[ClassAssignmentStatus]
+    emitted_derived_assertions: List[Tuple[Identifier, URIRef]]
+    suppressed_derived_assignments: List[ClassAssignmentStatus]
+    asserted_conflicts: List[ClassAssignmentStatus]
+    hard_conflicts: List[ClassAssignmentStatus]
+    failed: bool = False
+    failure_reason: Optional[str] = None
+
+
+@dataclass
 class StratifiedMaterializationResult:
     positive_result: ClassMaterializationResult
     negative_result: NegativeBlockerResult
+    assignment_statuses: List[ClassAssignmentStatus]
+    policy_result: ConflictPolicyResult
 
 
 @dataclass
@@ -2561,6 +2596,7 @@ def collect_negative_blocker_specs(
                 blocker_classes=blocker_classes,
                 skipped_axioms=skipped_axioms,
             )
+        blocker_classes.discard(target_term)
 
         specs[target_term] = NegativeBlockerSpec(
             target_class=target_term,
@@ -4027,6 +4063,167 @@ def materialize_negative_class_blockers(
     )
 
 
+def collect_assignment_statuses(
+    *,
+    original_data_graph: Graph,
+    positive_result: ClassMaterializationResult,
+    negative_result: NegativeBlockerResult,
+    target_classes: Optional[Sequence[str | URIRef]] = None,
+) -> List[ClassAssignmentStatus]:
+    """
+    Build explicit assignment-status bookkeeping for the stratified pipeline.
+
+    Status bits:
+    - asserted: present in the input ABox
+    - positively_derived: added by the positive OWA fixpoint pass
+    - blocked: forbidden by the negative blocker pass
+    - conflicted: blocked and also present in the positive closure
+    """
+
+    target_filter = (
+        {URIRef(term) if isinstance(term, str) else term for term in target_classes}
+        if target_classes is not None
+        else None
+    )
+    status_by_key: Dict[Tuple[Identifier, URIRef], ClassAssignmentStatus] = {}
+
+    def ensure_status(node_term: Identifier, target_class: URIRef) -> ClassAssignmentStatus:
+        if target_filter is not None and target_class not in target_filter:
+            raise KeyError("status outside requested target filter")
+        key = (node_term, target_class)
+        status = status_by_key.get(key)
+        if status is None:
+            status = ClassAssignmentStatus(node_term=node_term, target_class=target_class)
+            status_by_key[key] = status
+        return status
+
+    for subj, pred, obj in original_data_graph.triples((None, RDF.type, None)):
+        if pred != RDF.type or not isinstance(obj, URIRef):
+            continue
+        if target_filter is not None and obj not in target_filter:
+            continue
+        ensure_status(subj, obj).asserted = True
+
+    for node_term, class_term in positive_result.inferred_assertions:
+        if target_filter is not None and class_term not in target_filter:
+            continue
+        ensure_status(node_term, class_term).positively_derived = True
+
+    for blocked in negative_result.blocked_assertions:
+        if target_filter is not None and blocked.target_class not in target_filter:
+            continue
+        status = ensure_status(blocked.node_term, blocked.target_class)
+        status.blocked = True
+        if blocked.blocker_class not in status.blocker_classes:
+            status.blocker_classes.append(blocked.blocker_class)
+
+    for blocked in negative_result.conflicting_positive_assertions:
+        if target_filter is not None and blocked.target_class not in target_filter:
+            continue
+        ensure_status(blocked.node_term, blocked.target_class).conflicted = True
+
+    for status in status_by_key.values():
+        status.blocker_classes.sort(key=str)
+
+    return sorted(
+        status_by_key.values(),
+        key=lambda status: (str(status.target_class), str(status.node_term)),
+    )
+
+
+def apply_conflict_policy(
+    assignment_statuses: Sequence[ClassAssignmentStatus],
+    *,
+    policy: ConflictPolicy = ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED,
+) -> ConflictPolicyResult:
+    """
+    Apply a conflict-handling policy over stratified assignment statuses.
+
+    Policies:
+    - report_only: keep all asserted and positively-derived assignments; report blockers/conflicts separately
+    - suppress_derived_keep_asserted: suppress blocked derived assignments, but never retract asserted ones
+    - strict_fail_on_conflict: mark the run as failed if any blocked assignment is also present in the positive closure
+    """
+
+    asserted_conflicts = [
+        status
+        for status in assignment_statuses
+        if status.asserted and status.blocked
+    ]
+    suppressed_derived_assignments = [
+        status
+        for status in assignment_statuses
+        if status.positively_derived and status.blocked
+    ]
+    hard_conflicts = [
+        status
+        for status in assignment_statuses
+        if status.conflicted
+    ]
+
+    if policy == ConflictPolicy.REPORT_ONLY:
+        emitted_assignments = [
+            status
+            for status in assignment_statuses
+            if status.asserted or status.positively_derived
+        ]
+        failed = False
+        failure_reason = None
+    elif policy == ConflictPolicy.STRICT_FAIL_ON_CONFLICT:
+        emitted_assignments = [
+            status
+            for status in assignment_statuses
+            if status.asserted or status.positively_derived
+        ]
+        failed = bool(hard_conflicts)
+        failure_reason = (
+            f"{len(hard_conflicts)} conflicting assignment(s) present in the positive closure."
+            if failed
+            else None
+        )
+    else:
+        emitted_assignments = [
+            status
+            for status in assignment_statuses
+            if status.asserted or (status.positively_derived and not status.blocked)
+        ]
+        failed = False
+        failure_reason = None
+
+    emitted_assignments = sorted(
+        emitted_assignments,
+        key=lambda status: (str(status.target_class), str(status.node_term)),
+    )
+    emitted_derived_assertions = sorted(
+        [
+            (status.node_term, status.target_class)
+            for status in emitted_assignments
+            if status.positively_derived
+        ],
+        key=lambda pair: (str(pair[1]), str(pair[0])),
+    )
+
+    return ConflictPolicyResult(
+        policy=policy,
+        emitted_assignments=emitted_assignments,
+        emitted_derived_assertions=emitted_derived_assertions,
+        suppressed_derived_assignments=sorted(
+            suppressed_derived_assignments,
+            key=lambda status: (str(status.target_class), str(status.node_term)),
+        ),
+        asserted_conflicts=sorted(
+            asserted_conflicts,
+            key=lambda status: (str(status.target_class), str(status.node_term)),
+        ),
+        hard_conflicts=sorted(
+            hard_conflicts,
+            key=lambda status: (str(status.target_class), str(status.node_term)),
+        ),
+        failed=failed,
+        failure_reason=failure_reason,
+    )
+
+
 def materialize_stratified_class_inferences(
     *,
     schema_graph: Graph,
@@ -4039,6 +4236,7 @@ def materialize_stratified_class_inferences(
     threshold: float = 0.999,
     max_iterations: int = 10,
     device: str = "cpu",
+    conflict_policy: ConflictPolicy = ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED,
 ) -> StratifiedMaterializationResult:
     positive_result = materialize_positive_sufficient_class_inferences(
         schema_graph=schema_graph,
@@ -4056,9 +4254,21 @@ def materialize_stratified_class_inferences(
         dataset=positive_result.dataset,
         target_classes=target_classes,
     )
+    assignment_statuses = collect_assignment_statuses(
+        original_data_graph=data_graph,
+        positive_result=positive_result,
+        negative_result=negative_result,
+        target_classes=target_classes,
+    )
+    policy_result = apply_conflict_policy(
+        assignment_statuses,
+        policy=conflict_policy,
+    )
     return StratifiedMaterializationResult(
         positive_result=positive_result,
         negative_result=negative_result,
+        assignment_statuses=assignment_statuses,
+        policy_result=policy_result,
     )
 
 

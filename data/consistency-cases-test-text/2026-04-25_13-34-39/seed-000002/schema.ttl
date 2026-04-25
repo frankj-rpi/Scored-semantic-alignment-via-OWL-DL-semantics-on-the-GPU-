@@ -1,0 +1,59 @@
+@prefix meta: <urn:dag-consistency-meta:> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:dag-consistency-case:2:ontology> a owl:Ontology ;
+    meta:augmentDomainRange false ;
+    meta:baseConsistent true ;
+    meta:generatedAt "2026-04-25T17:34:42+00:00"^^xsd:dateTime ;
+    meta:generatorConfigJson "{\"allowed_constructs\": [\"subclass\", \"exists\"], \"datatype_edge_probability\": 0.35, \"disjoint_pair_probability\": 0.1, \"domain_range_axiom_probability\": 0.35, \"edge_probability\": 0.18, \"max_axioms_per_target\": 3, \"min_axioms_per_target\": 1, \"num_datatype_properties\": 2, \"num_individuals\": 8, \"num_primitive_classes\": 5, \"num_properties\": 3, \"num_target_classes\": 4, \"type_probability\": 0.35}" ;
+    meta:materializeHierarchy "None" ;
+    meta:seed 2 ;
+    meta:targetClass <urn:dag-consistency:2#TargetClass0>,
+        <urn:dag-consistency:2#TargetClass1>,
+        <urn:dag-consistency:2#TargetClass2>,
+        <urn:dag-consistency:2#TargetClass3> ;
+    meta:threshold 9.99e-01 .
+
+<urn:dag-consistency:2#BaseClass1> a owl:Class .
+
+<urn:dag-consistency:2#BaseClass3> a owl:Class .
+
+<urn:dag-consistency:2#BaseClass0> a owl:Class .
+
+<urn:dag-consistency:2#TargetClass1> a owl:Class ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty <urn:dag-consistency:2#prop2> ;
+            owl:someValuesFrom <urn:dag-consistency:2#BaseClass4> ],
+        [ a owl:Restriction ;
+            owl:onProperty <urn:dag-consistency:2#prop1> ;
+            owl:someValuesFrom <urn:dag-consistency:2#TargetClass0> ],
+        <urn:dag-consistency:2#BaseClass2> ;
+    meta:generatedConstructs "[\"atomic\", \"exists\", \"subclass\"]" .
+
+<urn:dag-consistency:2#TargetClass3> a owl:Class ;
+    rdfs:subClassOf <urn:dag-consistency:2#TargetClass2> ;
+    meta:generatedConstructs "[\"atomic\", \"subclass\"]" .
+
+<urn:dag-consistency:2#prop0> a owl:ObjectProperty .
+
+<urn:dag-consistency:2#prop1> a owl:ObjectProperty .
+
+<urn:dag-consistency:2#prop2> a owl:ObjectProperty .
+
+<urn:dag-consistency:2#BaseClass2> a owl:Class .
+
+<urn:dag-consistency:2#BaseClass4> a owl:Class .
+
+<urn:dag-consistency:2#TargetClass0> a owl:Class ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty <urn:dag-consistency:2#prop0> ;
+            owl:someValuesFrom <urn:dag-consistency:2#BaseClass2> ] ;
+    meta:generatedConstructs "[\"atomic\", \"exists\", \"subclass\"]" .
+
+<urn:dag-consistency:2#TargetClass2> a owl:Class ;
+    rdfs:subClassOf <urn:dag-consistency:2#BaseClass0>,
+        <urn:dag-consistency:2#BaseClass4> ;
+    meta:generatedConstructs "[\"atomic\", \"subclass\"]" .
+

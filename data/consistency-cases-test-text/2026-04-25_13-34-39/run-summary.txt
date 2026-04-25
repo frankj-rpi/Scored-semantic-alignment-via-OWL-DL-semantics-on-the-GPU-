@@ -1,0 +1,32 @@
+=== Consistency Guarantee Harness ===
+Engine mode: query
+Run settings:
+  - threshold: 0.999
+  - device: cpu
+  - materialize_hierarchy: None
+  - augment_property_domain_range: False
+  - owlready2_reasoner: hermit
+  - max_examples_per_bucket: 3
+  - num_cases: 1
+  - max_attempts: 4
+  - start_seed: 0
+  - save_cases: True
+  - save_dir: data\consistency-cases-test-text
+  - generator_config: {'num_primitive_classes': 5, 'num_target_classes': 4, 'num_properties': 3, 'num_datatype_properties': 2, 'num_individuals': 8, 'min_axioms_per_target': 1, 'max_axioms_per_target': 3, 'type_probability': 0.35, 'edge_probability': 0.18, 'datatype_edge_probability': 0.35, 'disjoint_pair_probability': 0.1, 'domain_range_axiom_probability': 0.35, 'allowed_constructs': ('subclass', 'exists')}
+Requested cases: 1
+Generated base-consistent cases: 1
+Generation attempts: 3
+Perfect scores found: 3
+Assertions checked: 3
+Consistency failures: 0
+Saved cases: data\consistency-cases-test-text\2026-04-25_13-34-39
+
+Stage timings:
+  - Random graph generation: 5.692 ms
+  - Preprocessing total: 3.958 ms (loader/dataset build=3.143 ms, DAG compile=0.815 ms)
+      preprocessing breakdown: hierarchy=0.481 ms, atomic domain/range=0.000 ms, horn-safe domain/range=0.000 ms, target roles=0.000 ms, kgraph build=2.662 ms
+  - DAG evaluation: 7.405 ms
+  - Error checking total: 5003.166 ms (base consistency=2422.091 ms, assertion checks=2581.075 ms)
+
+Failure buckets by construct set:
+  - [atomic, exists, subclass] tested=3, failures=0, failure_rate=0.000

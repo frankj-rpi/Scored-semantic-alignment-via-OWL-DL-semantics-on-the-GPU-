@@ -19,7 +19,13 @@ from rdflib.term import Identifier
 
 from .constraints import ConstraintDAG, ConstraintType
 from .explanations import explain_dataset_query
-from .ontology_parse import compile_class_to_dag, describe_preprocessing_plan, plan_reasoning_preprocessing
+from .ontology_parse import (
+    ConflictPolicy,
+    compile_class_to_dag,
+    compile_sufficient_condition_dag,
+    describe_preprocessing_plan,
+    plan_reasoning_preprocessing,
+)
 from .oracle_compare import _render_term, run_engine_queries
 
 
@@ -110,6 +116,9 @@ class HarnessSummary:
     dag_eval_elapsed_ms: float = 0.0
     base_consistency_check_elapsed_ms: float = 0.0
     assertion_consistency_check_elapsed_ms: float = 0.0
+    engine_mode: str = "query"
+    conflict_policy: Optional[str] = None
+    run_settings: Optional[Dict[str, object]] = None
     save_root: Optional[str] = None
 
 
@@ -191,6 +200,8 @@ def _save_case_graphs(
     threshold: float,
     materialize_hierarchy: bool,
     augment_property_domain_range: bool,
+    engine_mode: str,
+    conflict_policy: Optional[str],
     base_consistent: bool,
 ) -> str:
     case_dir = os.path.join(save_root, f"seed-{case.seed:06d}")
@@ -214,6 +225,8 @@ def _save_case_graphs(
         "threshold": threshold,
         "materialize_hierarchy": materialize_hierarchy,
         "augment_property_domain_range": augment_property_domain_range,
+        "engine_mode": engine_mode,
+        "conflict_policy": conflict_policy,
         "base_consistent": base_consistent,
         "target_classes": [str(term) for term in case.target_classes],
         "target_constructs": {str(k): list(v) for k, v in case.target_constructs.items()},
@@ -235,6 +248,11 @@ def _write_run_summary(summary: HarnessSummary) -> None:
         "total_perfect_scores": summary.total_perfect_scores,
         "total_checked_assertions": summary.total_checked_assertions,
         "total_failures": summary.total_failures,
+        "engine": {
+            "mode": summary.engine_mode,
+            "conflict_policy": summary.conflict_policy,
+        },
+        "run_settings": summary.run_settings,
         "timings_ms": {
             "generation": summary.generation_elapsed_ms,
             "preprocessing_total": summary.preprocessing_elapsed_ms,
@@ -275,6 +293,8 @@ def _write_run_summary(summary: HarnessSummary) -> None:
     }
     with open(os.path.join(summary.save_root, "run-summary.json"), "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
+    with open(os.path.join(summary.save_root, "run-summary.txt"), "w", encoding="utf-8") as handle:
+        handle.write(format_harness_summary(summary))
 
 
 def _list_expression(graph: Graph, predicate: URIRef, members: Sequence[Identifier]) -> Identifier:
@@ -726,6 +746,8 @@ def _collect_consistency_buckets(
     owlready2_reasoner: str,
     max_examples_per_bucket: int,
     augment_property_domain_range: bool,
+    engine_mode: str,
+    conflict_policy: str,
     case_dir: Optional[str],
 ) -> Tuple[
     int,
@@ -754,19 +776,27 @@ def _collect_consistency_buckets(
         materialize_hierarchy=materialize_hierarchy,
         materialize_supported_types=False,
         augment_property_domain_range=augment_property_domain_range,
+        engine_mode=engine_mode,
+        conflict_policy=conflict_policy,
     )
 
     if engine_result.dataset is None or engine_result.scores_by_target is None:
         raise RuntimeError("Engine query run did not return a dataset or scores.")
 
-    query_plan = plan_reasoning_preprocessing(
-        engine_result.dataset.ontology_graph,
-        target_classes=case.target_classes,
-        materialize_hierarchy=materialize_hierarchy,
-        augment_property_domain_range=augment_property_domain_range,
-    )
+    query_plan = None
+    if engine_mode != "stratified":
+        query_plan = plan_reasoning_preprocessing(
+            engine_result.dataset.ontology_graph,
+            target_classes=case.target_classes,
+            materialize_hierarchy=materialize_hierarchy,
+            augment_property_domain_range=augment_property_domain_range,
+        )
     if case_dir is not None:
         preprocessing_payload = {
+            "engine": {
+                "mode": engine_mode,
+                "conflict_policy": conflict_policy if engine_mode == "stratified" else None,
+            },
             "loader": {
                 "materialize_hierarchy": vars(engine_result.dataset.preprocessing_plan.materialize_hierarchy),
                 "materialize_atomic_domain_range": vars(engine_result.dataset.preprocessing_plan.materialize_atomic_domain_range),
@@ -774,20 +804,25 @@ def _collect_consistency_buckets(
                 "materialize_target_roles": vars(engine_result.dataset.preprocessing_plan.materialize_target_roles),
                 "augment_property_domain_range": vars(engine_result.dataset.preprocessing_plan.augment_property_domain_range),
             },
-            "query": {
-                "augment_property_domain_range": vars(query_plan.augment_property_domain_range),
-            },
         }
+        if query_plan is not None:
+            preprocessing_payload["query"] = {
+                "augment_property_domain_range": vars(query_plan.augment_property_domain_range),
+            }
         with open(os.path.join(case_dir, "preprocessing-plan.json"), "w", encoding="utf-8") as handle:
             json.dump(preprocessing_payload, handle, indent=2, sort_keys=True)
         with open(os.path.join(case_dir, "preprocessing-plan.txt"), "w", encoding="utf-8") as handle:
             handle.write(describe_preprocessing_plan(engine_result.dataset.preprocessing_plan))
             handle.write("\n")
-            handle.write(
-                f"Query augmentation: {'on' if query_plan.augment_property_domain_range.enabled else 'off'} "
-                f"(policy={query_plan.augment_property_domain_range.policy}; "
-                f"{query_plan.augment_property_domain_range.reason})\n"
-            )
+            handle.write(f"Engine mode: {engine_mode}\n")
+            if engine_mode == "stratified":
+                handle.write(f"Conflict policy: {conflict_policy}\n")
+            elif query_plan is not None:
+                handle.write(
+                    f"Query augmentation: {'on' if query_plan.augment_property_domain_range.enabled else 'off'} "
+                    f"(policy={query_plan.augment_property_domain_range.policy}; "
+                    f"{query_plan.augment_property_domain_range.reason})\n"
+                )
 
     merged_graph = _merge_graphs(case.schema_graph, case.data_graph)
     bucket_stats: Dict[Tuple[str, ...], BucketStats] = {}
@@ -800,12 +835,19 @@ def _collect_consistency_buckets(
     assertion_consistency_check_elapsed_ms = 0.0
 
     for target_class in case.target_classes:
-        dag = compile_class_to_dag(
-            engine_result.dataset.ontology_graph,
-            engine_result.dataset.mapping,
-            target_class,
-            augment_property_domain_range=augment_property_domain_range,
-        )
+        if engine_mode == "stratified":
+            dag = compile_sufficient_condition_dag(
+                engine_result.dataset.ontology_graph,
+                engine_result.dataset.mapping,
+                target_class,
+            )
+        else:
+            dag = compile_class_to_dag(
+                engine_result.dataset.ontology_graph,
+                engine_result.dataset.mapping,
+                target_class,
+                augment_property_domain_range=augment_property_domain_range,
+            )
         construct_key = _construct_bucket_key(
             set(case.target_constructs.get(target_class, ())) | _dag_construct_tags(dag)
         )
@@ -851,20 +893,41 @@ def _collect_consistency_buckets(
             if case_dir is not None:
                 explanations_dir = os.path.join(case_dir, "explanations")
                 _ensure_dir(explanations_dir)
-                explanation = explain_dataset_query(
-                    engine_result.dataset,
-                    target_class=target_class,
-                    node_term=node_term,
-                    augment_property_domain_range=augment_property_domain_range,
-                    device=device,
-                )
                 example_index = len(failures) - 1
                 explanation_path = os.path.join(
                     explanations_dir,
                     f"failure-{example_index:03d}-{_sanitize_bucket_key(construct_key)}.txt",
                 )
                 with open(explanation_path, "w", encoding="utf-8") as handle:
-                    handle.write(explanation.text)
+                    if engine_mode == "stratified" and engine_result.stratified_result is not None:
+                        matching_statuses = [
+                            status
+                            for status in engine_result.stratified_result.assignment_statuses
+                            if status.node_term == node_term and status.target_class == target_class
+                        ]
+                        handle.write("=== Stratified Failure Summary ===\n")
+                        handle.write(f"target={target_class.n3()}\n")
+                        handle.write(f"node={_render_term(node_term)}\n")
+                        handle.write(f"policy={engine_result.conflict_policy}\n")
+                        handle.write("statuses:\n")
+                        if not matching_statuses:
+                            handle.write("  (none)\n")
+                        else:
+                            for status in matching_statuses:
+                                handle.write(
+                                    f"  asserted={status.asserted}, positively_derived={status.positively_derived}, "
+                                    f"blocked={status.blocked}, conflicted={status.conflicted}, "
+                                    f"blockers={[str(term) for term in status.blocker_classes]}\n"
+                                )
+                    else:
+                        explanation = explain_dataset_query(
+                            engine_result.dataset,
+                            target_class=target_class,
+                            node_term=node_term,
+                            augment_property_domain_range=augment_property_domain_range,
+                            device=device,
+                        )
+                        handle.write(explanation.text)
 
         if case_dir is not None:
             case_scores_dir = os.path.join(case_dir, "scores")
@@ -933,6 +996,8 @@ def run_consistency_harness(
     owlready2_reasoner: str = "hermit",
     max_examples_per_bucket: int = 3,
     augment_property_domain_range: Optional[bool] = None,
+    engine_mode: str = "query",
+    conflict_policy: str = ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED.value,
     save_cases: bool = True,
     save_dir: str = os.path.join("data", "consistency-cases"),
 ) -> HarnessSummary:
@@ -993,6 +1058,8 @@ def run_consistency_harness(
                 threshold=threshold,
                 materialize_hierarchy=materialize_hierarchy,
                 augment_property_domain_range=augment_property_domain_range,
+                engine_mode=engine_mode,
+                conflict_policy=(conflict_policy if engine_mode == "stratified" else None),
                 base_consistent=True,
             )
             if run_save_root is not None
@@ -1022,6 +1089,8 @@ def run_consistency_harness(
             owlready2_reasoner=owlready2_reasoner,
             max_examples_per_bucket=max_examples_per_bucket,
             augment_property_domain_range=augment_property_domain_range,
+            engine_mode=engine_mode,
+            conflict_policy=conflict_policy,
             case_dir=case_dir,
         )
 
@@ -1068,29 +1137,75 @@ def run_consistency_harness(
         dag_eval_elapsed_ms=dag_eval_elapsed_ms,
         base_consistency_check_elapsed_ms=base_consistency_check_elapsed_ms,
         assertion_consistency_check_elapsed_ms=assertion_consistency_check_elapsed_ms,
+        engine_mode=engine_mode,
+        conflict_policy=(conflict_policy if engine_mode == "stratified" else None),
+        run_settings={
+            "num_cases": num_cases,
+            "max_attempts": max_attempts,
+            "start_seed": start_seed,
+            "threshold": threshold,
+            "device": device,
+            "materialize_hierarchy": materialize_hierarchy,
+            "augment_property_domain_range": augment_property_domain_range,
+            "owlready2_reasoner": owlready2_reasoner,
+            "max_examples_per_bucket": max_examples_per_bucket,
+            "save_cases": save_cases,
+            "save_dir": save_dir,
+            "generator_config": dict(config.__dict__),
+        },
         save_root=run_save_root,
     )
 
 
-def print_harness_summary(summary: HarnessSummary) -> None:
-    print("=== Consistency Guarantee Harness ===")
-    print(f"Requested cases: {summary.requested_cases}")
-    print(f"Generated base-consistent cases: {summary.generated_cases}")
-    print(f"Generation attempts: {summary.attempts}")
-    print(f"Perfect scores found: {summary.total_perfect_scores}")
-    print(f"Assertions checked: {summary.total_checked_assertions}")
-    print(f"Consistency failures: {summary.total_failures}")
+def format_harness_summary(summary: HarnessSummary) -> str:
+    lines: List[str] = []
+    lines.append("=== Consistency Guarantee Harness ===")
+    lines.append(f"Engine mode: {summary.engine_mode}")
+    if summary.engine_mode == "stratified" and summary.conflict_policy is not None:
+        lines.append(f"Conflict policy: {summary.conflict_policy}")
+    if summary.run_settings:
+        lines.append("Run settings:")
+        ordered_keys = [
+            "threshold",
+            "device",
+            "materialize_hierarchy",
+            "augment_property_domain_range",
+            "owlready2_reasoner",
+            "max_examples_per_bucket",
+            "num_cases",
+            "max_attempts",
+            "start_seed",
+            "save_cases",
+            "save_dir",
+            "generator_config",
+        ]
+        seen: Set[str] = set()
+        for key in ordered_keys:
+            if key not in summary.run_settings:
+                continue
+            seen.add(key)
+            lines.append(f"  - {key}: {summary.run_settings[key]}")
+        for key in sorted(summary.run_settings.keys()):
+            if key in seen:
+                continue
+            lines.append(f"  - {key}: {summary.run_settings[key]}")
+    lines.append(f"Requested cases: {summary.requested_cases}")
+    lines.append(f"Generated base-consistent cases: {summary.generated_cases}")
+    lines.append(f"Generation attempts: {summary.attempts}")
+    lines.append(f"Perfect scores found: {summary.total_perfect_scores}")
+    lines.append(f"Assertions checked: {summary.total_checked_assertions}")
+    lines.append(f"Consistency failures: {summary.total_failures}")
     if summary.save_root:
-        print(f"Saved cases: {summary.save_root}")
-    print("")
-    print("Stage timings:")
-    print(f"  - Random graph generation: {summary.generation_elapsed_ms:.3f} ms")
-    print(
+        lines.append(f"Saved cases: {summary.save_root}")
+    lines.append("")
+    lines.append("Stage timings:")
+    lines.append(f"  - Random graph generation: {summary.generation_elapsed_ms:.3f} ms")
+    lines.append(
         f"  - Preprocessing total: {summary.preprocessing_elapsed_ms:.3f} ms "
         f"(loader/dataset build={summary.dataset_build_elapsed_ms:.3f} ms, "
         f"DAG compile={summary.dag_compile_elapsed_ms:.3f} ms)"
     )
-    print(
+    lines.append(
         "      preprocessing breakdown: "
         f"hierarchy={summary.hierarchy_elapsed_ms:.3f} ms, "
         f"atomic domain/range={summary.atomic_domain_range_elapsed_ms:.3f} ms, "
@@ -1098,8 +1213,8 @@ def print_harness_summary(summary: HarnessSummary) -> None:
         f"target roles={summary.target_role_elapsed_ms:.3f} ms, "
         f"kgraph build={summary.kgraph_build_elapsed_ms:.3f} ms"
     )
-    print(f"  - DAG evaluation: {summary.dag_eval_elapsed_ms:.3f} ms")
-    print(
+    lines.append(f"  - DAG evaluation: {summary.dag_eval_elapsed_ms:.3f} ms")
+    lines.append(
         f"  - Error checking total: "
         f"{summary.base_consistency_check_elapsed_ms + summary.assertion_consistency_check_elapsed_ms:.3f} ms "
         f"(base consistency={summary.base_consistency_check_elapsed_ms:.3f} ms, "
@@ -1107,18 +1222,18 @@ def print_harness_summary(summary: HarnessSummary) -> None:
     )
 
     if summary.generated_cases < summary.requested_cases:
-        print("Warning: fewer consistent cases were generated than requested.")
+        lines.append("Warning: fewer consistent cases were generated than requested.")
 
-    print("")
-    print("Failure buckets by construct set:")
+    lines.append("")
+    lines.append("Failure buckets by construct set:")
     exercised_buckets = {
         bucket_key: bucket
         for bucket_key, bucket in summary.bucket_stats.items()
         if bucket.tested > 0
     }
     if not exercised_buckets:
-        print("  (no buckets; no assertions were checked)")
-        return
+        lines.append("  (no buckets; no assertions were checked)")
+        return "\n".join(lines)
 
     ordered_buckets = sorted(
         exercised_buckets.items(),
@@ -1126,26 +1241,31 @@ def print_harness_summary(summary: HarnessSummary) -> None:
     )
     for bucket_key, bucket in ordered_buckets:
         failure_rate = (bucket.failures / bucket.tested) if bucket.tested else 0.0
-        print(
+        lines.append(
             f"  - [{_format_bucket_key(bucket_key)}] "
             f"tested={bucket.tested}, failures={bucket.failures}, "
             f"failure_rate={failure_rate:.3f}"
         )
         for example in bucket.examples:
-            print(
+            lines.append(
                 "      example: "
                 f"seed={example.seed}, node={_render_term(example.node_term)}, "
                 f"target={_render_term(example.target_class)}, score={example.score:.4f}"
             )
             if example.error:
-                print(f"      error: {example.error}")
+                lines.append(f"      error: {example.error}")
+    return "\n".join(lines)
+
+
+def print_harness_summary(summary: HarnessSummary) -> None:
+    print(format_harness_summary(summary))
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Generate fragment-bounded random ontology/KG pairs and test the "
-            "current query path's local consistency guarantee against owlready2."
+            "selected engine mode's local consistency guarantee against owlready2."
         )
     )
     parser.add_argument("--num-cases", type=int, default=5)
@@ -1183,6 +1303,21 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--threshold", type=float, default=0.999)
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
+    parser.add_argument(
+        "--engine-mode",
+        choices=["query", "stratified"],
+        default="query",
+        help=(
+            "query = necessary-condition admissibility path; "
+            "stratified = positive sufficient-condition closure plus negative blocker policy."
+        ),
+    )
+    parser.add_argument(
+        "--conflict-policy",
+        choices=[policy.value for policy in ConflictPolicy],
+        default=ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED.value,
+        help="Conflict policy used in stratified mode.",
+    )
     hierarchy_group = parser.add_mutually_exclusive_group()
     hierarchy_group.add_argument("--materialize-hierarchy", dest="materialize_hierarchy", action="store_true")
     hierarchy_group.add_argument("--no-materialize-hierarchy", dest="materialize_hierarchy", action="store_false")
@@ -1255,6 +1390,8 @@ def main() -> None:
         augment_property_domain_range=(
             auto_augment_domain_range if args.augment_domain_range is None else args.augment_domain_range
         ),
+        engine_mode=args.engine_mode,
+        conflict_policy=args.conflict_policy,
         save_cases=not args.no_save_cases,
         save_dir=args.save_dir,
     )

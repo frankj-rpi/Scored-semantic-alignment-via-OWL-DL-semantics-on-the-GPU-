@@ -17,11 +17,15 @@ from rdflib.term import Identifier
 
 from .dag_reasoner import DAGReasoner
 from .ontology_parse import (
+    ConflictPolicy,
     ReasoningDataset,
+    StratifiedMaterializationResult,
     build_reasoning_dataset_from_graphs,
     collect_inferable_named_classes,
     compile_class_to_dag,
+    compile_sufficient_condition_dag,
     load_rdflib_graph,
+    materialize_stratified_class_inferences,
     materialize_supported_class_inferences,
     plan_reasoning_preprocessing,
     summarize_loaded_kgraph,
@@ -46,6 +50,9 @@ class EngineQueryResult(BackendQueryResult):
     dataset: Optional[ReasoningDataset] = None
     scores_by_target: Optional[Dict[URIRef, Dict[Identifier, float]]] = None
     materialization_iterations: Optional[int] = None
+    engine_mode: str = "query"
+    conflict_policy: Optional[str] = None
+    stratified_result: Optional[StratifiedMaterializationResult] = None
     dataset_build_elapsed_ms: float = 0.0
     hierarchy_elapsed_ms: float = 0.0
     atomic_domain_range_elapsed_ms: float = 0.0
@@ -207,6 +214,8 @@ def run_engine_queries(
     materialize_hierarchy: Optional[bool] = None,
     materialize_supported_types: bool = False,
     augment_property_domain_range: Optional[bool] = None,
+    engine_mode: str = "query",
+    conflict_policy: str = ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED.value,
 ) -> EngineQueryResult:
     device_to_use = device
     if device_to_use == "cuda" and not torch.cuda.is_available():
@@ -214,9 +223,25 @@ def run_engine_queries(
 
     t0 = perf_counter()
     iterations: Optional[int] = None
+    stratified_result: Optional[StratifiedMaterializationResult] = None
 
     dataset_t0 = perf_counter()
-    if materialize_supported_types:
+    if engine_mode == "stratified":
+        stratified_result = materialize_stratified_class_inferences(
+            schema_graph=schema_graph,
+            data_graph=data_graph,
+            include_literals=include_literals,
+            include_type_edges=include_type_edges,
+            materialize_hierarchy=(True if materialize_hierarchy is None else materialize_hierarchy),
+            materialize_target_roles=False,
+            target_classes=target_classes,
+            threshold=threshold,
+            device=device_to_use,
+            conflict_policy=ConflictPolicy(conflict_policy),
+        )
+        dataset = stratified_result.positive_result.dataset
+        iterations = stratified_result.positive_result.iterations
+    elif materialize_supported_types:
         materialized = materialize_supported_class_inferences(
             schema_graph=schema_graph,
             data_graph=data_graph,
@@ -252,41 +277,68 @@ def run_engine_queries(
         target_role_elapsed_ms = dataset.preprocessing_timings.target_role_elapsed_ms
         kgraph_build_elapsed_ms = dataset.preprocessing_timings.kgraph_build_elapsed_ms
 
-    query_plan = plan_reasoning_preprocessing(
-        dataset.ontology_graph,
-        target_classes=target_classes,
-        augment_property_domain_range=augment_property_domain_range,
-    )
-
-    reasoner = DAGReasoner(dataset.kg, device=device_to_use)
-    compile_t0 = perf_counter()
-    for target_term in target_classes:
-        dag = compile_class_to_dag(
-            dataset.ontology_graph,
-            dataset.mapping,
-            target_term,
-            augment_property_domain_range=query_plan.augment_property_domain_range.enabled,
-        )
-        reasoner.add_concept(str(target_term), dag)
-    dag_compile_elapsed_ms = (perf_counter() - compile_t0) * 1000.0
-
-    eval_t0 = perf_counter()
-    score_matrix = reasoner.evaluate_all().detach().cpu()
-    dag_eval_elapsed_ms = (perf_counter() - eval_t0) * 1000.0
-    elapsed_ms = (perf_counter() - t0) * 1000.0
-
     members_by_target: Dict[URIRef, Set[Identifier]] = {}
     scores_by_target: Dict[URIRef, Dict[Identifier, float]] = {}
-    for class_col, target_term in enumerate(target_classes):
-        members: Set[Identifier] = set()
-        scores: Dict[Identifier, float] = {}
-        for node_idx, node_term in enumerate(dataset.mapping.node_terms):
-            score = float(score_matrix[node_idx, class_col].item())
-            scores[node_term] = score
-            if score >= threshold:
-                members.add(node_term)
-        members_by_target[target_term] = members
-        scores_by_target[target_term] = scores
+
+    if engine_mode == "stratified":
+        compile_t0 = perf_counter()
+        for target_term in target_classes:
+            compile_sufficient_condition_dag(
+                dataset.ontology_graph,
+                dataset.mapping,
+                target_term,
+            )
+        dag_compile_elapsed_ms = (perf_counter() - compile_t0) * 1000.0
+        dag_eval_elapsed_ms = 0.0
+
+        emitted_members_by_target: Dict[URIRef, Set[Identifier]] = {target: set() for target in target_classes}
+        if stratified_result is not None:
+            for status in stratified_result.policy_result.emitted_assignments:
+                if status.target_class in emitted_members_by_target:
+                    emitted_members_by_target[status.target_class].add(status.node_term)
+
+        for target_term in target_classes:
+            members = emitted_members_by_target.get(target_term, set())
+            scores: Dict[Identifier, float] = {}
+            for node_term in dataset.mapping.node_terms:
+                score = 1.0 if node_term in members else 0.0
+                scores[node_term] = score
+            members_by_target[target_term] = set(members)
+            scores_by_target[target_term] = scores
+    else:
+        query_plan = plan_reasoning_preprocessing(
+            dataset.ontology_graph,
+            target_classes=target_classes,
+            augment_property_domain_range=augment_property_domain_range,
+        )
+
+        reasoner = DAGReasoner(dataset.kg, device=device_to_use)
+        compile_t0 = perf_counter()
+        for target_term in target_classes:
+            dag = compile_class_to_dag(
+                dataset.ontology_graph,
+                dataset.mapping,
+                target_term,
+                augment_property_domain_range=query_plan.augment_property_domain_range.enabled,
+            )
+            reasoner.add_concept(str(target_term), dag)
+        dag_compile_elapsed_ms = (perf_counter() - compile_t0) * 1000.0
+
+        eval_t0 = perf_counter()
+        score_matrix = reasoner.evaluate_all().detach().cpu()
+        dag_eval_elapsed_ms = (perf_counter() - eval_t0) * 1000.0
+
+        for class_col, target_term in enumerate(target_classes):
+            members: Set[Identifier] = set()
+            scores: Dict[Identifier, float] = {}
+            for node_idx, node_term in enumerate(dataset.mapping.node_terms):
+                score = float(score_matrix[node_idx, class_col].item())
+                scores[node_term] = score
+                if score >= threshold:
+                    members.add(node_term)
+            members_by_target[target_term] = members
+            scores_by_target[target_term] = scores
+    elapsed_ms = (perf_counter() - t0) * 1000.0
 
     return EngineQueryResult(
         backend="engine",
@@ -295,6 +347,9 @@ def run_engine_queries(
         dataset=dataset,
         scores_by_target=scores_by_target,
         materialization_iterations=iterations,
+        engine_mode=engine_mode,
+        conflict_policy=(conflict_policy if engine_mode == "stratified" else None),
+        stratified_result=stratified_result,
         consistent=None,
         dataset_build_elapsed_ms=dataset_build_elapsed_ms,
         hierarchy_elapsed_ms=hierarchy_elapsed_ms,

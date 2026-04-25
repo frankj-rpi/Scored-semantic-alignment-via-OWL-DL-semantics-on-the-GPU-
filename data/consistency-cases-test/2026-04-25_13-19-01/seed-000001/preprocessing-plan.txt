@@ -1,0 +1,8 @@
+Preprocessing plan:
+  - materialize_hierarchy: on (policy=on; explicitly enabled)
+  - materialize_atomic_domain_range: off (policy=off; suppressed because Horn-safe domain/range materialization is enabled)
+  - materialize_horn_safe_domain_range: on (policy=auto; auto: domain/range axioms detected)
+  - materialize_target_roles: off (policy=off; explicitly disabled)
+  - augment_property_domain_range: on (policy=auto; auto: domain/range axioms detected)
+Engine mode: stratified
+Conflict policy: suppress_derived_keep_asserted
