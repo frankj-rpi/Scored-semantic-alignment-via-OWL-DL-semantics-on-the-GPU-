@@ -1,0 +1,12 @@
+@prefix ex: <http://example.org/haskey#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:anchor a ex:Person, owl:NamedIndividual ;
+    ex:ssn "123"^^xsd:string .
+
+ex:alias a ex:Person, owl:NamedIndividual ;
+    ex:ssn "123"^^xsd:string .
+
+ex:outsider a ex:Person, owl:NamedIndividual ;
+    ex:ssn "456"^^xsd:string .

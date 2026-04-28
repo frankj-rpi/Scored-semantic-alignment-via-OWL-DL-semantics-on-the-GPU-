@@ -1,9 +1,0 @@
-Explanation for target <urn:dag-consistency:1#TargetClass4> at node <urn:dag-consistency:1#node3>
-Final score: 1.0000
-
-- DAG node 6 INTERSECTION at <urn:dag-consistency:1#node3> => 1.0000
-  aggregate uses minimum over child scores: 1=1.0000, 3=1.0000, 5=1.0000
-    - DAG node 1 NEGATION at <urn:dag-consistency:1#node3> => 1.0000
-      negates child score 0.0000
-        - DAG node 0 ATOMIC_CLASS at <urn:dag-consistency:1#node3> => 0.0000
-          requires atomic class <urn:dag-consistency:1#BaseClass5>; node_types match=no

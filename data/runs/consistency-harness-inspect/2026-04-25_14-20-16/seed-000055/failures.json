@@ -1,0 +1,47 @@
+[
+  {
+    "constructs": [
+      "atomic",
+      "disjoint",
+      "intersection",
+      "negation",
+      "subclass"
+    ],
+    "error": null,
+    "node_term": "<urn:dag-consistency:55#node1>",
+    "reasoner": "hermit",
+    "score": 1.0,
+    "seed": 55,
+    "target_class": "urn:dag-consistency:55#TargetClass3"
+  },
+  {
+    "constructs": [
+      "atomic",
+      "disjoint",
+      "intersection",
+      "negation",
+      "subclass"
+    ],
+    "error": null,
+    "node_term": "<urn:dag-consistency:55#node6>",
+    "reasoner": "hermit",
+    "score": 1.0,
+    "seed": 55,
+    "target_class": "urn:dag-consistency:55#TargetClass3"
+  },
+  {
+    "constructs": [
+      "atomic",
+      "disjoint",
+      "intersection",
+      "negation",
+      "subclass"
+    ],
+    "error": null,
+    "node_term": "<urn:dag-consistency:55#node7>",
+    "reasoner": "hermit",
+    "score": 1.0,
+    "seed": 55,
+    "target_class": "urn:dag-consistency:55#TargetClass3"
+  }
+]

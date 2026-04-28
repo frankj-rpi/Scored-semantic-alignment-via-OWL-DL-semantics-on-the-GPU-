@@ -737,7 +737,7 @@ def demo_random_exact_comparison(
     
     timestamp = now_timestamp()
     print(f"Run: {timestamp}")
-    ttl_path = f"data/random-graphs/{timestamp}.ttl"
+    ttl_path = f"data/runs/compare-exact/random-graphs/{timestamp}.ttl"
 
     print("Generating random KGraph...")
     kg = generate_random_kgraph(

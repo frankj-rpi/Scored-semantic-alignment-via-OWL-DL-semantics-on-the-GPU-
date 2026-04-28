@@ -1,0 +1,10 @@
+@prefix ex: <http://example.org/reflexive#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+ex:alice a owl:NamedIndividual ;
+    ex:knowsSelf ex:bob .
+
+ex:bob a owl:NamedIndividual .
+
+ex:carol a owl:NamedIndividual ;
+    ex:knowsSelf ex:alice .

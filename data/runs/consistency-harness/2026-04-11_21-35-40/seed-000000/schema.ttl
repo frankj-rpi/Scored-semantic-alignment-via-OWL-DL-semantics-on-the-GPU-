@@ -1,0 +1,68 @@
+@prefix meta: <urn:dag-consistency-meta:> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:dag-consistency-case:0:ontology> a owl:Ontology ;
+    meta:augmentDomainRange true ;
+    meta:baseConsistent true ;
+    meta:generatedAt "2026-04-12T01:35:41+00:00"^^xsd:dateTime ;
+    meta:generatorConfigJson "{\"allowed_constructs\": [\"domain\", \"range\", \"subclass\", \"intersection\"], \"datatype_edge_probability\": 0.35, \"disjoint_pair_probability\": 0.1, \"domain_range_axiom_probability\": 0.35, \"edge_probability\": 0.18, \"max_axioms_per_target\": 3, \"min_axioms_per_target\": 1, \"num_datatype_properties\": 2, \"num_individuals\": 5, \"num_primitive_classes\": 3, \"num_properties\": 4, \"num_target_classes\": 5, \"type_probability\": 0.35}" ;
+    meta:materializeHierarchy "None" ;
+    meta:seed 0 ;
+    meta:targetClass <urn:dag-consistency:0#TargetClass0>,
+        <urn:dag-consistency:0#TargetClass1>,
+        <urn:dag-consistency:0#TargetClass2>,
+        <urn:dag-consistency:0#TargetClass3>,
+        <urn:dag-consistency:0#TargetClass4> ;
+    meta:threshold 9.99e-01 .
+
+<urn:dag-consistency:0#prop0> a owl:ObjectProperty ;
+    rdfs:domain <urn:dag-consistency:0#TargetClass2>,
+        <urn:dag-consistency:0#TargetClass4> ;
+    rdfs:range <urn:dag-consistency:0#TargetClass2> .
+
+<urn:dag-consistency:0#prop1> a owl:ObjectProperty ;
+    rdfs:domain <urn:dag-consistency:0#TargetClass0> ;
+    rdfs:range <urn:dag-consistency:0#TargetClass4> .
+
+<urn:dag-consistency:0#prop2> a owl:ObjectProperty .
+
+<urn:dag-consistency:0#prop3> a owl:ObjectProperty .
+
+<urn:dag-consistency:0#TargetClass3> a owl:Class ;
+    rdfs:subClassOf [ a owl:Class ;
+            owl:intersectionOf ( <urn:dag-consistency:0#TargetClass2> <urn:dag-consistency:0#BaseClass2> ) ],
+        [ a owl:Class ;
+            owl:intersectionOf ( <urn:dag-consistency:0#BaseClass2> <urn:dag-consistency:0#BaseClass0> ) ],
+        <urn:dag-consistency:0#TargetClass1> ;
+    meta:generatedConstructs "[\"atomic\", \"intersection\", \"subclass\"]" .
+
+<urn:dag-consistency:0#BaseClass0> a owl:Class .
+
+<urn:dag-consistency:0#BaseClass1> a owl:Class .
+
+<urn:dag-consistency:0#TargetClass0> a owl:Class ;
+    rdfs:subClassOf <urn:dag-consistency:0#BaseClass0>,
+        <urn:dag-consistency:0#BaseClass2> ;
+    meta:generatedConstructs "[\"atomic\", \"domain\", \"subclass\"]" .
+
+<urn:dag-consistency:0#TargetClass4> a owl:Class ;
+    rdfs:subClassOf <urn:dag-consistency:0#TargetClass0> ;
+    meta:generatedConstructs "[\"atomic\", \"domain\", \"range\", \"subclass\"]" .
+
+<urn:dag-consistency:0#TargetClass1> a owl:Class ;
+    rdfs:subClassOf <urn:dag-consistency:0#BaseClass2> ;
+    meta:generatedConstructs "[\"atomic\", \"subclass\"]" .
+
+<urn:dag-consistency:0#TargetClass2> a owl:Class ;
+    rdfs:subClassOf [ a owl:Class ;
+            owl:intersectionOf ( <urn:dag-consistency:0#TargetClass1> <urn:dag-consistency:0#BaseClass1> ) ],
+        [ a owl:Class ;
+            owl:intersectionOf ( <urn:dag-consistency:0#TargetClass1> <urn:dag-consistency:0#BaseClass2> ) ],
+        <urn:dag-consistency:0#BaseClass1> ;
+    meta:generatedConstructs "[\"atomic\", \"domain\", \"intersection\", \"range\", \"subclass\"]" .
+
+<urn:dag-consistency:0#BaseClass2> a owl:Class .
+

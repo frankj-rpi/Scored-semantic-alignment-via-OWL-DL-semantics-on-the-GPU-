@@ -42,6 +42,62 @@ DEFAULT_CONSTRUCTS: Tuple[str, ...] = (
     "domain",
     "range",
 )
+CONSTRUCT_PROFILES: Dict[str, Tuple[str, ...]] = {
+    "OWL-EL": (
+        "subclass",
+        "intersection",
+        "exists",
+        "datatype",
+        "has-value",
+        "data-oneof",
+        "nominal",
+        "has-self",
+        "reflexive",
+        "disjoint",
+        "domain",
+        "range",
+        "functional-data-property",
+        "negative-object-property",
+        "negative-data-property",
+        "has-key",
+    ),
+    "OWL_EL": (
+        "subclass",
+        "intersection",
+        "exists",
+        "datatype",
+        "has-value",
+        "data-oneof",
+        "nominal",
+        "has-self",
+        "reflexive",
+        "disjoint",
+        "domain",
+        "range",
+        "functional-data-property",
+        "negative-object-property",
+        "negative-data-property",
+        "has-key",
+    ),
+    "EL++": (
+        "subclass",
+        "intersection",
+        "exists",
+        "datatype",
+        "has-value",
+        "data-oneof",
+        "nominal",
+        "has-self",
+        "reflexive",
+        "disjoint",
+        "domain",
+        "range",
+        "functional-data-property",
+        "negative-object-property",
+        "negative-data-property",
+        "has-key",
+    ),
+}
 HARNESS_META = Namespace("urn:dag-consistency-meta:")
 
 
@@ -110,6 +166,8 @@ class HarnessSummary:
     hierarchy_elapsed_ms: float = 0.0
     atomic_domain_range_elapsed_ms: float = 0.0
     horn_safe_domain_range_elapsed_ms: float = 0.0
+    sameas_elapsed_ms: float = 0.0
+    reflexive_elapsed_ms: float = 0.0
     target_role_elapsed_ms: float = 0.0
     kgraph_build_elapsed_ms: float = 0.0
     dag_compile_elapsed_ms: float = 0.0
@@ -118,8 +176,33 @@ class HarnessSummary:
     assertion_consistency_check_elapsed_ms: float = 0.0
     engine_mode: str = "query"
     conflict_policy: Optional[str] = None
+    raw_positive_assignment_count: int = 0
+    policy_emitted_assignment_count: int = 0
+    policy_suppressed_assignment_count: int = 0
+    raw_candidate_assignment_count: int = 0
+    necessary_condition_retraction_count: int = 0
+    closure_blocked_retraction_count: int = 0
+    final_emitted_assignment_count: int = 0
     run_settings: Optional[Dict[str, object]] = None
+    case_preprocessing_summaries: Optional[Dict[str, str]] = None
     save_root: Optional[str] = None
+
+
+def expand_construct_specs(construct_specs: Sequence[str]) -> Tuple[str, ...]:
+    expanded: List[str] = []
+    seen: Set[str] = set()
+    for spec in construct_specs:
+        profile_members = CONSTRUCT_PROFILES.get(spec)
+        if profile_members is not None:
+            for member in profile_members:
+                if member not in seen:
+                    expanded.append(member)
+                    seen.add(member)
+            continue
+        if spec not in seen:
+            expanded.append(spec)
+            seen.add(spec)
+    return tuple(expanded)
 
 
 def _copy_graph(graph: Graph) -> Graph:
@@ -252,7 +335,19 @@ def _write_run_summary(summary: HarnessSummary) -> None:
             "mode": summary.engine_mode,
             "conflict_policy": summary.conflict_policy,
         },
+        "policy_counts": {
+            "raw_positive_assignments": summary.raw_positive_assignment_count,
+            "policy_emitted_assignments": summary.policy_emitted_assignment_count,
+            "policy_suppressed_assignments": summary.policy_suppressed_assignment_count,
+        },
+        "filtered_query_counts": {
+            "raw_candidate_assignments": summary.raw_candidate_assignment_count,
+            "necessary_condition_retractions": summary.necessary_condition_retraction_count,
+            "closure_blocked_retractions": summary.closure_blocked_retraction_count,
+            "final_emitted_assignments": summary.final_emitted_assignment_count,
+        },
         "run_settings": summary.run_settings,
+        "case_preprocessing_summaries": summary.case_preprocessing_summaries,
         "timings_ms": {
             "generation": summary.generation_elapsed_ms,
             "preprocessing_total": summary.preprocessing_elapsed_ms,
@@ -260,6 +355,8 @@ def _write_run_summary(summary: HarnessSummary) -> None:
             "hierarchy_materialization": summary.hierarchy_elapsed_ms,
             "atomic_domain_range_materialization": summary.atomic_domain_range_elapsed_ms,
             "horn_safe_domain_range_materialization": summary.horn_safe_domain_range_elapsed_ms,
+            "sameas_materialization": summary.sameas_elapsed_ms,
+            "reflexive_property_materialization": summary.reflexive_elapsed_ms,
             "target_role_materialization": summary.target_role_elapsed_ms,
             "kgraph_build": summary.kgraph_build_elapsed_ms,
             "dag_compile": summary.dag_compile_elapsed_ms,
@@ -320,6 +417,31 @@ def _restriction_expression(
     return expr
 
 
+def _has_value_restriction_expression(
+    graph: Graph,
+    *,
+    prop: URIRef,
+    value: Identifier,
+) -> Identifier:
+    expr = BNode()
+    graph.add((expr, RDF.type, OWL.Restriction))
+    graph.add((expr, OWL.onProperty, prop))
+    graph.add((expr, OWL.hasValue, value))
+    return expr
+
+
+def _has_self_restriction_expression(
+    graph: Graph,
+    *,
+    prop: URIRef,
+) -> Identifier:
+    expr = BNode()
+    graph.add((expr, RDF.type, OWL.Restriction))
+    graph.add((expr, OWL.onProperty, prop))
+    graph.add((expr, OWL.hasSelf, Literal(True, datatype=XSD.boolean)))
+    return expr
+
+
 def _min_qualified_cardinality_expression(
     graph: Graph,
     *,
@@ -371,6 +493,46 @@ def _nominal_expression(
     graph.add((expr, OWL.oneOf, head))
     Collection(graph, head, list(members))
     return expr
+
+
+def _datatype_oneof_expression(
+    graph: Graph,
+    members: Sequence[Literal],
+) -> Identifier:
+    expr = BNode()
+    head = BNode()
+    graph.add((expr, RDF.type, RDFS.Datatype))
+    graph.add((expr, OWL.oneOf, head))
+    Collection(graph, head, list(members))
+    return expr
+
+
+def _has_key_axiom(
+    graph: Graph,
+    *,
+    class_term: URIRef,
+    props: Sequence[URIRef],
+) -> None:
+    head = BNode()
+    graph.add((class_term, OWL.hasKey, head))
+    Collection(graph, head, list(props))
+
+
+def _negative_property_assertion(
+    graph: Graph,
+    *,
+    source: Identifier,
+    prop: URIRef,
+    target: Identifier,
+) -> None:
+    assertion = BNode()
+    graph.add((assertion, RDF.type, OWL.NegativePropertyAssertion))
+    graph.add((assertion, OWL.sourceIndividual, source))
+    graph.add((assertion, OWL.assertionProperty, prop))
+    if isinstance(target, Literal):
+        graph.add((assertion, OWL.targetValue, target))
+    else:
+        graph.add((assertion, OWL.targetIndividual, target))
 
 
 def _choose_named_class(rng: random.Random, choices: Sequence[URIRef], *, exclude: Optional[URIRef] = None) -> URIRef:
@@ -434,7 +596,7 @@ def _build_horn_safe_domain_range_expression(
 
 
 def _case_requires_literals(case: GeneratedFragmentCase) -> bool:
-    return any("datatype" in constructs for constructs in case.target_constructs.values())
+    return any(isinstance(obj, Literal) for _subj, _pred, obj in case.data_graph)
 
 
 def generate_random_fragment_case(
@@ -454,10 +616,32 @@ def generate_random_fragment_case(
     object_properties = [URIRef(ns[f"prop{i}"]) for i in range(config.num_properties)]
     datatype_properties = (
         [URIRef(ns[f"dataProp{i}"]) for i in range(config.num_datatype_properties)]
-        if "datatype" in allowed_constructs
+        if {
+            "datatype",
+            "has-value",
+            "data-oneof",
+            "functional-data-property",
+            "negative-data-property",
+            "has-key",
+        } & allowed_constructs
         else []
     )
     individuals = [URIRef(ns[f"node{i}"]) for i in range(config.num_individuals)]
+    sample_string_literals = [
+        Literal("alpha", datatype=XSD.string),
+        Literal("beta", datatype=XSD.string),
+        Literal("gamma", datatype=XSD.string),
+        Literal("delta", datatype=XSD.string),
+    ]
+
+    def random_integer_literal() -> Literal:
+        return Literal(rng.choice([2, 7, 12, 16, 18, 21, 27]), datatype=XSD.integer)
+
+    def random_string_literal(*, exclude: Optional[Literal] = None) -> Literal:
+        eligible = [lit for lit in sample_string_literals if lit != exclude]
+        if not eligible:
+            eligible = sample_string_literals
+        return rng.choice(eligible)
 
     for class_term in all_classes:
         schema_graph.add((class_term, RDF.type, OWL.Class))
@@ -558,11 +742,70 @@ def generate_random_fragment_case(
                 )
                 schema_graph.add((target_class, RDFS.subClassOf, restriction))
                 constructs_used.update({"subclass", "datatype"})
+            elif choice == "has-value":
+                use_datatype = bool(datatype_properties and rng.random() < 0.5)
+                witness = rng.choice(individuals)
+                if use_datatype:
+                    prop_term = rng.choice(datatype_properties)
+                    value = random_string_literal() if rng.random() < 0.5 else random_integer_literal()
+                    restriction = _has_value_restriction_expression(
+                        schema_graph,
+                        prop=prop_term,
+                        value=value,
+                    )
+                    data_graph.add((witness, prop_term, value))
+                    constructs_used.update({"subclass", "has-value", "datatype"})
+                else:
+                    prop_term = rng.choice(object_properties)
+                    value = rng.choice(individuals)
+                    restriction = _has_value_restriction_expression(
+                        schema_graph,
+                        prop=prop_term,
+                        value=value,
+                    )
+                    data_graph.add((witness, prop_term, value))
+                    constructs_used.update({"subclass", "has-value", "nominal"})
+                schema_graph.add((target_class, RDFS.subClassOf, restriction))
+            elif choice == "data-oneof":
+                if not datatype_properties:
+                    continue
+                prop_term = rng.choice(datatype_properties)
+                value = random_string_literal()
+                filler = _datatype_oneof_expression(schema_graph, [value])
+                restriction = _restriction_expression(
+                    schema_graph,
+                    prop_term,
+                    filler,
+                    universal=False,
+                )
+                witness = rng.choice(individuals)
+                data_graph.add((witness, prop_term, value))
+                schema_graph.add((target_class, RDFS.subClassOf, restriction))
+                constructs_used.update({"subclass", "datatype", "data-oneof"})
             elif choice == "nominal":
                 nominal_members = rng.sample(list(individuals), k=1 if len(individuals) == 1 else rng.choice([1, 2]))
                 nominal_expr = _nominal_expression(schema_graph, nominal_members)
                 schema_graph.add((target_class, RDFS.subClassOf, nominal_expr))
                 constructs_used.update({"subclass", "nominal"})
+            elif choice == "has-self":
+                prop_term = rng.choice(object_properties)
+                restriction = _has_self_restriction_expression(
+                    schema_graph,
+                    prop=prop_term,
+                )
+                witness = rng.choice(individuals)
+                data_graph.add((witness, prop_term, witness))
+                schema_graph.add((target_class, RDFS.subClassOf, restriction))
+                constructs_used.update({"subclass", "has-self"})
+            elif choice == "reflexive":
+                prop_term = rng.choice(object_properties)
+                schema_graph.add((prop_term, RDF.type, OWL.ReflexiveProperty))
+                restriction = _has_self_restriction_expression(
+                    schema_graph,
+                    prop=prop_term,
+                )
+                schema_graph.add((target_class, RDFS.subClassOf, restriction))
+                constructs_used.update({"subclass", "has-self", "reflexive"})
             elif choice == "geq-cardinality":
                 filler, tags = _build_boolean_filler(
                     schema_graph,
@@ -579,6 +822,81 @@ def generate_random_fragment_case(
                 schema_graph.add((target_class, RDFS.subClassOf, restriction))
                 constructs_used.update({"subclass", "geq-cardinality"})
                 constructs_used.update(tags)
+            elif choice == "functional-data-property":
+                if not datatype_properties:
+                    continue
+                prop_term = rng.choice(datatype_properties)
+                schema_graph.add((prop_term, RDF.type, OWL.FunctionalProperty))
+                value = random_string_literal()
+                restriction = _has_value_restriction_expression(
+                    schema_graph,
+                    prop=prop_term,
+                    value=value,
+                )
+                ok_subject = rng.choice(individuals)
+                other_subject = rng.choice(individuals)
+                data_graph.add((ok_subject, prop_term, value))
+                data_graph.add((other_subject, prop_term, random_string_literal(exclude=value)))
+                schema_graph.add((target_class, RDFS.subClassOf, restriction))
+                constructs_used.update({"subclass", "has-value", "datatype", "functional-data-property"})
+            elif choice == "negative-object-property":
+                prop_term = rng.choice(object_properties)
+                value = rng.choice(individuals)
+                restriction = _has_value_restriction_expression(
+                    schema_graph,
+                    prop=prop_term,
+                    value=value,
+                )
+                blocked_subject = rng.choice(individuals)
+                allowed_subject = rng.choice(individuals)
+                data_graph.add((allowed_subject, prop_term, value))
+                _negative_property_assertion(
+                    data_graph,
+                    source=blocked_subject,
+                    prop=prop_term,
+                    target=value,
+                )
+                schema_graph.add((target_class, RDFS.subClassOf, restriction))
+                constructs_used.update({"subclass", "has-value", "negative-object-property", "nominal"})
+            elif choice == "negative-data-property":
+                if not datatype_properties:
+                    continue
+                prop_term = rng.choice(datatype_properties)
+                value = random_string_literal()
+                restriction = _has_value_restriction_expression(
+                    schema_graph,
+                    prop=prop_term,
+                    value=value,
+                )
+                blocked_subject = rng.choice(individuals)
+                allowed_subject = rng.choice(individuals)
+                data_graph.add((allowed_subject, prop_term, value))
+                _negative_property_assertion(
+                    data_graph,
+                    source=blocked_subject,
+                    prop=prop_term,
+                    target=value,
+                )
+                schema_graph.add((target_class, RDFS.subClassOf, restriction))
+                constructs_used.update({"subclass", "has-value", "datatype", "negative-data-property"})
+            elif choice == "has-key":
+                if not datatype_properties or len(individuals) < 3 or not primitive_classes:
+                    continue
+                helper_class = rng.choice(primitive_classes)
+                key_prop = rng.choice(datatype_properties)
+                _has_key_axiom(schema_graph, class_term=helper_class, props=[key_prop])
+                anchor, alias, outsider = rng.sample(list(individuals), k=3)
+                shared_value = random_string_literal()
+                outsider_value = random_string_literal(exclude=shared_value)
+                data_graph.add((anchor, RDF.type, helper_class))
+                data_graph.add((alias, RDF.type, helper_class))
+                data_graph.add((outsider, RDF.type, helper_class))
+                data_graph.add((anchor, key_prop, shared_value))
+                data_graph.add((alias, key_prop, shared_value))
+                data_graph.add((outsider, key_prop, outsider_value))
+                nominal_expr = _nominal_expression(schema_graph, [anchor])
+                schema_graph.add((target_class, OWL.equivalentClass, nominal_expr))
+                constructs_used.update({"has-key", "nominal"})
             elif choice == "disjoint":
                 other = _choose_named_class(rng, available_named_classes, exclude=target_class)
                 schema_graph.add((target_class, OWL.disjointWith, other))
@@ -663,6 +981,8 @@ def _dag_construct_tags(dag: ConstraintDAG) -> Set[str]:
             tags.add("atomic")
         elif node.ctype in (ConstraintType.EXISTS_RESTRICTION, ConstraintType.EXISTS_TRANSITIVE_RESTRICTION):
             tags.add("exists")
+        elif node.ctype == ConstraintType.HAS_SELF_RESTRICTION:
+            tags.add("has-self")
         elif node.ctype == ConstraintType.FORALL_RESTRICTION:
             tags.add("forall")
         elif node.ctype == ConstraintType.INTERSECTION:
@@ -730,7 +1050,8 @@ def _check_owlready2_consistency(
         return False, 0.0, str(exc)
     finally:
         if temp_path and os.path.exists(temp_path):
-            os.unlink(temp_path)
+            with contextlib.suppress(PermissionError):
+                os.unlink(temp_path)
 
 
 def _format_bucket_key(bucket_key: Tuple[str, ...]) -> str:
@@ -763,6 +1084,14 @@ def _collect_consistency_buckets(
     float,
     float,
     float,
+    str,
+    int,
+    int,
+    int,
+    int,
+    int,
+    int,
+    int,
 ]:
     include_literals = _case_requires_literals(case)
     engine_result = run_engine_queries(
@@ -795,12 +1124,14 @@ def _collect_consistency_buckets(
         preprocessing_payload = {
             "engine": {
                 "mode": engine_mode,
-                "conflict_policy": conflict_policy if engine_mode == "stratified" else None,
+                "conflict_policy": conflict_policy if engine_mode in {"stratified", "filtered_query"} else None,
             },
             "loader": {
                 "materialize_hierarchy": vars(engine_result.dataset.preprocessing_plan.materialize_hierarchy),
                 "materialize_atomic_domain_range": vars(engine_result.dataset.preprocessing_plan.materialize_atomic_domain_range),
                 "materialize_horn_safe_domain_range": vars(engine_result.dataset.preprocessing_plan.materialize_horn_safe_domain_range),
+                "materialize_sameas": vars(engine_result.dataset.preprocessing_plan.materialize_sameas),
+                "materialize_reflexive_properties": vars(engine_result.dataset.preprocessing_plan.materialize_reflexive_properties),
                 "materialize_target_roles": vars(engine_result.dataset.preprocessing_plan.materialize_target_roles),
                 "augment_property_domain_range": vars(engine_result.dataset.preprocessing_plan.augment_property_domain_range),
             },
@@ -811,18 +1142,17 @@ def _collect_consistency_buckets(
             }
         with open(os.path.join(case_dir, "preprocessing-plan.json"), "w", encoding="utf-8") as handle:
             json.dump(preprocessing_payload, handle, indent=2, sort_keys=True)
-        with open(os.path.join(case_dir, "preprocessing-plan.txt"), "w", encoding="utf-8") as handle:
-            handle.write(describe_preprocessing_plan(engine_result.dataset.preprocessing_plan))
-            handle.write("\n")
-            handle.write(f"Engine mode: {engine_mode}\n")
-            if engine_mode == "stratified":
-                handle.write(f"Conflict policy: {conflict_policy}\n")
-            elif query_plan is not None:
-                handle.write(
-                    f"Query augmentation: {'on' if query_plan.augment_property_domain_range.enabled else 'off'} "
-                    f"(policy={query_plan.augment_property_domain_range.policy}; "
-                    f"{query_plan.augment_property_domain_range.reason})\n"
-                )
+    preprocessing_text = describe_preprocessing_plan(engine_result.dataset.preprocessing_plan)
+    preprocessing_lines = [preprocessing_text, f"Engine mode: {engine_mode}"]
+    if engine_mode in {"stratified", "filtered_query"}:
+        preprocessing_lines.append(f"Conflict policy: {conflict_policy}")
+    elif query_plan is not None:
+        preprocessing_lines.append(
+            f"Query augmentation: {'on' if query_plan.augment_property_domain_range.enabled else 'off'} "
+            f"(policy={query_plan.augment_property_domain_range.policy}; "
+            f"{query_plan.augment_property_domain_range.reason})"
+        )
+    preprocessing_summary_text = "\n".join(preprocessing_lines)
 
     merged_graph = _merge_graphs(case.schema_graph, case.data_graph)
     bucket_stats: Dict[Tuple[str, ...], BucketStats] = {}
@@ -833,6 +1163,39 @@ def _collect_consistency_buckets(
         engine_result.dataset_build_elapsed_ms + engine_result.dag_compile_elapsed_ms
     )
     assertion_consistency_check_elapsed_ms = 0.0
+    raw_positive_assignment_count = 0
+    policy_emitted_assignment_count = 0
+    policy_suppressed_assignment_count = 0
+    raw_candidate_assignment_count = 0
+    necessary_condition_retraction_count = 0
+    closure_blocked_retraction_count = 0
+    final_emitted_assignment_count = 0
+    raw_candidate_assignment_count = 0
+    necessary_condition_retraction_count = 0
+    closure_blocked_retraction_count = 0
+    final_emitted_assignment_count = 0
+
+    if engine_mode == "stratified" and engine_result.stratified_result is not None:
+        raw_positive_assignment_count = sum(
+            1
+            for status in engine_result.stratified_result.assignment_statuses
+            if status.asserted or status.positively_derived
+        )
+        policy_emitted_assignment_count = len(
+            engine_result.stratified_result.policy_result.emitted_assignments
+        )
+        policy_suppressed_assignment_count = (
+            raw_positive_assignment_count - policy_emitted_assignment_count
+        )
+    elif engine_mode == "filtered_query" and engine_result.filtered_query_result is not None:
+        raw_candidate_assignment_count = engine_result.filtered_query_result.raw_candidate_count
+        necessary_condition_retraction_count = (
+            engine_result.filtered_query_result.necessary_retraction_count
+        )
+        closure_blocked_retraction_count = (
+            engine_result.filtered_query_result.closure_blocked_retraction_count
+        )
+        final_emitted_assignment_count = engine_result.filtered_query_result.final_emitted_count
 
     for target_class in case.target_classes:
         if engine_mode == "stratified":
@@ -919,6 +1282,28 @@ def _collect_consistency_buckets(
                                     f"blocked={status.blocked}, conflicted={status.conflicted}, "
                                     f"blockers={[str(term) for term in status.blocker_classes]}\n"
                                 )
+                    elif engine_mode == "filtered_query" and engine_result.filtered_query_result is not None:
+                        filtered = engine_result.filtered_query_result
+                        raw_match = node_term in filtered.raw_members_by_target.get(target_class, set())
+                        necessary_match = node_term in filtered.necessary_stable_members_by_target.get(target_class, set())
+                        closure_blocked = node_term in filtered.closure_blocked_members_by_target.get(target_class, set())
+                        final_match = node_term in filtered.final_members_by_target.get(target_class, set())
+                        handle.write("=== Filtered Query Failure Summary ===\n")
+                        handle.write(f"target={target_class.n3()}\n")
+                        handle.write(f"node={_render_term(node_term)}\n")
+                        handle.write(f"raw_candidate={raw_match}\n")
+                        handle.write(f"survived_necessary_fixpoint={necessary_match}\n")
+                        handle.write(f"closure_blocked={closure_blocked}\n")
+                        handle.write(f"final_emitted={final_match}\n")
+                        handle.write(
+                            f"necessary_fixpoint_iterations={filtered.necessary_fixpoint_iterations}\n"
+                        )
+                        blockers = sorted(
+                            str(blocked.blocker_class)
+                            for blocked in filtered.stratified_result.negative_result.blocked_assertions
+                            if blocked.node_term == node_term and blocked.target_class == target_class
+                        )
+                        handle.write(f"blockers={blockers}\n")
                     else:
                         explanation = explain_dataset_query(
                             engine_result.dataset,
@@ -976,11 +1361,21 @@ def _collect_consistency_buckets(
         engine_result.hierarchy_elapsed_ms,
         engine_result.atomic_domain_range_elapsed_ms,
         engine_result.horn_safe_domain_range_elapsed_ms,
+        engine_result.sameas_elapsed_ms,
+        engine_result.reflexive_elapsed_ms,
         engine_result.target_role_elapsed_ms,
         engine_result.kgraph_build_elapsed_ms,
         engine_result.dag_compile_elapsed_ms,
         engine_result.dag_eval_elapsed_ms,
         assertion_consistency_check_elapsed_ms,
+        preprocessing_summary_text,
+        raw_positive_assignment_count,
+        policy_emitted_assignment_count,
+        policy_suppressed_assignment_count,
+        raw_candidate_assignment_count,
+        necessary_condition_retraction_count,
+        closure_blocked_retraction_count,
+        final_emitted_assignment_count,
     )
 
 
@@ -999,7 +1394,7 @@ def run_consistency_harness(
     engine_mode: str = "query",
     conflict_policy: str = ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED.value,
     save_cases: bool = True,
-    save_dir: str = os.path.join("data", "consistency-cases"),
+    save_dir: str = os.path.join("data", "runs", "consistency-harness"),
 ) -> HarnessSummary:
     generated_cases = 0
     attempts = 0
@@ -1014,13 +1409,23 @@ def run_consistency_harness(
     hierarchy_elapsed_ms = 0.0
     atomic_domain_range_elapsed_ms = 0.0
     horn_safe_domain_range_elapsed_ms = 0.0
+    sameas_elapsed_ms = 0.0
+    reflexive_elapsed_ms = 0.0
     target_role_elapsed_ms = 0.0
     kgraph_build_elapsed_ms = 0.0
     dag_compile_elapsed_ms = 0.0
     dag_eval_elapsed_ms = 0.0
     base_consistency_check_elapsed_ms = 0.0
     assertion_consistency_check_elapsed_ms = 0.0
+    raw_positive_assignment_count = 0
+    policy_emitted_assignment_count = 0
+    policy_suppressed_assignment_count = 0
+    raw_candidate_assignment_count = 0
+    necessary_condition_retraction_count = 0
+    closure_blocked_retraction_count = 0
+    final_emitted_assignment_count = 0
     merged_bucket_stats: Dict[Tuple[str, ...], BucketStats] = {}
+    case_preprocessing_summaries: Dict[str, str] = {}
     run_save_root: Optional[str] = None
 
     if save_cases:
@@ -1059,7 +1464,7 @@ def run_consistency_harness(
                 materialize_hierarchy=materialize_hierarchy,
                 augment_property_domain_range=augment_property_domain_range,
                 engine_mode=engine_mode,
-                conflict_policy=(conflict_policy if engine_mode == "stratified" else None),
+                conflict_policy=(conflict_policy if engine_mode in {"stratified", "filtered_query"} else None),
                 base_consistent=True,
             )
             if run_save_root is not None
@@ -1076,11 +1481,21 @@ def run_consistency_harness(
             case_hierarchy_elapsed_ms,
             case_atomic_domain_range_elapsed_ms,
             case_horn_safe_domain_range_elapsed_ms,
+            case_sameas_elapsed_ms,
+            case_reflexive_elapsed_ms,
             case_target_role_elapsed_ms,
             case_kgraph_build_elapsed_ms,
             case_dag_compile_elapsed_ms,
             case_dag_eval_elapsed_ms,
             case_assertion_consistency_check_elapsed_ms,
+            case_preprocessing_summary_text,
+            case_raw_positive_assignment_count,
+            case_policy_emitted_assignment_count,
+            case_policy_suppressed_assignment_count,
+            case_raw_candidate_assignment_count,
+            case_necessary_condition_retraction_count,
+            case_closure_blocked_retraction_count,
+            case_final_emitted_assignment_count,
         ) = _collect_consistency_buckets(
             case=case,
             threshold=threshold,
@@ -1102,11 +1517,21 @@ def run_consistency_harness(
         hierarchy_elapsed_ms += case_hierarchy_elapsed_ms
         atomic_domain_range_elapsed_ms += case_atomic_domain_range_elapsed_ms
         horn_safe_domain_range_elapsed_ms += case_horn_safe_domain_range_elapsed_ms
+        sameas_elapsed_ms += case_sameas_elapsed_ms
+        reflexive_elapsed_ms += case_reflexive_elapsed_ms
         target_role_elapsed_ms += case_target_role_elapsed_ms
         kgraph_build_elapsed_ms += case_kgraph_build_elapsed_ms
         dag_compile_elapsed_ms += case_dag_compile_elapsed_ms
         dag_eval_elapsed_ms += case_dag_eval_elapsed_ms
         assertion_consistency_check_elapsed_ms += case_assertion_consistency_check_elapsed_ms
+        raw_positive_assignment_count += case_raw_positive_assignment_count
+        policy_emitted_assignment_count += case_policy_emitted_assignment_count
+        policy_suppressed_assignment_count += case_policy_suppressed_assignment_count
+        raw_candidate_assignment_count += case_raw_candidate_assignment_count
+        necessary_condition_retraction_count += case_necessary_condition_retraction_count
+        closure_blocked_retraction_count += case_closure_blocked_retraction_count
+        final_emitted_assignment_count += case_final_emitted_assignment_count
+        case_preprocessing_summaries[f"seed-{case.seed:06d}"] = case_preprocessing_summary_text
 
         for bucket_key, bucket in bucket_stats.items():
             merged = merged_bucket_stats.setdefault(bucket_key, BucketStats())
@@ -1131,6 +1556,8 @@ def run_consistency_harness(
         hierarchy_elapsed_ms=hierarchy_elapsed_ms,
         atomic_domain_range_elapsed_ms=atomic_domain_range_elapsed_ms,
         horn_safe_domain_range_elapsed_ms=horn_safe_domain_range_elapsed_ms,
+        sameas_elapsed_ms=sameas_elapsed_ms,
+        reflexive_elapsed_ms=reflexive_elapsed_ms,
         target_role_elapsed_ms=target_role_elapsed_ms,
         kgraph_build_elapsed_ms=kgraph_build_elapsed_ms,
         dag_compile_elapsed_ms=dag_compile_elapsed_ms,
@@ -1138,7 +1565,14 @@ def run_consistency_harness(
         base_consistency_check_elapsed_ms=base_consistency_check_elapsed_ms,
         assertion_consistency_check_elapsed_ms=assertion_consistency_check_elapsed_ms,
         engine_mode=engine_mode,
-        conflict_policy=(conflict_policy if engine_mode == "stratified" else None),
+        conflict_policy=(conflict_policy if engine_mode in {"stratified", "filtered_query"} else None),
+        raw_positive_assignment_count=raw_positive_assignment_count,
+        policy_emitted_assignment_count=policy_emitted_assignment_count,
+        policy_suppressed_assignment_count=policy_suppressed_assignment_count,
+        raw_candidate_assignment_count=raw_candidate_assignment_count,
+        necessary_condition_retraction_count=necessary_condition_retraction_count,
+        closure_blocked_retraction_count=closure_blocked_retraction_count,
+        final_emitted_assignment_count=final_emitted_assignment_count,
         run_settings={
             "num_cases": num_cases,
             "max_attempts": max_attempts,
@@ -1153,6 +1587,7 @@ def run_consistency_harness(
             "save_dir": save_dir,
             "generator_config": dict(config.__dict__),
         },
+        case_preprocessing_summaries=case_preprocessing_summaries,
         save_root=run_save_root,
     )
 
@@ -1161,7 +1596,7 @@ def format_harness_summary(summary: HarnessSummary) -> str:
     lines: List[str] = []
     lines.append("=== Consistency Guarantee Harness ===")
     lines.append(f"Engine mode: {summary.engine_mode}")
-    if summary.engine_mode == "stratified" and summary.conflict_policy is not None:
+    if summary.engine_mode in {"stratified", "filtered_query"} and summary.conflict_policy is not None:
         lines.append(f"Conflict policy: {summary.conflict_policy}")
     if summary.run_settings:
         lines.append("Run settings:")
@@ -1189,6 +1624,21 @@ def format_harness_summary(summary: HarnessSummary) -> str:
             if key in seen:
                 continue
             lines.append(f"  - {key}: {summary.run_settings[key]}")
+    if summary.engine_mode == "stratified":
+        lines.append("Policy assignment counts:")
+        lines.append(f"  - raw_positive_assignments: {summary.raw_positive_assignment_count}")
+        lines.append(f"  - policy_emitted_assignments: {summary.policy_emitted_assignment_count}")
+        lines.append(f"  - policy_suppressed_assignments: {summary.policy_suppressed_assignment_count}")
+    elif summary.engine_mode == "filtered_query":
+        lines.append("Filtered-query assignment counts:")
+        lines.append(f"  - raw_candidate_assignments: {summary.raw_candidate_assignment_count}")
+        lines.append(
+            f"  - necessary_condition_retractions: {summary.necessary_condition_retraction_count}"
+        )
+        lines.append(
+            f"  - closure_blocked_retractions: {summary.closure_blocked_retraction_count}"
+        )
+        lines.append(f"  - final_emitted_assignments: {summary.final_emitted_assignment_count}")
     lines.append(f"Requested cases: {summary.requested_cases}")
     lines.append(f"Generated base-consistent cases: {summary.generated_cases}")
     lines.append(f"Generation attempts: {summary.attempts}")
@@ -1210,6 +1660,8 @@ def format_harness_summary(summary: HarnessSummary) -> str:
         f"hierarchy={summary.hierarchy_elapsed_ms:.3f} ms, "
         f"atomic domain/range={summary.atomic_domain_range_elapsed_ms:.3f} ms, "
         f"horn-safe domain/range={summary.horn_safe_domain_range_elapsed_ms:.3f} ms, "
+        f"sameAs={summary.sameas_elapsed_ms:.3f} ms, "
+        f"reflexive properties={summary.reflexive_elapsed_ms:.3f} ms, "
         f"target roles={summary.target_role_elapsed_ms:.3f} ms, "
         f"kgraph build={summary.kgraph_build_elapsed_ms:.3f} ms"
     )
@@ -1223,6 +1675,14 @@ def format_harness_summary(summary: HarnessSummary) -> str:
 
     if summary.generated_cases < summary.requested_cases:
         lines.append("Warning: fewer consistent cases were generated than requested.")
+
+    if summary.case_preprocessing_summaries:
+        lines.append("")
+        lines.append("Per-Case Preprocessing Plans:")
+        for case_key in sorted(summary.case_preprocessing_summaries.keys()):
+            lines.append(f"  [{case_key}]")
+            for raw_line in summary.case_preprocessing_summaries[case_key].splitlines():
+                lines.append(f"    {raw_line}")
 
     lines.append("")
     lines.append("Failure buckets by construct set:")
@@ -1293,22 +1753,35 @@ def _parse_args() -> argparse.Namespace:
             "exists",
             "forall",
             "datatype",
+            "has-value",
+            "data-oneof",
             "nominal",
+            "has-self",
+            "reflexive",
             "geq-cardinality",
+            "functional-data-property",
+            "negative-object-property",
+            "negative-data-property",
+            "has-key",
             "disjoint",
             "domain",
             "range",
+            "OWL-EL",
+            "OWL_EL",
+            "EL++",
         ],
         default=list(DEFAULT_CONSTRUCTS),
+        help="Construct names and/or profile names to include in random generation.",
     )
     parser.add_argument("--threshold", type=float, default=0.999)
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
     parser.add_argument(
         "--engine-mode",
-        choices=["query", "stratified"],
+        choices=["query", "filtered_query", "stratified"],
         default="query",
         help=(
             "query = necessary-condition admissibility path; "
+            "filtered_query = query candidates pruned by synchronous recheck plus stratified blockers; "
             "stratified = positive sufficient-condition closure plus negative blocker policy."
         ),
     )
@@ -1335,7 +1808,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--save-dir",
-        default=os.path.join("data", "consistency-cases"),
+        default=os.path.join("data", "runs", "consistency-harness"),
         help="Directory under which successful harness runs are persisted.",
     )
     augment_group = parser.add_mutually_exclusive_group()
@@ -1374,7 +1847,7 @@ def main() -> None:
         datatype_edge_probability=args.datatype_edge_probability,
         disjoint_pair_probability=args.disjoint_pair_probability,
         domain_range_axiom_probability=args.domain_range_axiom_probability,
-        allowed_constructs=tuple(args.constructs),
+        allowed_constructs=expand_construct_specs(tuple(args.constructs)),
     )
     auto_augment_domain_range = ("domain" in args.constructs or "range" in args.constructs)
     summary = run_consistency_harness(

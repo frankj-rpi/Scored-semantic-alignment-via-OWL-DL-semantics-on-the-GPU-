@@ -1,0 +1,70 @@
+{
+  "augment_property_domain_range": true,
+  "base_consistent": true,
+  "config": {
+    "allowed_constructs": [
+      "subclass",
+      "intersection",
+      "union",
+      "exists",
+      "forall",
+      "datatype",
+      "nominal",
+      "geq-cardinality",
+      "domain",
+      "range",
+      "disjoint"
+    ],
+    "datatype_edge_probability": 0.45,
+    "disjoint_pair_probability": 0.1,
+    "domain_range_axiom_probability": 0.35,
+    "edge_probability": 0.3,
+    "max_axioms_per_target": 3,
+    "min_axioms_per_target": 1,
+    "num_datatype_properties": 2,
+    "num_individuals": 8,
+    "num_primitive_classes": 6,
+    "num_properties": 4,
+    "num_target_classes": 5,
+    "type_probability": 0.5
+  },
+  "conflict_policy": null,
+  "engine_mode": "query",
+  "generated_at": "2026-04-25T19:02:31+00:00",
+  "materialize_hierarchy": null,
+  "seed": 1,
+  "target_classes": [
+    "urn:dag-consistency:1#TargetClass0",
+    "urn:dag-consistency:1#TargetClass1",
+    "urn:dag-consistency:1#TargetClass2",
+    "urn:dag-consistency:1#TargetClass3",
+    "urn:dag-consistency:1#TargetClass4"
+  ],
+  "target_constructs": {
+    "urn:dag-consistency:1#TargetClass0": [
+      "atomic",
+      "disjoint"
+    ],
+    "urn:dag-consistency:1#TargetClass1": [
+      "atomic",
+      "subclass"
+    ],
+    "urn:dag-consistency:1#TargetClass2": [
+      "atomic",
+      "forall",
+      "subclass"
+    ],
+    "urn:dag-consistency:1#TargetClass3": [
+      "atomic",
+      "domain",
+      "geq-cardinality",
+      "nominal",
+      "subclass"
+    ],
+    "urn:dag-consistency:1#TargetClass4": [
+      "datatype",
+      "subclass"
+    ]
+  },
+  "threshold": 0.999
+}

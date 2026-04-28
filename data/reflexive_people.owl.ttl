@@ -1,0 +1,13 @@
+@prefix ex: <http://example.org/reflexive#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:knowsSelf a owl:ObjectProperty , owl:ReflexiveProperty .
+
+ex:SelfKnower a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ex:knowsSelf ;
+        owl:hasSelf "true"^^xsd:boolean
+    ] .

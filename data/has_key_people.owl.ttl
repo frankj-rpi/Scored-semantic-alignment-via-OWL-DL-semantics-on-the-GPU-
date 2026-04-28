@@ -1,0 +1,14 @@
+@prefix ex: <http://example.org/haskey#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:ssn a owl:DatatypeProperty .
+
+ex:Person a owl:Class ;
+    owl:hasKey ( ex:ssn ) .
+
+ex:Chosen a owl:Class ;
+    owl:equivalentClass [
+        a owl:Class ;
+        owl:oneOf ( ex:anchor )
+    ] .

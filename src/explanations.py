@@ -224,6 +224,7 @@ def _explain_node(
         return lines
 
     if cnode.ctype in (
+        ConstraintType.HAS_SELF_RESTRICTION,
         ConstraintType.EXISTS_RESTRICTION,
         ConstraintType.FORALL_RESTRICTION,
         ConstraintType.MIN_CARDINALITY_RESTRICTION,
@@ -245,6 +246,15 @@ def _explain_node(
             if child_idx is not None
             else torch.ones((dataset.kg.num_nodes,), dtype=torch.float32)
         )
+
+        if cnode.ctype == ConstraintType.HAS_SELF_RESTRICTION:
+            has_self_edge = graph_node_idx in neighbor_indices
+            lines.append(
+                f"{indent}  property {_render_term(prop_term)} ({cnode.prop_direction.value}) "
+                f"{'has' if has_self_edge else 'does not have'} a self-edge at "
+                f"{_render_term(dataset.mapping.node_terms[graph_node_idx])}"
+            )
+            return lines
 
         if cnode.ctype == ConstraintType.EXISTS_TRANSITIVE_RESTRICTION:
             witness = _find_transitive_witness(

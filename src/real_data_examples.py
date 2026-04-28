@@ -35,6 +35,7 @@ def run_reasoning_example(
     materialize_hierarchy: Optional[bool] = None,
     materialize_atomic_domain_range: Optional[bool] = None,
     materialize_horn_safe_domain_range: Optional[bool] = None,
+    materialize_reflexive_properties: Optional[bool] = None,
     materialize_target_roles: Optional[bool] = None,
     augment_property_domain_range: Optional[bool] = None,
     threshold: float = 0.999,
@@ -49,6 +50,7 @@ def run_reasoning_example(
         materialize_hierarchy=materialize_hierarchy,
         materialize_atomic_domain_range=materialize_atomic_domain_range,
         materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+        materialize_reflexive_properties=materialize_reflexive_properties,
         materialize_target_roles=materialize_target_roles,
         target_classes=[target_class],
     )
@@ -58,6 +60,7 @@ def run_reasoning_example(
         materialize_hierarchy=materialize_hierarchy,
         materialize_atomic_domain_range=materialize_atomic_domain_range,
         materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+        materialize_reflexive_properties=materialize_reflexive_properties,
         materialize_target_roles=materialize_target_roles,
         augment_property_domain_range=augment_property_domain_range,
     )
@@ -234,6 +237,19 @@ def main() -> None:
         action="store_false",
         help="Disable Horn-safe domain/range materialization explicitly.",
     )
+    reflexive_group = parser.add_mutually_exclusive_group()
+    reflexive_group.add_argument(
+        "--materialize-reflexive-properties",
+        dest="materialize_reflexive_properties",
+        action="store_true",
+        help="Materialize self-edges for owl:ReflexiveProperty terms before evaluation.",
+    )
+    reflexive_group.add_argument(
+        "--no-materialize-reflexive-properties",
+        dest="materialize_reflexive_properties",
+        action="store_false",
+        help="Disable reflexive-property materialization explicitly.",
+    )
     augment_group = parser.add_mutually_exclusive_group()
     augment_group.add_argument(
         "--augment-domain-range",
@@ -255,6 +271,7 @@ def main() -> None:
         materialize_target_roles=None,
         materialize_domain_range_atomic=None,
         materialize_domain_range_horn=None,
+        materialize_reflexive_properties=None,
         augment_domain_range=None,
     )
     parser.add_argument(
@@ -280,6 +297,7 @@ def main() -> None:
         materialize_hierarchy=args.materialize_hierarchy,
         materialize_atomic_domain_range=args.materialize_domain_range_atomic,
         materialize_horn_safe_domain_range=args.materialize_domain_range_horn,
+        materialize_reflexive_properties=args.materialize_reflexive_properties,
         materialize_target_roles=args.materialize_target_roles,
         augment_property_domain_range=args.augment_domain_range,
         threshold=args.threshold,

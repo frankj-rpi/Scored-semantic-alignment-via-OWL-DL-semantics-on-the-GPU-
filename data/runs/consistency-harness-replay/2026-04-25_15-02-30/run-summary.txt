@@ -1,0 +1,47 @@
+=== Consistency Guarantee Harness ===
+Engine mode: query
+Run settings:
+  - threshold: 0.999
+  - device: cpu
+  - materialize_hierarchy: None
+  - augment_property_domain_range: True
+  - owlready2_reasoner: hermit
+  - max_examples_per_bucket: 2
+  - num_cases: 1
+  - max_attempts: 1
+  - start_seed: 1
+  - save_cases: True
+  - save_dir: data\runs\consistency-harness-replay
+  - generator_config: {'num_primitive_classes': 6, 'num_target_classes': 5, 'num_properties': 4, 'num_datatype_properties': 2, 'num_individuals': 8, 'min_axioms_per_target': 1, 'max_axioms_per_target': 3, 'type_probability': 0.5, 'edge_probability': 0.3, 'datatype_edge_probability': 0.45, 'disjoint_pair_probability': 0.1, 'domain_range_axiom_probability': 0.35, 'allowed_constructs': ('subclass', 'intersection', 'union', 'exists', 'forall', 'datatype', 'nominal', 'geq-cardinality', 'domain', 'range', 'disjoint')}
+Requested cases: 1
+Generated base-consistent cases: 1
+Generation attempts: 1
+Perfect scores found: 22
+Assertions checked: 17
+Consistency failures: 5
+Saved cases: data\runs\consistency-harness-replay\2026-04-25_15-02-30
+
+Stage timings:
+  - Random graph generation: 3.234 ms
+  - Preprocessing total: 24.285 ms (loader/dataset build=16.623 ms, DAG compile=7.663 ms)
+      preprocessing breakdown: hierarchy=4.929 ms, atomic domain/range=0.000 ms, horn-safe domain/range=4.832 ms, target roles=0.000 ms, kgraph build=6.862 ms
+  - DAG evaluation: 22.906 ms
+  - Error checking total: 22874.196 ms (base consistency=1494.313 ms, assertion checks=21379.883 ms)
+
+Per-Case Preprocessing Plans:
+  [seed-000001]
+    Preprocessing plan:
+      - materialize_hierarchy: on (policy=auto; auto: hierarchy axioms detected)
+      - materialize_atomic_domain_range: off (policy=off; suppressed because Horn-safe domain/range materialization is enabled)
+      - materialize_horn_safe_domain_range: on (policy=auto; auto: domain/range axioms plus negative constraints detected)
+      - materialize_target_roles: off (policy=auto; auto: no role axioms detected)
+      - augment_property_domain_range: on (policy=auto; auto: domain/range axioms detected)
+    Engine mode: query
+    Query augmentation: on (policy=on; explicitly enabled)
+
+Failure buckets by construct set:
+  - [atomic, disjoint, negation] tested=5, failures=5, failure_rate=1.000
+      example: seed=1, node=<urn:dag-consistency:1#node0>, target=<urn:dag-consistency:1#TargetClass0>, score=1.0000
+      example: seed=1, node=<urn:dag-consistency:1#node1>, target=<urn:dag-consistency:1#TargetClass0>, score=1.0000
+  - [atomic, domain, exists, geq-cardinality, intersection, nominal, subclass, union] tested=8, failures=0, failure_rate=0.000
+  - [datatype, exists, subclass] tested=4, failures=0, failure_rate=0.000

@@ -1,0 +1,77 @@
+@prefix meta: <urn:dag-consistency-meta:> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:dag-consistency-case:1:ontology> a owl:Ontology ;
+    meta:augmentDomainRange true ;
+    meta:baseConsistent true ;
+    meta:generatedAt "2026-04-25T19:02:31+00:00"^^xsd:dateTime ;
+    meta:generatorConfigJson "{\"allowed_constructs\": [\"subclass\", \"intersection\", \"union\", \"exists\", \"forall\", \"datatype\", \"nominal\", \"geq-cardinality\", \"domain\", \"range\", \"disjoint\"], \"datatype_edge_probability\": 0.45, \"disjoint_pair_probability\": 0.1, \"domain_range_axiom_probability\": 0.35, \"edge_probability\": 0.3, \"max_axioms_per_target\": 3, \"min_axioms_per_target\": 1, \"num_datatype_properties\": 2, \"num_individuals\": 8, \"num_primitive_classes\": 6, \"num_properties\": 4, \"num_target_classes\": 5, \"type_probability\": 0.5}" ;
+    meta:materializeHierarchy "None" ;
+    meta:seed 1 ;
+    meta:targetClass <urn:dag-consistency:1#TargetClass0>,
+        <urn:dag-consistency:1#TargetClass1>,
+        <urn:dag-consistency:1#TargetClass2>,
+        <urn:dag-consistency:1#TargetClass3>,
+        <urn:dag-consistency:1#TargetClass4> ;
+    meta:threshold 9.99e-01 .
+
+<urn:dag-consistency:1#BaseClass0> a owl:Class .
+
+<urn:dag-consistency:1#BaseClass3> a owl:Class .
+
+<urn:dag-consistency:1#BaseClass4> a owl:Class .
+
+<urn:dag-consistency:1#BaseClass5> a owl:Class .
+
+<urn:dag-consistency:1#dataProp1> a owl:DatatypeProperty .
+
+<urn:dag-consistency:1#prop1> a owl:ObjectProperty .
+
+<urn:dag-consistency:1#prop3> a owl:ObjectProperty ;
+    rdfs:domain <urn:dag-consistency:1#TargetClass3> .
+
+<urn:dag-consistency:1#BaseClass1> a owl:Class .
+
+<urn:dag-consistency:1#BaseClass2> a owl:Class .
+
+<urn:dag-consistency:1#TargetClass2> a owl:Class ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:allValuesFrom <urn:dag-consistency:1#TargetClass1> ;
+            owl:onProperty <urn:dag-consistency:1#prop0> ],
+        <urn:dag-consistency:1#TargetClass0> ;
+    meta:generatedConstructs "[\"atomic\", \"forall\", \"subclass\"]" .
+
+<urn:dag-consistency:1#TargetClass4> a owl:Class ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty <urn:dag-consistency:1#dataProp0> ;
+            owl:someValuesFrom [ a rdfs:Datatype ;
+                    owl:onDatatype xsd:integer ;
+                    owl:withRestrictions ( [ xsd:maxInclusive 19 ] ) ] ] ;
+    meta:generatedConstructs "[\"datatype\", \"subclass\"]" .
+
+<urn:dag-consistency:1#dataProp0> a owl:DatatypeProperty .
+
+<urn:dag-consistency:1#prop0> a owl:ObjectProperty .
+
+<urn:dag-consistency:1#prop2> a owl:ObjectProperty .
+
+<urn:dag-consistency:1#TargetClass1> a owl:Class ;
+    rdfs:subClassOf <urn:dag-consistency:1#TargetClass0> ;
+    meta:generatedConstructs "[\"atomic\", \"subclass\"]" .
+
+<urn:dag-consistency:1#TargetClass3> a owl:Class ;
+    rdfs:subClassOf [ a owl:Class ;
+            owl:oneOf ( <urn:dag-consistency:1#node7> ) ],
+        [ a owl:Restriction ;
+            owl:minQualifiedCardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onClass <urn:dag-consistency:1#BaseClass1> ;
+            owl:onProperty <urn:dag-consistency:1#prop2> ] ;
+    meta:generatedConstructs "[\"atomic\", \"domain\", \"geq-cardinality\", \"nominal\", \"subclass\"]" .
+
+<urn:dag-consistency:1#TargetClass0> a owl:Class ;
+    owl:disjointWith <urn:dag-consistency:1#BaseClass2> ;
+    meta:generatedConstructs "[\"atomic\", \"disjoint\"]" .
+

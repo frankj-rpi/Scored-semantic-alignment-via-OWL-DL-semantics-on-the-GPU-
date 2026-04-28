@@ -11,6 +11,7 @@ class ConstraintType(Enum):
     NOMINAL = auto()             # Node is exactly a given RDF individual
     DATATYPE_CONSTRAINT = auto() # Literal node satisfies a datatype predicate
     NEGATION = auto()            # Not D
+    HAS_SELF_RESTRICTION = auto()  # Exists R.Self
     EXISTS_RESTRICTION = auto()  # Exists R.D
     EXISTS_TRANSITIVE_RESTRICTION = auto()  # Exists R+.D
     MIN_CARDINALITY_RESTRICTION = auto()    # At least n R.(D)

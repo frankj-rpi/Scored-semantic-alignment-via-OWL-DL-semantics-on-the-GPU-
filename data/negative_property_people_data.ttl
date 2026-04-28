@@ -1,0 +1,27 @@
+@prefix ex: <http://example.org/negprop#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:fido a owl:NamedIndividual .
+
+ex:alice a owl:NamedIndividual ;
+    ex:hasPet ex:fido .
+
+[] a owl:NegativePropertyAssertion ;
+   owl:sourceIndividual ex:alice ;
+   owl:assertionProperty ex:hasPet ;
+   owl:targetIndividual ex:fido .
+
+ex:bob a owl:NamedIndividual ;
+    ex:hasPet ex:fido .
+
+ex:carol a owl:NamedIndividual ;
+    ex:nickname "Ace"^^xsd:string .
+
+[] a owl:NegativePropertyAssertion ;
+   owl:sourceIndividual ex:carol ;
+   owl:assertionProperty ex:nickname ;
+   owl:targetValue "Ace"^^xsd:string .
+
+ex:dave a owl:NamedIndividual ;
+    ex:nickname "Ace"^^xsd:string .

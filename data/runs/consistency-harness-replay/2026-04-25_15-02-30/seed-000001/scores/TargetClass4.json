@@ -1,0 +1,15 @@
+{
+  "\"16\"^^<http://www.w3.org/2001/XMLSchema#integer>": 0.0,
+  "\"18\"^^<http://www.w3.org/2001/XMLSchema#integer>": 0.0,
+  "\"2\"^^<http://www.w3.org/2001/XMLSchema#integer>": 0.0,
+  "\"27\"^^<http://www.w3.org/2001/XMLSchema#integer>": 0.0,
+  "\"7\"^^<http://www.w3.org/2001/XMLSchema#integer>": 0.0,
+  "<urn:dag-consistency:1#node0>": 0.0,
+  "<urn:dag-consistency:1#node1>": 1.0,
+  "<urn:dag-consistency:1#node2>": 1.0,
+  "<urn:dag-consistency:1#node3>": 0.0,
+  "<urn:dag-consistency:1#node4>": 1.0,
+  "<urn:dag-consistency:1#node5>": 0.0,
+  "<urn:dag-consistency:1#node6>": 1.0,
+  "<urn:dag-consistency:1#node7>": 0.0
+}

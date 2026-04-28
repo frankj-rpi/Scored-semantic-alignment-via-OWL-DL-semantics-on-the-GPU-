@@ -1,0 +1,7 @@
+Explanation for target <urn:dag-consistency:1#TargetClass0> at node <urn:dag-consistency:1#node1>
+Final score: 1.0000
+
+- DAG node 1 NEGATION at <urn:dag-consistency:1#node1> => 1.0000
+  negates child score 0.0000
+    - DAG node 0 ATOMIC_CLASS at <urn:dag-consistency:1#node1> => 0.0000
+      requires atomic class <urn:dag-consistency:1#BaseClass2>; node_types match=no

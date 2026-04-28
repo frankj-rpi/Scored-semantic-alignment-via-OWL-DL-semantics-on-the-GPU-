@@ -40,9 +40,9 @@ Current implementation status
     - Current status: compares engine target-class matches against `owlrl` and `owlready2`
     - Supports both raw DAG-query comparison and an optional Horn/fixpoint-aligned comparison mode
     - Also now includes a dedicated randomized consistency-guarantee harness in `src/consistency_harness.py`
-    - Current randomized generator now covers a bounded query fragment including subclass, intersection, union, existential, universal, Horn-safe query-time domain/range augmentation, datatype restrictions, nominals, `>= k` cardinality, and disjointness
+    - Current randomized generator now covers a bounded query fragment including subclass, intersection, union, existential, universal, Horn-safe query-time domain/range augmentation, datatype restrictions, singleton `DataOneOf`, `owl:hasValue`, nominals, `owl:hasSelf`, reflexive properties, `>= k` cardinality, limited functional data properties, limited negative object/data property assertions, `owl:hasKey`, and disjointness
     - Harness runs now persist accepted cases with schema/data/metadata for replay
-    - Still missing: broader fragment coverage in the random generator and deeper automation/reporting around mismatch diagnosis
+    - Still missing: broader fragment coverage in the random generator beyond the current bounded subset, plus deeper automation/reporting around mismatch diagnosis
 [~] Auto preprocessing policy selection and reporting
     - Implemented in `src/ontology_parse.py` as a preprocessing planner with `auto/on/off` decisions for hierarchy materialization, Horn-safe domain/range materialization, targeted role saturation, and query-time domain/range augmentation
     - Current user-facing behavior: defaults now favor `auto`, while examples and saved harness cases report the actual chosen decisions and reasons
@@ -58,7 +58,7 @@ Current implementation status
 Immediate roadmap gaps from the conversation
 [~] Ontology -> DAG compiler for the supported OWL fragment
     - Current status: minimal compiler implemented in `src/ontology_parse.py`
-    - Supported now: named atomic classes, `rdfs:subClassOf`, `owl:equivalentClass`, `owl:intersectionOf`, `owl:complementOf`, direct `owl:disjointWith`, `owl:Restriction` with `owl:onProperty` + `owl:someValuesFrom`, and `owl:allValuesFrom`
+    - Supported now: named atomic classes, `rdfs:subClassOf`, `owl:equivalentClass`, `owl:intersectionOf`, `owl:complementOf`, direct `owl:disjointWith`, `owl:Restriction` with `owl:onProperty` + `owl:someValuesFrom`, `owl:allValuesFrom`, `owl:hasValue`, and `owl:hasSelf`
     - Still missing: broader OWL coverage and integration into a cleaner end-to-end reasoning workflow
 [~] RDF / ontology / KG -> `KGraph` loader for real data
     - Current status: implemented in `src/ontology_parse.py`
@@ -117,6 +117,12 @@ Remaining OWL/DL work that still fits the DAG direction
     - Also implemented natively for direct existential query semantics via `EXISTS_TRANSITIVE_RESTRICTION` in `src/dag_eval.py`
     - Current scope: reusable transitive consequences still flow through the targeted saturation path, while direct transitive matching can avoid materialization
     - Still missing: more explicit profiling on deeper closures and any decision about a native universal-transitive operator
+[~] Reflexive object properties
+    - Implemented as an auto-detected preprocessing/materialization pass in `src/ontology_parse.py`
+    - Current scope: materializes `(x, R, x)` for `owl:ReflexiveProperty` roles over observed non-literal ABox nodes
+    - Also now paired with native `owl:hasSelf` compilation/evaluation in `src/ontology_parse.py` and `src/dag_eval.py`
+    - Now included in the randomized consistency harness generator/validation path
+    - Still missing: broader benchmarking
 
 Rule / antecedent reasoning planned in the conversation but absent in code
 [~] OWL EL / RL style completion rules or Horn-rule firing
@@ -200,12 +206,22 @@ Likely separate research track or out of scope for the current architecture
     - Implemented natively via exact node-identity leaves in `src/constraints.py` and `src/dag_eval.py`
     - `owl:oneOf` now compiles in `src/ontology_parse.py` as a single nominal or a union of nominals
     - Current semantics are exact/non-fuzzy by design
+[~] `sameAs` / identity merging
+    - Implemented as lightweight preprocessing in `src/ontology_parse.py`
+    - Supported now: explicit `owl:sameAs`, singleton nominal equality consequences, and limited `owl:hasKey` merging over known typed individuals with matching known key-property values
+    - Current scope: expands facts across discovered equivalence classes rather than fully canonicalizing nodes
 [!] Non-Horn disjunction / case-splitting
 [!] Full tableau-style OWL 2 DL reasoning
 [~] General datatype / arithmetic reasoning
     - Implemented basic strict datatype predicates over lifted literal nodes in `src/graph.py`, `src/constraints.py`, `src/dag_eval.py`, and `src/ontology_parse.py`
-    - Supported now: direct datatype fillers like `xsd:integer`, `owl:onDatatype` + `owl:withRestrictions` with basic numeric bounds, and literal `owl:oneOf` enumerations
+    - Supported now: direct datatype fillers like `xsd:integer`, `DataSomeValuesFrom` via `owl:someValuesFrom` to a datatype or datatype restriction, singleton `DataOneOf` via literal `owl:oneOf` enumerations, and `owl:onDatatype` + `owl:withRestrictions` with basic numeric bounds
+    - Also now includes limited `FunctionalDataProperty` support in both query mode and the stratified blocker path for classes that require an exact literal value on a functional data property
+    - Also now includes limited `NegativeDataPropertyAssertion` support in both query mode and the stratified blocker path for classes that require an exact literal value
     - Current semantics: local predicate evaluation over observed literal nodes, not full OWL datatype entailment or fuzzy datatype scoring
+[~] Negative object/data property assertions
+    - Implemented as limited query-time and stratified blockers in `src/ontology_parse.py`
+    - Current scope: exact-value style class requirements (`owl:hasValue` and singleton `oneOf` value fillers) are guarded against explicit `owl:NegativePropertyAssertion` facts that forbid the same `(subject, property, value)` triple
+    - Still missing: broader support beyond exact-value style class requirements
 [!] Unrestricted cyclic non-monotonic reasoning
 
 Recommended implementation order

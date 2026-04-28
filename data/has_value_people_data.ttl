@@ -1,0 +1,18 @@
+@prefix ex: <http://example.org/hasvalue#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+ex:alice a owl:NamedIndividual ;
+  ex:hasPet ex:fido ;
+  ex:nickname "Ace" .
+
+ex:bob a owl:NamedIndividual ;
+  ex:hasPet ex:spot ;
+  ex:nickname "Bee" .
+
+ex:carol a owl:NamedIndividual ;
+  ex:hasPet ex:fido ;
+  ex:nickname "Bee" .
+
+ex:fido a owl:NamedIndividual .
+ex:spot a owl:NamedIndividual .

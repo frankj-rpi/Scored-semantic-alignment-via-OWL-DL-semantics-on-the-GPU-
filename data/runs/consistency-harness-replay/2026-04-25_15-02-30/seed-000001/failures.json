@@ -1,0 +1,67 @@
+[
+  {
+    "constructs": [
+      "atomic",
+      "disjoint",
+      "negation"
+    ],
+    "error": null,
+    "node_term": "<urn:dag-consistency:1#node0>",
+    "reasoner": "hermit",
+    "score": 1.0,
+    "seed": 1,
+    "target_class": "urn:dag-consistency:1#TargetClass0"
+  },
+  {
+    "constructs": [
+      "atomic",
+      "disjoint",
+      "negation"
+    ],
+    "error": null,
+    "node_term": "<urn:dag-consistency:1#node1>",
+    "reasoner": "hermit",
+    "score": 1.0,
+    "seed": 1,
+    "target_class": "urn:dag-consistency:1#TargetClass0"
+  },
+  {
+    "constructs": [
+      "atomic",
+      "disjoint",
+      "negation"
+    ],
+    "error": null,
+    "node_term": "<urn:dag-consistency:1#node2>",
+    "reasoner": "hermit",
+    "score": 1.0,
+    "seed": 1,
+    "target_class": "urn:dag-consistency:1#TargetClass0"
+  },
+  {
+    "constructs": [
+      "atomic",
+      "disjoint",
+      "negation"
+    ],
+    "error": null,
+    "node_term": "<urn:dag-consistency:1#node6>",
+    "reasoner": "hermit",
+    "score": 1.0,
+    "seed": 1,
+    "target_class": "urn:dag-consistency:1#TargetClass0"
+  },
+  {
+    "constructs": [
+      "atomic",
+      "disjoint",
+      "negation"
+    ],
+    "error": null,
+    "node_term": "<urn:dag-consistency:1#node7>",
+    "reasoner": "hermit",
+    "score": 1.0,
+    "seed": 1,
+    "target_class": "urn:dag-consistency:1#TargetClass0"
+  }
+]

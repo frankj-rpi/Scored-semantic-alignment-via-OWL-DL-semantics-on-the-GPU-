@@ -1,7 +1,0 @@
-Preprocessing plan:
-  - materialize_hierarchy: on (policy=auto; auto: hierarchy axioms detected)
-  - materialize_atomic_domain_range: off (policy=off; suppressed because Horn-safe domain/range materialization is enabled)
-  - materialize_horn_safe_domain_range: on (policy=auto; auto: domain/range axioms plus negative constraints detected)
-  - materialize_target_roles: off (policy=auto; auto: no role axioms detected)
-  - augment_property_domain_range: on (policy=auto; auto: domain/range axioms detected)
-Query augmentation: on (policy=on; explicitly enabled)

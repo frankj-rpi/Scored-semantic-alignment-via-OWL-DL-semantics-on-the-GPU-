@@ -1,0 +1,136 @@
+{
+  "attempts": 1,
+  "base_consistent_cases": 1,
+  "buckets": {
+    "atomic, disjoint, domain, exists, forall, intersection, negation, range, subclass, union": {
+      "examples": [],
+      "failures": 0,
+      "tested": 8
+    },
+    "atomic, disjoint, intersection, negation, subclass": {
+      "examples": [
+        {
+          "constructs": [
+            "atomic",
+            "disjoint",
+            "intersection",
+            "negation",
+            "subclass"
+          ],
+          "error": null,
+          "node_term": "<urn:dag-consistency:55#node1>",
+          "reasoner": "hermit",
+          "score": 1.0,
+          "seed": 55,
+          "target_class": "urn:dag-consistency:55#TargetClass3"
+        },
+        {
+          "constructs": [
+            "atomic",
+            "disjoint",
+            "intersection",
+            "negation",
+            "subclass"
+          ],
+          "error": null,
+          "node_term": "<urn:dag-consistency:55#node6>",
+          "reasoner": "hermit",
+          "score": 1.0,
+          "seed": 55,
+          "target_class": "urn:dag-consistency:55#TargetClass3"
+        },
+        {
+          "constructs": [
+            "atomic",
+            "disjoint",
+            "intersection",
+            "negation",
+            "subclass"
+          ],
+          "error": null,
+          "node_term": "<urn:dag-consistency:55#node7>",
+          "reasoner": "hermit",
+          "score": 1.0,
+          "seed": 55,
+          "target_class": "urn:dag-consistency:55#TargetClass3"
+        }
+      ],
+      "failures": 3,
+      "tested": 3
+    },
+    "atomic, domain, exists, forall, intersection, range, subclass, union": {
+      "examples": [],
+      "failures": 0,
+      "tested": 8
+    },
+    "atomic, exists, intersection, negation, subclass": {
+      "examples": [],
+      "failures": 0,
+      "tested": 0
+    }
+  },
+  "case_preprocessing_summaries": {
+    "seed-000055": "Preprocessing plan:\n  - materialize_hierarchy: on (policy=auto; auto: hierarchy axioms detected)\n  - materialize_atomic_domain_range: off (policy=off; suppressed because Horn-safe domain/range materialization is enabled)\n  - materialize_horn_safe_domain_range: on (policy=auto; auto: domain/range axioms plus negative constraints detected)\n  - materialize_target_roles: off (policy=auto; auto: no role axioms detected)\n  - augment_property_domain_range: on (policy=auto; auto: domain/range axioms detected)\nEngine mode: query\nQuery augmentation: on (policy=on; explicitly enabled)"
+  },
+  "engine": {
+    "conflict_policy": null,
+    "mode": "query"
+  },
+  "generated_cases": 1,
+  "requested_cases": 1,
+  "run_settings": {
+    "augment_property_domain_range": true,
+    "device": "cpu",
+    "generator_config": {
+      "allowed_constructs": [
+        "subclass",
+        "intersection",
+        "union",
+        "exists",
+        "forall",
+        "domain",
+        "range",
+        "disjoint"
+      ],
+      "datatype_edge_probability": 0.35,
+      "disjoint_pair_probability": 0.1,
+      "domain_range_axiom_probability": 0.35,
+      "edge_probability": 0.18,
+      "max_axioms_per_target": 3,
+      "min_axioms_per_target": 1,
+      "num_datatype_properties": 2,
+      "num_individuals": 8,
+      "num_primitive_classes": 5,
+      "num_properties": 3,
+      "num_target_classes": 4,
+      "type_probability": 0.35
+    },
+    "materialize_hierarchy": null,
+    "max_attempts": 1,
+    "max_examples_per_bucket": 3,
+    "num_cases": 1,
+    "owlready2_reasoner": "hermit",
+    "save_cases": true,
+    "save_dir": "data\\runs\\consistency-harness-inspect",
+    "start_seed": 55,
+    "threshold": 0.999
+  },
+  "timings_ms": {
+    "assertion_consistency_check": 18313.9406000264,
+    "atomic_domain_range_materialization": 0.0,
+    "base_consistency_check": 828.9020999945933,
+    "dag_compile": 9.817400001338683,
+    "dag_evaluation": 11.549599992576987,
+    "dataset_build": 9.831499992287718,
+    "error_checking_total": 19142.842700020992,
+    "generation": 2.931499999249354,
+    "hierarchy_materialization": 0.9665999969001859,
+    "horn_safe_domain_range_materialization": 2.4975999986054376,
+    "kgraph_build": 6.367299996782094,
+    "preprocessing_total": 19.6488999936264,
+    "target_role_materialization": 0.0
+  },
+  "total_checked_assertions": 19,
+  "total_failures": 3,
+  "total_perfect_scores": 19
+}

@@ -185,6 +185,21 @@ def eval_dag_score_matrix(
                 child_idx = cnode.child_indices[0]
                 scores[:, node_idx] = 1.0 - scores[:, child_idx]
 
+            elif cnode.ctype == ConstraintType.HAS_SELF_RESTRICTION:
+                prop_idx = cnode.prop_idx
+                reduce_index, next_nodes = oriented_edges(prop_idx, cnode.prop_direction)
+                edge_values = (reduce_index == next_nodes).to(torch.float32)
+
+                out = torch.zeros(num_nodes, device=device)
+                out.scatter_reduce_(
+                    dim=0,
+                    index=reduce_index,
+                    src=edge_values,
+                    reduce="amax",
+                    include_self=True,
+                )
+                scores[:, node_idx] = out
+
             elif cnode.ctype == ConstraintType.EXISTS_RESTRICTION:
                 if not cnode.child_indices or len(cnode.child_indices) != 1:
                     raise ValueError("EXISTS_RESTRICTION must have exactly one child index.")

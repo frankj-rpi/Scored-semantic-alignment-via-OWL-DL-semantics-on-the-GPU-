@@ -1,0 +1,20 @@
+@prefix ex: <http://example.org/negprop#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:hasPet a owl:ObjectProperty .
+ex:nickname a owl:DatatypeProperty .
+
+ex:OwnsFido a owl:Class ;
+    owl:equivalentClass [
+        a owl:Restriction ;
+        owl:onProperty ex:hasPet ;
+        owl:hasValue ex:fido
+    ] .
+
+ex:NicknameAce a owl:Class ;
+    owl:equivalentClass [
+        a owl:Restriction ;
+        owl:onProperty ex:nickname ;
+        owl:hasValue "Ace"^^xsd:string
+    ] .
