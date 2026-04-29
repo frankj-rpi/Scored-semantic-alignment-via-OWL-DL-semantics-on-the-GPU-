@@ -26,6 +26,7 @@ from .ontology_parse import (
     NamedClassDependencyAnalysis,
     OntologyCompileContext,
     PreprocessingTimings,
+    aggregate_rdflib_graphs,
     analyze_named_class_dependencies,
     build_ontology_compile_context,
     build_rdflib_mapping,
@@ -457,9 +458,7 @@ def resolve_target_classes(
     materialize_hierarchy: Optional[bool] = None,
     augment_property_domain_range: Optional[bool] = None,
 ) -> TargetResolutionResult:
-    ontology_graph = _copy_graph(schema_graph)
-    for triple in data_graph:
-        ontology_graph.add(triple)
+    ontology_graph = aggregate_rdflib_graphs((schema_graph, data_graph))
 
     requested_specs = tuple(target_class_specs)
     candidate_targets: Set[URIRef] = set()
@@ -2071,8 +2070,10 @@ def run_oracle_comparison(
     show_timing_breakdown: bool = False,
     verbose: bool = False,
 ) -> None:
+    elk_preflight_elapsed_ms = 0.0
     resolved_elk_classpath = elk_classpath
     if "elk" in oracle_backends:
+        preflight_t0 = perf_counter()
         ok, error_text, resolved_classpath = validate_elk_backend(
             elk_classpath=elk_classpath,
             elk_jar=elk_jar,
@@ -2081,15 +2082,22 @@ def run_oracle_comparison(
             javac_command=elk_javac_command,
             java_options=elk_java_options,
         )
+        elk_preflight_elapsed_ms = (perf_counter() - preflight_t0) * 1000.0
         if not ok:
             print("=== Oracle Comparison ===")
+            print(f"ELK preflight time: {elk_preflight_elapsed_ms:.3f} ms")
             print("ELK preflight failed before engine execution.")
             print(error_text)
             return
         resolved_elk_classpath = resolved_classpath
 
+    load_schema_t0 = perf_counter()
     schema_graph = load_rdflib_graph(schema_paths)
+    schema_load_elapsed_ms = (perf_counter() - load_schema_t0) * 1000.0
+    load_data_t0 = perf_counter()
     data_graph = load_rdflib_graph(data_paths)
+    data_load_elapsed_ms = (perf_counter() - load_data_t0) * 1000.0
+    resolution_t0 = perf_counter()
     resolution = resolve_target_classes(
         schema_graph=schema_graph,
         data_graph=data_graph,
@@ -2099,6 +2107,7 @@ def run_oracle_comparison(
         include_type_edges=include_type_edges,
         materialize_hierarchy=materialize_hierarchy,
     )
+    resolution_elapsed_ms = (perf_counter() - resolution_t0) * 1000.0
     target_terms = resolution.resolved_targets
     warning_text = format_skipped_target_warnings(resolution, verbose=verbose)
     if warning_text:
@@ -2126,18 +2135,15 @@ def run_oracle_comparison(
     )
 
     candidate_terms = set(engine_result.dataset.mapping.node_terms) if engine_result.dataset else set()
-    ontology_graph = Graph()
-    for triple in schema_graph:
-        ontology_graph.add(triple)
-    for triple in data_graph:
-        ontology_graph.add(triple)
-
+    ontology_graph = aggregate_rdflib_graphs((schema_graph, data_graph))
+    query_graph_t0 = perf_counter()
     query_graph, query_class_by_target = build_oracle_query_graph(
         ontology_graph,
         target_terms,
         mode=query_mode,
         bridge_supported_definitions=bridge_supported_definitions,
     )
+    query_graph_elapsed_ms = (perf_counter() - query_graph_t0) * 1000.0
 
     oracle_results: List[BackendQueryResult] = []
     for backend in oracle_backends:
@@ -2175,6 +2181,13 @@ def run_oracle_comparison(
         else:
             raise ValueError(f"Unsupported oracle backend: {backend}")
 
+    print(f"Schema load time: {schema_load_elapsed_ms:.3f} ms")
+    print(f"Data load time: {data_load_elapsed_ms:.3f} ms")
+    if "elk" in oracle_backends:
+        print(f"ELK preflight time: {elk_preflight_elapsed_ms:.3f} ms")
+    print(f"Target resolution time: {resolution_elapsed_ms:.3f} ms")
+    if show_timing_breakdown:
+        print(f"Oracle query graph build time: {query_graph_elapsed_ms:.3f} ms")
     print_comparison_report(
         engine_result=engine_result,
         oracle_results=oracle_results,

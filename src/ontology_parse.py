@@ -7,6 +7,7 @@ from collections import defaultdict
 from time import perf_counter
 from typing import Dict, List, Optional, Sequence, Tuple
 
+import numpy as np
 import torch
 from rdflib import BNode, Graph, Literal, URIRef
 from rdflib.collection import Collection
@@ -43,6 +44,19 @@ class RDFKGraphMapping:
     prop_to_idx: Dict[URIRef, int]
     class_to_idx: Dict[Identifier, int]
     datatype_to_idx: Dict[URIRef, int]
+
+
+@dataclass
+class GraphBuildScanCache:
+    node_terms_set: set[Identifier]
+    prop_terms_set: set[URIRef]
+    class_terms_set: set[Identifier]
+    datatype_terms_set: set[URIRef]
+    type_pairs: List[Tuple[Identifier, Identifier]]
+    type_edge_triples: List[Tuple[Identifier, URIRef, Identifier]]
+    edge_triples: List[Tuple[Identifier, URIRef, Identifier]]
+    edge_triples_by_pred: Dict[URIRef, List[Tuple[Identifier, Identifier]]]
+    negative_helper_edges: List[Tuple[URIRef, Identifier, Identifier]]
 
 
 @dataclass
@@ -344,8 +358,10 @@ class ReasoningBuildCache:
     property_axioms: Dict[URIRef, PropertyExpressionAxioms]
     atomic_domain_consequents: Dict[URIRef, Tuple[URIRef, ...]]
     atomic_range_consequents: Dict[URIRef, Tuple[URIRef, ...]]
+    atomic_domain_range_predicates: Tuple[URIRef, ...]
     horn_domain_consequents: Dict[URIRef, Tuple[URIRef, ...]]
     horn_range_consequents: Dict[URIRef, Tuple[URIRef, ...]]
+    horn_domain_range_predicates: Tuple[URIRef, ...]
     horn_safe_named_axiom_consequents: Dict[URIRef, Tuple[URIRef, ...]]
     preprocessing_class_supers: Dict[URIRef, set[URIRef]]
     singleton_nominals: Dict[URIRef, Identifier]
@@ -642,8 +658,8 @@ def _refresh_sameas_incremental_state_subjects(
 
 def _try_reuse_kgraph_with_updated_types(
     *,
-    effective_data_graph: Graph,
     previous_dataset: ReasoningDataset,
+    new_type_assertions: Optional[Sequence[Tuple[Identifier, URIRef]]] = None,
 ) -> Optional[KGraph]:
     """
     Reuse the previous KGraph structure when only rdf:type assertions changed.
@@ -656,18 +672,26 @@ def _try_reuse_kgraph_with_updated_types(
 
     previous_mapping = previous_dataset.mapping
     previous_kg = previous_dataset.kg
-    num_nodes = len(previous_mapping.node_terms)
-    num_classes = len(previous_mapping.class_terms)
-    node_types = torch.zeros((num_nodes, num_classes), dtype=previous_kg.node_types.dtype)
-
-    for subj, pred, obj in effective_data_graph:
-        if pred != RDF.type:
-            continue
-        subj_idx = previous_mapping.node_to_idx.get(subj)
-        class_idx = previous_mapping.class_to_idx.get(obj)
-        if subj_idx is None or class_idx is None:
-            return None
-        node_types[subj_idx, class_idx] = 1.0
+    if new_type_assertions is not None:
+        node_types = previous_kg.node_types.clone()
+        for subj, class_term in new_type_assertions:
+            subj_idx = previous_mapping.node_to_idx.get(subj)
+            class_idx = previous_mapping.class_to_idx.get(class_term)
+            if subj_idx is None or class_idx is None:
+                return None
+            node_types[subj_idx, class_idx] = 1.0
+    else:
+        num_nodes = len(previous_mapping.node_terms)
+        num_classes = len(previous_mapping.class_terms)
+        node_types = torch.zeros((num_nodes, num_classes), dtype=previous_kg.node_types.dtype)
+        for subj, pred, obj in previous_dataset.data_graph:
+            if pred != RDF.type:
+                continue
+            subj_idx = previous_mapping.node_to_idx.get(subj)
+            class_idx = previous_mapping.class_to_idx.get(obj)
+            if subj_idx is None or class_idx is None:
+                return None
+            node_types[subj_idx, class_idx] = 1.0
 
     return KGraph(
         num_nodes=previous_kg.num_nodes,
@@ -780,6 +804,9 @@ def _build_reasoning_dataset_from_preprocessed_graph(
     sameas_state: Optional[SameAsIncrementalState] = None,
 ) -> ReasoningDataset:
     preprocessing_timings = PreprocessingTimings()
+    effective_new_type_assertions: Optional[List[Tuple[Identifier, URIRef]]] = (
+        list(new_type_assertions) if new_type_assertions is not None else None
+    )
 
     if preprocessing_plan.materialize_hierarchy.enabled:
         t0 = perf_counter()
@@ -787,6 +814,7 @@ def _build_reasoning_dataset_from_preprocessed_graph(
             effective_data_graph,
             subclass_supers=build_cache.preprocessing_class_supers,
             seed_type_assertions=new_type_assertions if not rerun_sameas else None,
+            new_type_assertions=effective_new_type_assertions if not rerun_sameas else None,
         )
         preprocessing_timings.hierarchy_elapsed_ms += (perf_counter() - t0) * 1000.0
 
@@ -831,6 +859,7 @@ def _build_reasoning_dataset_from_preprocessed_graph(
         preprocessing_timings.sameas_passes_elapsed_ms.append(sameas_pass_ms)
 
     if sameas_changed:
+        sameas_new_domain_range_types: List[Tuple[Identifier, URIRef]] = []
         if preprocessing_plan.materialize_reflexive_properties.enabled:
             t0 = perf_counter()
             _materialize_reflexive_property_closure_in_place(
@@ -854,6 +883,8 @@ def _build_reasoning_dataset_from_preprocessed_graph(
                 effective_data_graph,
                 domain_consequents=build_cache.horn_domain_consequents,
                 range_consequents=build_cache.horn_range_consequents,
+                active_predicates=build_cache.horn_domain_range_predicates,
+                new_type_assertions=sameas_new_domain_range_types,
             )
             preprocessing_timings.horn_safe_domain_range_elapsed_ms += (perf_counter() - t0) * 1000.0
         elif preprocessing_plan.materialize_atomic_domain_range.enabled:
@@ -862,14 +893,17 @@ def _build_reasoning_dataset_from_preprocessed_graph(
                 effective_data_graph,
                 domain_consequents=build_cache.atomic_domain_consequents,
                 range_consequents=build_cache.atomic_range_consequents,
+                active_predicates=build_cache.atomic_domain_range_predicates,
+                new_type_assertions=sameas_new_domain_range_types,
             )
             preprocessing_timings.atomic_domain_range_elapsed_ms += (perf_counter() - t0) * 1000.0
 
-        if preprocessing_plan.materialize_hierarchy.enabled:
+        if preprocessing_plan.materialize_hierarchy.enabled and sameas_new_domain_range_types:
             t0 = perf_counter()
             _materialize_hierarchy_closure_in_place(
                 effective_data_graph,
                 subclass_supers=build_cache.preprocessing_class_supers,
+                seed_type_assertions=sameas_new_domain_range_types,
             )
             preprocessing_timings.hierarchy_elapsed_ms += (perf_counter() - t0) * 1000.0
 
@@ -888,8 +922,8 @@ def _build_reasoning_dataset_from_preprocessed_graph(
     if can_attempt_reuse and not rerun_sameas and not include_type_edges:
         t0 = perf_counter()
         reused_kg = _try_reuse_kgraph_with_updated_types(
-            effective_data_graph=effective_data_graph,
             previous_dataset=previous_dataset,
+            new_type_assertions=effective_new_type_assertions,
         )
         preprocessing_timings.kgraph_build_elapsed_ms = (perf_counter() - t0) * 1000.0
         if reused_kg is not None:
@@ -1067,6 +1101,163 @@ def _ensure_sequence(paths: str | Path | Sequence[str | Path]) -> List[str]:
     return [str(p) for p in paths]
 
 
+def _finalize_rdflib_mapping(
+    *,
+    node_terms_set: set[Identifier],
+    prop_terms_set: set[URIRef],
+    class_terms_set: set[Identifier],
+    datatype_terms_set: set[URIRef],
+    preprocessing_timings: Optional[PreprocessingTimings] = None,
+) -> RDFKGraphMapping:
+    t0 = perf_counter()
+    node_terms = sorted(node_terms_set, key=_term_sort_key)
+    prop_terms = sorted(prop_terms_set, key=_term_sort_key)
+    class_terms = sorted(class_terms_set, key=_term_sort_key)
+    datatype_terms = sorted(datatype_terms_set, key=str)
+    if preprocessing_timings is not None:
+        preprocessing_timings.mapping_sort_elapsed_ms += (perf_counter() - t0) * 1000.0
+
+    t0 = perf_counter()
+    mapping = RDFKGraphMapping(
+        node_terms=node_terms,
+        prop_terms=prop_terms,
+        class_terms=class_terms,
+        datatype_terms=datatype_terms,
+        node_to_idx={term: idx for idx, term in enumerate(node_terms)},
+        prop_to_idx={term: idx for idx, term in enumerate(prop_terms)},
+        class_to_idx={term: idx for idx, term in enumerate(class_terms)},
+        datatype_to_idx={term: idx for idx, term in enumerate(datatype_terms)},
+    )
+    if preprocessing_timings is not None:
+        preprocessing_timings.mapping_index_elapsed_ms += (perf_counter() - t0) * 1000.0
+    return mapping
+
+
+def _scan_graph_build_cache(
+    graph: Graph,
+    *,
+    include_literals: bool,
+    include_type_edges: bool,
+    preprocessing_timings: Optional[PreprocessingTimings] = None,
+    schema_property_terms: Optional[Sequence[URIRef]] = None,
+    schema_class_terms: Optional[Sequence[Identifier]] = None,
+    schema_datatype_terms: Optional[Sequence[URIRef]] = None,
+    vocab_source: Optional[Graph] = None,
+) -> GraphBuildScanCache:
+    t0 = perf_counter()
+    prop_terms_set: set[URIRef] = (
+        set(schema_property_terms)
+        if schema_property_terms is not None
+        else _collect_property_terms(vocab_source if vocab_source is not None else graph)
+    )
+    class_terms_set: set[Identifier] = (
+        set(schema_class_terms)
+        if schema_class_terms is not None
+        else _collect_named_class_terms(vocab_source if vocab_source is not None else graph)
+    )
+    datatype_terms_set: set[URIRef] = (
+        set(schema_datatype_terms)
+        if schema_datatype_terms is not None
+        else _collect_datatype_terms(vocab_source if vocab_source is not None else graph)
+    )
+    if preprocessing_timings is not None:
+        preprocessing_timings.mapping_vocab_collect_elapsed_ms += (perf_counter() - t0) * 1000.0
+
+    node_terms_set: set[Identifier] = set()
+    type_pairs: List[Tuple[Identifier, Identifier]] = []
+    type_edge_triples: List[Tuple[Identifier, URIRef, Identifier]] = []
+    edge_triples: List[Tuple[Identifier, URIRef, Identifier]] = []
+    edge_triples_by_pred: Dict[URIRef, List[Tuple[Identifier, Identifier]]] = defaultdict(list)
+
+    t0 = perf_counter()
+    for subj, pred, obj in graph:
+        node_terms_set.add(subj)
+
+        if pred == RDF.type:
+            class_terms_set.add(obj)
+            type_pairs.append((subj, obj))
+            if include_type_edges and not isinstance(obj, Literal):
+                node_terms_set.add(obj)
+                prop_terms_set.add(pred)
+                type_edge_triples.append((subj, pred, obj))
+            continue
+
+        prop_terms_set.add(pred)
+        if isinstance(obj, Literal):
+            if include_literals:
+                node_terms_set.add(obj)
+                if isinstance(obj.datatype, URIRef):
+                    datatype_terms_set.add(obj.datatype)
+                edge_triples.append((subj, pred, obj))
+                edge_triples_by_pred[pred].append((subj, obj))
+            continue
+
+        node_terms_set.add(obj)
+        edge_triples.append((subj, pred, obj))
+        edge_triples_by_pred[pred].append((subj, obj))
+
+    negative_helper_edges = _collect_negative_property_assertion_edges(
+        graph,
+        include_literals=include_literals,
+    )
+    for helper_prop, subj, obj in negative_helper_edges:
+        prop_terms_set.add(helper_prop)
+        node_terms_set.add(subj)
+        node_terms_set.add(obj)
+        if isinstance(obj, Literal) and isinstance(obj.datatype, URIRef):
+            datatype_terms_set.add(obj.datatype)
+    if preprocessing_timings is not None:
+        preprocessing_timings.mapping_graph_scan_elapsed_ms += (perf_counter() - t0) * 1000.0
+
+    return GraphBuildScanCache(
+        node_terms_set=node_terms_set,
+        prop_terms_set=prop_terms_set,
+        class_terms_set=class_terms_set,
+        datatype_terms_set=datatype_terms_set,
+        type_pairs=type_pairs,
+        type_edge_triples=type_edge_triples,
+        edge_triples=edge_triples,
+        edge_triples_by_pred=edge_triples_by_pred,
+        negative_helper_edges=negative_helper_edges,
+    )
+
+
+def _extend_graph_build_scan_cache(
+    scan_cache: GraphBuildScanCache,
+    added_triples: Sequence[Tuple[Identifier, Identifier, Identifier]],
+    *,
+    include_literals: bool,
+    include_type_edges: bool,
+) -> None:
+    for subj, pred, obj in added_triples:
+        scan_cache.node_terms_set.add(subj)
+
+        if pred == RDF.type:
+            scan_cache.class_terms_set.add(obj)
+            scan_cache.type_pairs.append((subj, obj))
+            if include_type_edges and not isinstance(obj, Literal):
+                scan_cache.node_terms_set.add(obj)
+                scan_cache.prop_terms_set.add(RDF.type)
+                scan_cache.type_edge_triples.append((subj, RDF.type, obj))
+            continue
+
+        if not isinstance(pred, URIRef):
+            continue
+        scan_cache.prop_terms_set.add(pred)
+        if isinstance(obj, Literal):
+            if include_literals:
+                scan_cache.node_terms_set.add(obj)
+                if isinstance(obj.datatype, URIRef):
+                    scan_cache.datatype_terms_set.add(obj.datatype)
+                scan_cache.edge_triples.append((subj, pred, obj))
+                scan_cache.edge_triples_by_pred[pred].append((subj, obj))
+            continue
+
+        scan_cache.node_terms_set.add(obj)
+        scan_cache.edge_triples.append((subj, pred, obj))
+        scan_cache.edge_triples_by_pred[pred].append((subj, obj))
+
+
 def build_reasoning_build_cache(schema_graph: Graph) -> ReasoningBuildCache:
     schema_property_terms = frozenset(_collect_property_terms(schema_graph))
     schema_class_terms = frozenset(_collect_named_class_terms(schema_graph))
@@ -1077,9 +1268,21 @@ def build_reasoning_build_cache(schema_graph: Graph) -> ReasoningBuildCache:
         schema_graph,
         property_axioms=property_axioms,
     )
+    atomic_domain_range_predicates = tuple(
+        sorted(
+            set(atomic_domain_consequents.keys()) | set(atomic_range_consequents.keys()),
+            key=str,
+        )
+    )
     horn_domain_consequents, horn_range_consequents = _collect_horn_safe_property_consequents(
         schema_graph,
         property_axioms=property_axioms,
+    )
+    horn_domain_range_predicates = tuple(
+        sorted(
+            set(horn_domain_consequents.keys()) | set(horn_range_consequents.keys()),
+            key=str,
+        )
     )
     horn_safe_named_axiom_consequents = _collect_horn_safe_named_class_axiom_consequents(schema_graph)
     preprocessing_class_supers = _compute_transitive_super_map_from_direct(
@@ -1106,8 +1309,10 @@ def build_reasoning_build_cache(schema_graph: Graph) -> ReasoningBuildCache:
         property_axioms=property_axioms,
         atomic_domain_consequents=atomic_domain_consequents,
         atomic_range_consequents=atomic_range_consequents,
+        atomic_domain_range_predicates=atomic_domain_range_predicates,
         horn_domain_consequents=horn_domain_consequents,
         horn_range_consequents=horn_range_consequents,
+        horn_domain_range_predicates=horn_domain_range_predicates,
         horn_safe_named_axiom_consequents=horn_safe_named_axiom_consequents,
         preprocessing_class_supers=preprocessing_class_supers,
         singleton_nominals=singleton_nominals,
@@ -1770,6 +1975,10 @@ def _materialize_hierarchy_closure_in_place(
     subproperty_supers: Optional[Dict[URIRef, set[URIRef]]] = None,
     all_different_pairs: Optional[Sequence[Tuple[Identifier, Identifier]]] = None,
     seed_type_assertions: Optional[Sequence[Tuple[Identifier, URIRef]]] = None,
+    type_assertions: Optional[Sequence[Tuple[Identifier, Identifier]]] = None,
+    property_triples: Optional[Sequence[Tuple[Identifier, URIRef, Identifier]]] = None,
+    new_type_assertions: Optional[List[Tuple[Identifier, URIRef]]] = None,
+    new_triples: Optional[List[Tuple[Identifier, Identifier, Identifier]]] = None,
 ) -> bool:
     changed = False
     if all_different_pairs is not None:
@@ -1778,10 +1987,14 @@ def _materialize_hierarchy_closure_in_place(
             if triple not in materialized:
                 materialized.add(triple)
                 changed = True
+                if new_triples is not None:
+                    new_triples.append(triple)
             triple = (right, OWL.differentFrom, left)
             if triple not in materialized:
                 materialized.add(triple)
                 changed = True
+                if new_triples is not None:
+                    new_triples.append(triple)
 
     if seed_type_assertions is not None:
         for subj, class_term in seed_type_assertions:
@@ -1790,20 +2003,53 @@ def _materialize_hierarchy_closure_in_place(
                 if triple not in materialized:
                     materialized.add(triple)
                     changed = True
+                    if new_type_assertions is not None:
+                        new_type_assertions.append((subj, super_class))
+                    if new_triples is not None:
+                        new_triples.append(triple)
     else:
-        for subj, pred, obj in list(materialized):
-            if pred == RDF.type and isinstance(obj, URIRef):
-                for super_class in subclass_supers.get(obj, ()):
+        if type_assertions is None or (subproperty_supers is not None and property_triples is None):
+            for subj, pred, obj in list(materialized):
+                if pred == RDF.type and isinstance(obj, URIRef):
+                    for super_class in subclass_supers.get(obj, ()):
+                        triple = (subj, RDF.type, super_class)
+                        if triple not in materialized:
+                            materialized.add(triple)
+                            changed = True
+                            if new_type_assertions is not None:
+                                new_type_assertions.append((subj, super_class))
+                            if new_triples is not None:
+                                new_triples.append(triple)
+                elif subproperty_supers is not None and isinstance(pred, URIRef):
+                    for super_prop in subproperty_supers.get(pred, ()):
+                        triple = (subj, super_prop, obj)
+                        if triple not in materialized:
+                            materialized.add(triple)
+                            changed = True
+                            if new_triples is not None:
+                                new_triples.append(triple)
+        else:
+            for subj, class_term in type_assertions:
+                if not isinstance(class_term, URIRef):
+                    continue
+                for super_class in subclass_supers.get(class_term, ()):
                     triple = (subj, RDF.type, super_class)
                     if triple not in materialized:
                         materialized.add(triple)
                         changed = True
-            elif subproperty_supers is not None and isinstance(pred, URIRef):
-                for super_prop in subproperty_supers.get(pred, ()):
-                    triple = (subj, super_prop, obj)
-                    if triple not in materialized:
-                        materialized.add(triple)
-                        changed = True
+                        if new_type_assertions is not None:
+                            new_type_assertions.append((subj, super_class))
+                        if new_triples is not None:
+                            new_triples.append(triple)
+            if subproperty_supers is not None:
+                for subj, pred, obj in property_triples:
+                    for super_prop in subproperty_supers.get(pred, ()):
+                        triple = (subj, super_prop, obj)
+                        if triple not in materialized:
+                            materialized.add(triple)
+                            changed = True
+                            if new_triples is not None:
+                                new_triples.append(triple)
     return changed
 
 
@@ -1951,6 +2197,7 @@ def materialize_horn_safe_domain_range_closure(
     property_axioms: Optional[Dict[URIRef, PropertyExpressionAxioms]] = None,
     horn_domain_consequents: Optional[Dict[URIRef, Tuple[URIRef, ...]]] = None,
     horn_range_consequents: Optional[Dict[URIRef, Tuple[URIRef, ...]]] = None,
+    horn_domain_range_predicates: Optional[Sequence[URIRef]] = None,
 ) -> Graph:
     """
     Materialize Horn-safe domain/range consequences into rdf:type assertions.
@@ -1971,22 +2218,30 @@ def materialize_horn_safe_domain_range_closure(
             ontology_graph,
             property_axioms=property_axioms,
         )
+    if horn_domain_range_predicates is None:
+        horn_domain_range_predicates = tuple(
+            sorted(
+                set(horn_domain_consequents.keys()) | set(horn_range_consequents.keys()),
+                key=str,
+            )
+        )
     materialized = Graph()
     for triple in data_graph:
         materialized.add(triple)
 
-    for subj, pred, obj in data_graph:
-        if pred == RDF.type or not isinstance(pred, URIRef):
-            continue
-
+    for pred in horn_domain_range_predicates:
         for class_term in horn_domain_consequents.get(pred, ()):
-            materialized.add((subj, RDF.type, class_term))
+            for subj, obj in data_graph.subject_objects(pred):
+                materialized.add((subj, RDF.type, class_term))
 
-        if isinstance(obj, Literal):
+        range_classes = horn_range_consequents.get(pred, ())
+        if not range_classes:
             continue
-
-        for class_term in horn_range_consequents.get(pred, ()):
-            materialized.add((obj, RDF.type, class_term))
+        for subj, obj in data_graph.subject_objects(pred):
+            if isinstance(obj, Literal):
+                continue
+            for class_term in range_classes:
+                materialized.add((obj, RDF.type, class_term))
 
     return materialized
 
@@ -1996,23 +2251,102 @@ def _materialize_domain_range_closure_in_place(
     *,
     domain_consequents: Dict[URIRef, Tuple[URIRef, ...]],
     range_consequents: Dict[URIRef, Tuple[URIRef, ...]],
+    active_predicates: Optional[Sequence[URIRef]] = None,
+    property_triples: Optional[Sequence[Tuple[Identifier, URIRef, Identifier]]] = None,
+    property_pairs_by_pred: Optional[Dict[URIRef, Sequence[Tuple[Identifier, Identifier]]]] = None,
+    new_type_assertions: Optional[List[Tuple[Identifier, URIRef]]] = None,
+    new_triples: Optional[List[Tuple[Identifier, Identifier, Identifier]]] = None,
 ) -> bool:
     changed = False
-    for subj, pred, obj in list(materialized):
-        if pred == RDF.type or not isinstance(pred, URIRef):
-            continue
-        for class_term in domain_consequents.get(pred, ()):
-            triple = (subj, RDF.type, class_term)
-            if triple not in materialized:
-                materialized.add(triple)
-                changed = True
-        if isinstance(obj, Literal):
-            continue
-        for class_term in range_consequents.get(pred, ()):
-            triple = (obj, RDF.type, class_term)
-            if triple not in materialized:
-                materialized.add(triple)
-                changed = True
+    if active_predicates is None:
+        active_predicates = tuple(
+            sorted(
+                set(domain_consequents.keys()) | set(range_consequents.keys()),
+                key=str,
+            )
+        )
+    if property_pairs_by_pred is not None:
+        for pred in active_predicates:
+            pred_pairs = property_pairs_by_pred.get(pred, ())
+            if not pred_pairs:
+                continue
+            domain_classes = domain_consequents.get(pred, ())
+            range_classes = range_consequents.get(pred, ())
+            for subj, obj in pred_pairs:
+                for class_term in domain_classes:
+                    triple = (subj, RDF.type, class_term)
+                    if triple not in materialized:
+                        materialized.add(triple)
+                        changed = True
+                        if new_type_assertions is not None:
+                            new_type_assertions.append((subj, class_term))
+                        if new_triples is not None:
+                            new_triples.append(triple)
+                if isinstance(obj, Literal):
+                    continue
+                for class_term in range_classes:
+                    triple = (obj, RDF.type, class_term)
+                    if triple not in materialized:
+                        materialized.add(triple)
+                        changed = True
+                        if new_type_assertions is not None:
+                            new_type_assertions.append((obj, class_term))
+                        if new_triples is not None:
+                            new_triples.append(triple)
+    elif property_triples is None:
+        for pred in active_predicates:
+            domain_classes = domain_consequents.get(pred, ())
+            range_classes = range_consequents.get(pred, ())
+            if not domain_classes and not range_classes:
+                continue
+            for subj, obj in materialized.subject_objects(pred):
+                for class_term in domain_classes:
+                    triple = (subj, RDF.type, class_term)
+                    if triple not in materialized:
+                        materialized.add(triple)
+                        changed = True
+                        if new_type_assertions is not None:
+                            new_type_assertions.append((subj, class_term))
+                        if new_triples is not None:
+                            new_triples.append(triple)
+                if isinstance(obj, Literal):
+                    continue
+                for class_term in range_classes:
+                    triple = (obj, RDF.type, class_term)
+                    if triple not in materialized:
+                        materialized.add(triple)
+                        changed = True
+                        if new_type_assertions is not None:
+                            new_type_assertions.append((obj, class_term))
+                        if new_triples is not None:
+                            new_triples.append(triple)
+    else:
+        active_set = set(active_predicates)
+        for subj, pred, obj in property_triples:
+            if pred not in active_set:
+                continue
+            domain_classes = domain_consequents.get(pred, ())
+            range_classes = range_consequents.get(pred, ())
+            for class_term in domain_classes:
+                triple = (subj, RDF.type, class_term)
+                if triple not in materialized:
+                    materialized.add(triple)
+                    changed = True
+                    if new_type_assertions is not None:
+                        new_type_assertions.append((subj, class_term))
+                    if new_triples is not None:
+                        new_triples.append(triple)
+            if isinstance(obj, Literal):
+                continue
+            for class_term in range_classes:
+                triple = (obj, RDF.type, class_term)
+                if triple not in materialized:
+                    materialized.add(triple)
+                    changed = True
+                    if new_type_assertions is not None:
+                        new_type_assertions.append((obj, class_term))
+                    if new_triples is not None:
+                        new_triples.append(triple)
     return changed
 
 
@@ -2634,6 +2968,7 @@ def _materialize_reflexive_property_closure_in_place(
     *,
     reflexive_props: Sequence[URIRef],
     node_terms: Optional[set[Identifier]] = None,
+    new_triples: Optional[List[Tuple[Identifier, Identifier, Identifier]]] = None,
 ) -> bool:
     if node_terms is None:
         node_terms = set()
@@ -2649,6 +2984,8 @@ def _materialize_reflexive_property_closure_in_place(
             if triple not in materialized:
                 materialized.add(triple)
                 changed = True
+                if new_triples is not None:
+                    new_triples.append(triple)
     return changed
 
 
@@ -3988,6 +4325,7 @@ def rdflib_graph_to_kgraph(
     schema_property_terms: Optional[Sequence[URIRef]] = None,
     schema_class_terms: Optional[Sequence[Identifier]] = None,
     schema_datatype_terms: Optional[Sequence[URIRef]] = None,
+    scan_cache: Optional[GraphBuildScanCache] = None,
 ) -> tuple[KGraph, RDFKGraphMapping]:
     """
     Convert an rdflib.Graph into a KGraph.
@@ -4000,16 +4338,25 @@ def rdflib_graph_to_kgraph(
     - `rdf:type` edges are excluded from the property adjacency by default,
       because the engine already models them in `node_types`.
     """
-    mapping = build_rdflib_mapping(
-        graph,
-        vocab_graph=vocab_graph,
-        vocab_source=vocab_source,
-        include_literals=include_literals,
-        include_type_edges=include_type_edges,
+    if vocab_source is None:
+        vocab_source = graph if vocab_graph is None else aggregate_rdflib_graphs((vocab_graph, graph))
+    if scan_cache is None:
+        scan_cache = _scan_graph_build_cache(
+            graph,
+            include_literals=include_literals,
+            include_type_edges=include_type_edges,
+            preprocessing_timings=preprocessing_timings,
+            schema_property_terms=schema_property_terms,
+            schema_class_terms=schema_class_terms,
+            schema_datatype_terms=schema_datatype_terms,
+            vocab_source=vocab_source,
+        )
+    mapping = _finalize_rdflib_mapping(
+        node_terms_set=scan_cache.node_terms_set,
+        prop_terms_set=scan_cache.prop_terms_set,
+        class_terms_set=scan_cache.class_terms_set,
+        datatype_terms_set=scan_cache.datatype_terms_set,
         preprocessing_timings=preprocessing_timings,
-        schema_property_terms=schema_property_terms,
-        schema_class_terms=schema_class_terms,
-        schema_datatype_terms=schema_datatype_terms,
     )
 
     node_terms = mapping.node_terms
@@ -4028,45 +4375,52 @@ def rdflib_graph_to_kgraph(
     literal_numeric_value = torch.full((num_nodes,), float("nan"), dtype=torch.float32)
 
     edge_bucket_t0 = perf_counter()
-    indexed_edge_buckets: Dict[int, List[Tuple[int, int]]] = defaultdict(list)
-    for subj, pred, obj in graph:
-        subj_idx = node_to_idx.get(subj)
-        if subj_idx is None:
-            continue
+    if scan_cache.type_pairs:
+        type_src = np.fromiter(
+            (node_to_idx[subj] for subj, _class_term in scan_cache.type_pairs),
+            dtype=np.int64,
+            count=len(scan_cache.type_pairs),
+        )
+        type_cls = np.fromiter(
+            (class_to_idx[class_term] for _subj, class_term in scan_cache.type_pairs),
+            dtype=np.int64,
+            count=len(scan_cache.type_pairs),
+        )
+        node_types[type_src.tolist(), type_cls.tolist()] = 1.0
 
-        if pred == RDF.type:
-            class_idx = class_to_idx.get(obj)
-            if class_idx is not None:
-                node_types[subj_idx, class_idx] = 1.0
-            if include_type_edges and not isinstance(obj, Literal):
-                dst_idx = node_to_idx.get(obj)
-                prop_idx = mapping.prop_to_idx.get(pred)
-                if dst_idx is not None and prop_idx is not None:
-                    indexed_edge_buckets[prop_idx].append((subj_idx, dst_idx))
-            continue
-
-        if isinstance(obj, Literal) and not include_literals:
-            continue
-        dst_idx = node_to_idx.get(obj)
-        prop_idx = mapping.prop_to_idx.get(pred)
-        if dst_idx is None or prop_idx is None:
-            continue
-        indexed_edge_buckets[prop_idx].append((subj_idx, dst_idx))
+    edge_src_terms: List[Identifier] = []
+    edge_prop_terms: List[URIRef] = []
+    edge_dst_terms: List[Identifier] = []
+    if scan_cache.type_edge_triples:
+        for subj, pred, obj in scan_cache.type_edge_triples:
+            edge_src_terms.append(subj)
+            edge_prop_terms.append(pred)
+            edge_dst_terms.append(obj)
+    if scan_cache.edge_triples:
+        for subj, pred, obj in scan_cache.edge_triples:
+            edge_src_terms.append(subj)
+            edge_prop_terms.append(pred)
+            edge_dst_terms.append(obj)
 
     negative_helper_t0 = perf_counter()
-    for helper_prop, subj, obj in _collect_negative_property_assertion_edges(
-        graph,
-        include_literals=include_literals,
-    ):
-        subj_idx = node_to_idx.get(subj)
-        dst_idx = node_to_idx.get(obj)
-        prop_idx = mapping.prop_to_idx.get(helper_prop)
-        if subj_idx is None or dst_idx is None or prop_idx is None:
-            continue
-        indexed_edge_buckets[prop_idx].append((subj_idx, dst_idx))
+    if scan_cache.negative_helper_edges:
+        for helper_prop, subj, obj in scan_cache.negative_helper_edges:
+            edge_src_terms.append(subj)
+            edge_prop_terms.append(helper_prop)
+            edge_dst_terms.append(obj)
+    if preprocessing_timings is not None:
+        preprocessing_timings.kgraph_negative_helper_elapsed_ms += (perf_counter() - negative_helper_t0) * 1000.0
+
+    if edge_src_terms:
+        src_arr = np.fromiter((node_to_idx[term] for term in edge_src_terms), dtype=np.int32, count=len(edge_src_terms))
+        prop_arr = np.fromiter((mapping.prop_to_idx[term] for term in edge_prop_terms), dtype=np.int32, count=len(edge_prop_terms))
+        dst_arr = np.fromiter((node_to_idx[term] for term in edge_dst_terms), dtype=np.int32, count=len(edge_dst_terms))
+    else:
+        src_arr = np.empty((0,), dtype=np.int32)
+        prop_arr = np.empty((0,), dtype=np.int32)
+        dst_arr = np.empty((0,), dtype=np.int32)
     if preprocessing_timings is not None:
         preprocessing_timings.kgraph_edge_bucket_elapsed_ms += (perf_counter() - edge_bucket_t0) * 1000.0
-        preprocessing_timings.kgraph_negative_helper_elapsed_ms += (perf_counter() - negative_helper_t0) * 1000.0
 
     literal_feature_t0 = perf_counter()
     for node_idx, term in enumerate(node_terms):
@@ -4087,20 +4441,36 @@ def rdflib_graph_to_kgraph(
     adjacency_t0 = perf_counter()
     offsets_p: List[torch.Tensor] = []
     neighbors_p: List[torch.Tensor] = []
+    if prop_arr.size:
+        order = np.lexsort((src_arr, prop_arr))
+        sorted_props = prop_arr[order]
+        sorted_srcs = src_arr[order]
+        sorted_dsts = dst_arr[order]
+        prop_offsets = np.zeros(len(prop_terms) + 1, dtype=np.int64)
+        prop_counts = np.bincount(sorted_props, minlength=len(prop_terms))
+        prop_offsets[1:] = np.cumsum(prop_counts, dtype=np.int64)
+    else:
+        sorted_props = prop_arr
+        sorted_srcs = src_arr
+        sorted_dsts = dst_arr
+        prop_offsets = np.zeros(len(prop_terms) + 1, dtype=np.int64)
+
     for prop_idx, _prop_term in enumerate(prop_terms):
-        indexed_pairs = indexed_edge_buckets.get(prop_idx, [])
-        if not indexed_pairs:
+        start = int(prop_offsets[prop_idx])
+        end = int(prop_offsets[prop_idx + 1])
+        if start == end:
             offsets_p.append(torch.zeros(num_nodes + 1, dtype=torch.int32))
             neighbors_p.append(torch.empty((0,), dtype=torch.int32))
             continue
 
-        src_tensor = torch.tensor([src_idx for src_idx, _dst_idx in indexed_pairs], dtype=torch.int64)
-        dst_tensor = torch.tensor([dst_idx for _src_idx, dst_idx in indexed_pairs], dtype=torch.int32)
-        count_tensor = torch.bincount(src_tensor, minlength=num_nodes)
+        prop_srcs = sorted_srcs[start:end]
+        prop_dsts = sorted_dsts[start:end]
+        count_tensor = torch.from_numpy(
+            np.bincount(prop_srcs, minlength=num_nodes).astype(np.int64, copy=False)
+        )
         offsets = torch.zeros(num_nodes + 1, dtype=torch.int32)
         offsets[1:] = torch.cumsum(count_tensor.to(torch.int32), dim=0)
-        order = torch.argsort(src_tensor, stable=True)
-        neighbors = dst_tensor[order]
+        neighbors = torch.from_numpy(prop_dsts.astype(np.int32, copy=False))
         offsets_p.append(offsets)
         neighbors_p.append(neighbors)
     if preprocessing_timings is not None:
@@ -4326,8 +4696,10 @@ def build_reasoning_dataset_from_graphs(
     property_axioms = cache.property_axioms
     atomic_domain_consequents = cache.atomic_domain_consequents
     atomic_range_consequents = cache.atomic_range_consequents
+    atomic_domain_range_predicates = cache.atomic_domain_range_predicates
     horn_domain_consequents = cache.horn_domain_consequents
     horn_range_consequents = cache.horn_range_consequents
+    horn_domain_range_predicates = cache.horn_domain_range_predicates
     horn_safe_named_axiom_consequents = cache.horn_safe_named_axiom_consequents
     preprocessing_class_supers = cache.preprocessing_class_supers
     singleton_nominals = cache.singleton_nominals
@@ -4359,6 +4731,22 @@ def build_reasoning_dataset_from_graphs(
         if preprocessing_plan.materialize_haskey_equality.enabled
         else {}
     )
+    can_incrementally_build_scan_cache = (
+        not preprocessing_plan.materialize_sameas.enabled
+        and not preprocessing_plan.materialize_target_roles.enabled
+    )
+    graph_build_scan_cache: Optional[GraphBuildScanCache] = None
+    if can_incrementally_build_scan_cache:
+        graph_build_scan_cache = _scan_graph_build_cache(
+            data_graph,
+            include_literals=include_literals,
+            include_type_edges=include_type_edges,
+            preprocessing_timings=preprocessing_timings,
+            schema_property_terms=cache.schema_property_terms,
+            schema_class_terms=cache.schema_class_terms,
+            schema_datatype_terms=cache.schema_datatype_terms,
+            vocab_source=ontology_graph,
+        )
 
     effective_data_graph = _copy_graph(data_graph)
     def apply_positive_preprocessing_pass(
@@ -4366,6 +4754,19 @@ def build_reasoning_dataset_from_graphs(
         *,
         include_property_hierarchy: bool,
     ) -> Graph:
+        new_domain_range_types: List[Tuple[Identifier, URIRef]] = []
+        added_triples: Optional[List[Tuple[Identifier, Identifier, Identifier]]] = (
+            [] if graph_build_scan_cache is not None else None
+        )
+        cached_type_assertions = (
+            graph_build_scan_cache.type_pairs if graph_build_scan_cache is not None else None
+        )
+        cached_property_triples = (
+            graph_build_scan_cache.edge_triples if graph_build_scan_cache is not None else None
+        )
+        cached_property_pairs_by_pred = (
+            graph_build_scan_cache.edge_triples_by_pred if graph_build_scan_cache is not None else None
+        )
         if preprocessing_plan.materialize_hierarchy.enabled:
             t0 = perf_counter()
             if include_property_hierarchy:
@@ -4374,13 +4775,41 @@ def build_reasoning_dataset_from_graphs(
                     subclass_supers=preprocessing_class_supers,
                     subproperty_supers=subproperty_supers,
                     all_different_pairs=all_different_pairs,
+                    type_assertions=cached_type_assertions,
+                    property_triples=cached_property_triples,
+                    new_triples=added_triples,
                 )
             else:
                 _materialize_hierarchy_closure_in_place(
                     graph,
                     subclass_supers=preprocessing_class_supers,
+                    type_assertions=cached_type_assertions,
+                    new_triples=added_triples,
                 )
             preprocessing_timings.hierarchy_elapsed_ms += (perf_counter() - t0) * 1000.0
+
+        property_triples_for_domain_range = cached_property_triples
+        property_pairs_by_pred_for_domain_range = cached_property_pairs_by_pred
+        if property_triples_for_domain_range is not None and added_triples:
+            added_property_triples = [
+                (subj, pred, obj)
+                for subj, pred, obj in added_triples
+                if isinstance(pred, URIRef) and pred != RDF.type
+            ]
+            if added_property_triples:
+                property_triples_for_domain_range = list(property_triples_for_domain_range) + added_property_triples
+        if property_pairs_by_pred_for_domain_range is not None and added_triples:
+            added_pairs_by_pred: Dict[URIRef, List[Tuple[Identifier, Identifier]]] = defaultdict(list)
+            for subj, pred, obj in added_triples:
+                if isinstance(pred, URIRef) and pred != RDF.type:
+                    added_pairs_by_pred[pred].append((subj, obj))
+            if added_pairs_by_pred:
+                property_pairs_by_pred_for_domain_range = {
+                    pred: list(property_pairs_by_pred_for_domain_range.get(pred, ()))
+                    for pred in property_pairs_by_pred_for_domain_range.keys() | added_pairs_by_pred.keys()
+                }
+                for pred, pairs in added_pairs_by_pred.items():
+                    property_pairs_by_pred_for_domain_range[pred].extend(pairs)
 
         if preprocessing_plan.materialize_horn_safe_domain_range.enabled:
             t0 = perf_counter()
@@ -4388,6 +4817,11 @@ def build_reasoning_dataset_from_graphs(
                 graph,
                 domain_consequents=horn_domain_consequents,
                 range_consequents=horn_range_consequents,
+                active_predicates=horn_domain_range_predicates,
+                property_triples=property_triples_for_domain_range,
+                property_pairs_by_pred=property_pairs_by_pred_for_domain_range,
+                new_type_assertions=new_domain_range_types,
+                new_triples=added_triples,
             )
             preprocessing_timings.horn_safe_domain_range_elapsed_ms += (perf_counter() - t0) * 1000.0
         elif preprocessing_plan.materialize_atomic_domain_range.enabled:
@@ -4396,25 +4830,50 @@ def build_reasoning_dataset_from_graphs(
                 graph,
                 domain_consequents=atomic_domain_consequents,
                 range_consequents=atomic_range_consequents,
+                active_predicates=atomic_domain_range_predicates,
+                property_triples=property_triples_for_domain_range,
+                property_pairs_by_pred=property_pairs_by_pred_for_domain_range,
+                new_type_assertions=new_domain_range_types,
+                new_triples=added_triples,
             )
             preprocessing_timings.atomic_domain_range_elapsed_ms += (perf_counter() - t0) * 1000.0
 
-        if preprocessing_plan.materialize_hierarchy.enabled:
+        if preprocessing_plan.materialize_hierarchy.enabled and new_domain_range_types:
             t0 = perf_counter()
             _materialize_hierarchy_closure_in_place(
                 graph,
                 subclass_supers=preprocessing_class_supers,
+                seed_type_assertions=new_domain_range_types,
+                new_triples=added_triples,
             )
             preprocessing_timings.hierarchy_elapsed_ms += (perf_counter() - t0) * 1000.0
+        if graph_build_scan_cache is not None and added_triples:
+            _extend_graph_build_scan_cache(
+                graph_build_scan_cache,
+                added_triples,
+                include_literals=include_literals,
+                include_type_edges=include_type_edges,
+            )
         return graph
 
     if preprocessing_plan.materialize_reflexive_properties.enabled:
+        reflexive_added_triples: Optional[List[Tuple[Identifier, Identifier, Identifier]]] = (
+            [] if graph_build_scan_cache is not None else None
+        )
         t0 = perf_counter()
         _materialize_reflexive_property_closure_in_place(
             effective_data_graph,
             reflexive_props=reflexive_props,
+            new_triples=reflexive_added_triples,
         )
         preprocessing_timings.reflexive_elapsed_ms += (perf_counter() - t0) * 1000.0
+        if graph_build_scan_cache is not None and reflexive_added_triples:
+            _extend_graph_build_scan_cache(
+                graph_build_scan_cache,
+                reflexive_added_triples,
+                include_literals=include_literals,
+                include_type_edges=include_type_edges,
+            )
 
     effective_data_graph = apply_positive_preprocessing_pass(
         effective_data_graph,
@@ -4490,6 +4949,7 @@ def build_reasoning_dataset_from_graphs(
         schema_property_terms=cache.schema_property_terms,
         schema_class_terms=cache.schema_class_terms,
         schema_datatype_terms=cache.schema_datatype_terms,
+        scan_cache=graph_build_scan_cache,
     )
     preprocessing_timings.kgraph_build_elapsed_ms = (perf_counter() - t0) * 1000.0
 
@@ -7309,19 +7769,15 @@ def materialize_positive_sufficient_class_inferences(
 
         update_t0 = perf_counter()
         additions_this_round: List[Tuple[Identifier, URIRef]] = []
+        node_terms = dataset.mapping.node_terms
         for class_col, class_term in enumerate(target_classes_to_materialize):
             class_idx = dataset.mapping.class_to_idx.get(class_term)
-            for node_idx, node_term in enumerate(dataset.mapping.node_terms):
-                if float(scores[node_idx, class_col].item()) < threshold:
-                    continue
-                if (
-                    class_idx is not None
-                    and float(dataset.kg.node_types[node_idx, class_idx].item()) >= threshold
-                ):
-                    continue
-                triple = (node_term, RDF.type, class_term)
-                current_data_graph.add(triple)
-                additions_this_round.append((node_term, class_term))
+            candidate_mask = scores[:, class_col] >= threshold
+            if class_idx is not None:
+                candidate_mask = candidate_mask & (dataset.kg.node_types[:, class_idx].detach().cpu() < threshold)
+            candidate_indices = torch.nonzero(candidate_mask, as_tuple=False).flatten().tolist()
+            for node_idx in candidate_indices:
+                additions_this_round.append((node_terms[node_idx], class_term))
 
         if not additions_this_round:
             update_elapsed_ms = (perf_counter() - update_t0) * 1000.0
@@ -7337,7 +7793,7 @@ def materialize_positive_sufficient_class_inferences(
             )
 
         inferred_assertions.extend(additions_this_round)
-        current_data_graph = _copy_graph(dataset.data_graph)
+        current_data_graph = dataset.data_graph
         triggering_sameas_classes = sorted(
             {
                 class_term
