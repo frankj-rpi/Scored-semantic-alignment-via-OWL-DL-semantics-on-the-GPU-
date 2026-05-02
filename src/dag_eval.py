@@ -26,13 +26,19 @@ def eval_dag_score_matrix(
         where scores[v, i] is the score of DAG node i at graph node v.
     """
 
-    offsets_p = [off.to(device) for off in graph.offsets_p]
-    neighbors_p = [neigh.to(device) for neigh in graph.neighbors_p]
-    node_types = graph.node_types.to(device)
+    device = torch.device(device)
+    offsets_p = graph.offsets_p
+    neighbors_p = graph.neighbors_p
+    node_types = graph.node_types
+    if node_types.device != device:
+        offsets_p = [off.to(device) for off in graph.offsets_p]
+        neighbors_p = [neigh.to(device) for neigh in graph.neighbors_p]
+        node_types = graph.node_types.to(device)
     num_nodes = graph.num_nodes
     num_constraints = len(dag.nodes)
     num_classes = node_types.shape[1]
 
+    use_identity_sim = sim_class is None
     if sim_class is None:
         sim_class = torch.eye(num_classes, device=device)
     else:
@@ -41,15 +47,19 @@ def eval_dag_score_matrix(
             f"sim_class must have shape ({num_classes}, {num_classes}), got {sim_class.shape}"
         )
 
-    src_index_p: list[torch.Tensor] = []
-    dst_index_p: list[torch.Tensor] = []
-    nodes = torch.arange(num_nodes, device=device, dtype=torch.long)
+    if graph.src_index_p is not None and graph.dst_index_p is not None and node_types.device == device:
+        src_index_p = graph.src_index_p
+        dst_index_p = graph.dst_index_p
+    else:
+        src_index_p = []
+        dst_index_p = []
+        nodes = torch.arange(num_nodes, device=device, dtype=torch.long)
 
-    for offsets, neighbors in zip(offsets_p, neighbors_p):
-        deg = offsets[1:] - offsets[:-1]
-        src_index = torch.repeat_interleave(nodes, deg)
-        src_index_p.append(src_index)
-        dst_index_p.append(neighbors.long())
+        for offsets, neighbors in zip(offsets_p, neighbors_p):
+            deg = offsets[1:] - offsets[:-1]
+            src_index = torch.repeat_interleave(nodes, deg)
+            src_index_p.append(src_index)
+            dst_index_p.append(neighbors.long())
 
     scores = torch.zeros((num_nodes, num_constraints), device=device)
     segment_layout_cache: dict[
@@ -69,6 +79,11 @@ def eval_dag_score_matrix(
         if direction == TraversalDirection.BACKWARD:
             return forward_dst, forward_src
         raise ValueError(f"Unknown traversal direction: {direction}")
+
+    def is_reflexive_property(prop_idx: int) -> bool:
+        if graph.reflexive_prop_mask is None:
+            return False
+        return bool(graph.reflexive_prop_mask[prop_idx].item())
 
     def segment_layout(
         prop_idx: int,
@@ -106,6 +121,14 @@ def eval_dag_score_matrix(
         segment_layout_cache[cache_key] = cached
         return cached
 
+    def transitive_family_props(prop_idx: int) -> list[int]:
+        if graph.transitive_prop_families is None:
+            return [prop_idx]
+        family_tensor = graph.transitive_prop_families[prop_idx]
+        if family_tensor.numel() == 0:
+            return [prop_idx]
+        return [int(idx) for idx in family_tensor.detach().cpu().tolist()]
+
     def topk_edge_scores(
         prop_idx: int,
         direction: TraversalDirection,
@@ -137,8 +160,11 @@ def eval_dag_score_matrix(
 
             elif cnode.ctype == ConstraintType.ATOMIC_CLASS:
                 class_idx = cnode.class_idx
-                col = sim_class[:, class_idx]
-                scores[:, node_idx] = node_types @ col
+                if use_identity_sim:
+                    scores[:, node_idx] = node_types[:, class_idx]
+                else:
+                    col = sim_class[:, class_idx]
+                    scores[:, node_idx] = node_types @ col
 
             elif cnode.ctype == ConstraintType.NOMINAL:
                 if cnode.node_idx is None:
@@ -198,6 +224,8 @@ def eval_dag_score_matrix(
                     reduce="amax",
                     include_self=True,
                 )
+                if is_reflexive_property(prop_idx):
+                    out = torch.ones(num_nodes, device=device)
                 scores[:, node_idx] = out
 
             elif cnode.ctype == ConstraintType.EXISTS_RESTRICTION:
@@ -218,6 +246,8 @@ def eval_dag_score_matrix(
                     reduce="amax",
                     include_self=True,
                 )
+                if is_reflexive_property(prop_idx):
+                    out = torch.maximum(out, child_scores)
                 scores[:, node_idx] = out
 
             elif cnode.ctype == ConstraintType.EXISTS_TRANSITIVE_RESTRICTION:
@@ -229,21 +259,28 @@ def eval_dag_score_matrix(
                 child_idx = cnode.child_indices[0]
                 child_scores = scores[:, child_idx]
                 prop_idx = cnode.prop_idx
-                reduce_index, next_nodes = oriented_edges(prop_idx, cnode.prop_direction)
+                family_prop_indices = transitive_family_props(prop_idx)
 
                 def one_hop(values: torch.Tensor) -> torch.Tensor:
                     propagated = torch.zeros(num_nodes, device=device)
-                    edge_values = values[next_nodes]
-                    propagated.scatter_reduce_(
-                        dim=0,
-                        index=reduce_index,
-                        src=edge_values,
-                        reduce="amax",
-                        include_self=True,
-                    )
+                    for family_prop_idx in family_prop_indices:
+                        reduce_index, next_nodes = oriented_edges(
+                            family_prop_idx,
+                            cnode.prop_direction,
+                        )
+                        edge_values = values[next_nodes]
+                        propagated.scatter_reduce_(
+                            dim=0,
+                            index=reduce_index,
+                            src=edge_values,
+                            reduce="amax",
+                            include_self=True,
+                        )
                     return propagated
 
                 seen = one_hop(child_scores)
+                if is_reflexive_property(prop_idx):
+                    seen = torch.maximum(seen, child_scores)
                 frontier = seen.clone()
 
                 while True:
@@ -323,6 +360,8 @@ def eval_dag_score_matrix(
                     include_self=True,
                 )
                 out = torch.where(torch.isinf(out), torch.ones_like(out), out)
+                if is_reflexive_property(prop_idx):
+                    out = torch.minimum(out, child_scores)
                 scores[:, node_idx] = out
 
             elif cnode.ctype == ConstraintType.INTERSECTION:

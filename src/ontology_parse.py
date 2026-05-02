@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from collections import defaultdict
+from collections import defaultdict, deque
+import hashlib
+from itertools import repeat
+import json
+import pickle
 from time import perf_counter
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -24,6 +28,7 @@ from .constraints import (
     TraversalDirection,
 )
 from .graph import KGraph
+from .profiling import ProfileNode, ProfileRecorder
 
 
 @dataclass
@@ -52,11 +57,54 @@ class GraphBuildScanCache:
     prop_terms_set: set[URIRef]
     class_terms_set: set[Identifier]
     datatype_terms_set: set[URIRef]
-    type_pairs: List[Tuple[Identifier, Identifier]]
-    type_edge_triples: List[Tuple[Identifier, URIRef, Identifier]]
-    edge_triples: List[Tuple[Identifier, URIRef, Identifier]]
-    edge_triples_by_pred: Dict[URIRef, List[Tuple[Identifier, Identifier]]]
+    type_src_terms: List[Identifier]
+    type_class_terms: List[Identifier]
+    type_edge_src_terms: List[Identifier]
+    type_edge_dst_terms: List[Identifier]
+    edge_src_terms: List[Identifier]
+    edge_prop_terms: List[URIRef]
+    edge_dst_terms: List[Identifier]
+    edge_triples_by_pred: Optional[Dict[URIRef, List[Tuple[Identifier, Identifier]]]]
     negative_helper_edges: List[Tuple[URIRef, Identifier, Identifier]]
+
+    @property
+    def type_pairs(self) -> zip:
+        return zip(self.type_src_terms, self.type_class_terms)
+
+    @property
+    def type_edge_triples(self) -> zip:
+        return zip(
+            self.type_edge_src_terms,
+            repeat(RDF.type),
+            self.type_edge_dst_terms,
+        )
+
+    @property
+    def edge_triples(self) -> zip:
+        return zip(self.edge_src_terms, self.edge_prop_terms, self.edge_dst_terms)
+
+
+@dataclass
+class NativeABox:
+    """
+    Native numeric ABox representation derived from RDF terms once, then reused.
+
+    This is the Phase 1 boundary between rdflib-backed parsing and the native
+    structures the evaluator actually wants:
+    - stable term mappings
+    - integer type memberships
+    - integer edge triples
+    - literal feature tensors
+    """
+
+    mapping: RDFKGraphMapping
+    type_src: np.ndarray
+    type_cls: np.ndarray
+    edge_src: np.ndarray
+    edge_prop: np.ndarray
+    edge_dst: np.ndarray
+    literal_datatype_idx: torch.Tensor
+    literal_numeric_value: torch.Tensor
 
 
 @dataclass
@@ -76,6 +124,7 @@ class ReasoningDataset:
     ontology_graph: Graph
     kg: KGraph
     mapping: RDFKGraphMapping
+    native_abox: Optional[NativeABox] = None
     preprocessing_plan: Optional["PreprocessingPlan"] = None
     preprocessing_timings: Optional["PreprocessingTimings"] = None
 
@@ -95,6 +144,7 @@ class NamedClassDependencyAnalysis:
 class OntologyCompileContext:
     dependency_analysis: NamedClassDependencyAnalysis
     direct_subs: Dict[URIRef, set[URIRef]]
+    transitive_subproperty_closure: Dict[URIRef, Tuple[URIRef, ...]]
     inverse_props: Dict[URIRef, set[URIRef]]
     chains_by_conclusion: Dict[URIRef, List[Tuple[URIRef, ...]]]
     transitive_props: set[URIRef]
@@ -114,6 +164,8 @@ class ClassMaterializationResult:
     inferred_assertions: List[Tuple[Identifier, URIRef]]
     iterations: int
     timings: Optional["PositiveMaterializationTimings"] = None
+    compiled_target_dags: Optional[Dict[URIRef, ConstraintDAG]] = None
+    profile_tree: Optional[ProfileNode] = None
 
 
 @dataclass
@@ -181,6 +233,7 @@ class StratifiedMaterializationResult:
     assignment_statuses: List[ClassAssignmentStatus]
     policy_result: ConflictPolicyResult
     timings: Optional["StratifiedMaterializationTimings"] = None
+    profile_tree: Optional[ProfileNode] = None
 
 
 @dataclass
@@ -293,6 +346,7 @@ class PreprocessingPlan:
 
 @dataclass
 class PreprocessingTimings:
+    data_copy_elapsed_ms: float = 0.0
     ontology_merge_elapsed_ms: float = 0.0
     schema_cache_elapsed_ms: float = 0.0
     preprocessing_plan_elapsed_ms: float = 0.0
@@ -302,6 +356,7 @@ class PreprocessingTimings:
     sameas_elapsed_ms: float = 0.0
     reflexive_elapsed_ms: float = 0.0
     target_role_elapsed_ms: float = 0.0
+    schema_individual_import_elapsed_ms: float = 0.0
     kgraph_build_elapsed_ms: float = 0.0
     mapping_vocab_collect_elapsed_ms: float = 0.0
     mapping_graph_scan_elapsed_ms: float = 0.0
@@ -316,6 +371,8 @@ class PreprocessingTimings:
     @property
     def preprocessing_elapsed_ms(self) -> float:
         return (
+            self.data_copy_elapsed_ms
+            +
             self.ontology_merge_elapsed_ms
             + self.schema_cache_elapsed_ms
             + self.preprocessing_plan_elapsed_ms
@@ -325,11 +382,16 @@ class PreprocessingTimings:
             + self.sameas_elapsed_ms
             + self.reflexive_elapsed_ms
             + self.target_role_elapsed_ms
+            + self.schema_individual_import_elapsed_ms
         )
 
     @property
     def dataset_build_elapsed_ms(self) -> float:
         return self.preprocessing_elapsed_ms + self.kgraph_build_elapsed_ms
+
+    @property
+    def scan_cache_build_elapsed_ms(self) -> float:
+        return self.mapping_vocab_collect_elapsed_ms + self.mapping_graph_scan_elapsed_ms
 
 
 @dataclass
@@ -337,6 +399,7 @@ class MaterializationIterationTiming:
     iteration: int
     dataset_refresh_count: int = 0
     dataset_build_elapsed_ms: float = 0.0
+    data_copy_elapsed_ms: float = 0.0
     ontology_merge_elapsed_ms: float = 0.0
     hierarchy_elapsed_ms: float = 0.0
     atomic_domain_range_elapsed_ms: float = 0.0
@@ -344,12 +407,25 @@ class MaterializationIterationTiming:
     sameas_elapsed_ms: float = 0.0
     reflexive_elapsed_ms: float = 0.0
     target_role_elapsed_ms: float = 0.0
+    schema_individual_import_elapsed_ms: float = 0.0
     kgraph_build_elapsed_ms: float = 0.0
+    mapping_vocab_collect_elapsed_ms: float = 0.0
+    mapping_graph_scan_elapsed_ms: float = 0.0
+    mapping_sort_elapsed_ms: float = 0.0
+    mapping_index_elapsed_ms: float = 0.0
+    kgraph_edge_bucket_elapsed_ms: float = 0.0
+    kgraph_negative_helper_elapsed_ms: float = 0.0
+    kgraph_literal_feature_elapsed_ms: float = 0.0
+    kgraph_adjacency_elapsed_ms: float = 0.0
     reasoner_setup_elapsed_ms: float = 0.0
     dag_compile_elapsed_ms: float = 0.0
     dag_eval_elapsed_ms: float = 0.0
     assertion_update_elapsed_ms: float = 0.0
     sameas_passes_elapsed_ms: List[float] = field(default_factory=list)
+
+    @property
+    def scan_cache_build_elapsed_ms(self) -> float:
+        return self.mapping_vocab_collect_elapsed_ms + self.mapping_graph_scan_elapsed_ms
 
 
 @dataclass
@@ -371,6 +447,9 @@ class ReasoningBuildCache:
     schema_property_terms: frozenset[URIRef]
     schema_class_terms: frozenset[Identifier]
     schema_datatype_terms: frozenset[URIRef]
+    transitive_prop_families: Dict[URIRef, Tuple[URIRef, ...]]
+    schema_individual_terms: frozenset[Identifier]
+    schema_individual_triples_by_subject: Dict[Identifier, Tuple[Tuple[Identifier, Identifier, Identifier], ...]]
 
 
 LiteralKeySignature = Tuple[Tuple[str, Tuple[Tuple[str, str], ...]], ...]
@@ -700,6 +779,140 @@ def _try_reuse_kgraph_with_updated_types(
         node_types=node_types,
         literal_datatype_idx=previous_kg.literal_datatype_idx,
         literal_numeric_value=previous_kg.literal_numeric_value,
+        reflexive_prop_mask=previous_kg.reflexive_prop_mask,
+        transitive_prop_families=previous_kg.transitive_prop_families,
+    )
+
+
+def _native_abox_with_added_types(
+    native_abox: NativeABox,
+    additions: Sequence[Tuple[Identifier, URIRef]],
+) -> NativeABox:
+    if not additions:
+        return native_abox
+
+    mapping = native_abox.mapping
+    added_src = np.fromiter(
+        (mapping.node_to_idx[subj] for subj, _class_term in additions),
+        dtype=np.int64,
+        count=len(additions),
+    )
+    added_cls = np.fromiter(
+        (mapping.class_to_idx[class_term] for _subj, class_term in additions),
+        dtype=np.int64,
+        count=len(additions),
+    )
+    type_src = np.concatenate((native_abox.type_src, added_src))
+    type_cls = np.concatenate((native_abox.type_cls, added_cls))
+    return NativeABox(
+        mapping=mapping,
+        type_src=type_src,
+        type_cls=type_cls,
+        edge_src=native_abox.edge_src,
+        edge_prop=native_abox.edge_prop,
+        edge_dst=native_abox.edge_dst,
+        literal_datatype_idx=native_abox.literal_datatype_idx,
+        literal_numeric_value=native_abox.literal_numeric_value,
+    )
+
+
+def _native_abox_with_added_type_indices(
+    native_abox: NativeABox,
+    added_src: np.ndarray,
+    added_cls: np.ndarray,
+) -> NativeABox:
+    if added_src.size == 0:
+        return native_abox
+    type_src = np.concatenate((native_abox.type_src, added_src.astype(np.int64, copy=False)))
+    type_cls = np.concatenate((native_abox.type_cls, added_cls.astype(np.int64, copy=False)))
+    return NativeABox(
+        mapping=native_abox.mapping,
+        type_src=type_src,
+        type_cls=type_cls,
+        edge_src=native_abox.edge_src,
+        edge_prop=native_abox.edge_prop,
+        edge_dst=native_abox.edge_dst,
+        literal_datatype_idx=native_abox.literal_datatype_idx,
+        literal_numeric_value=native_abox.literal_numeric_value,
+    )
+
+
+def _dataset_with_updated_native_types(
+    dataset: ReasoningDataset,
+    additions: Sequence[Tuple[Identifier, URIRef]],
+) -> ReasoningDataset:
+    if not additions or dataset.native_abox is None:
+        return dataset
+
+    mapping = dataset.mapping
+    node_types = dataset.kg.node_types.clone()
+    for subj, class_term in additions:
+        subj_idx = mapping.node_to_idx.get(subj)
+        class_idx = mapping.class_to_idx.get(class_term)
+        if subj_idx is None or class_idx is None:
+            continue
+        node_types[subj_idx, class_idx] = 1.0
+
+    kg = KGraph(
+        num_nodes=dataset.kg.num_nodes,
+        offsets_p=dataset.kg.offsets_p,
+        neighbors_p=dataset.kg.neighbors_p,
+        node_types=node_types,
+        literal_datatype_idx=dataset.kg.literal_datatype_idx,
+        literal_numeric_value=dataset.kg.literal_numeric_value,
+        reflexive_prop_mask=dataset.kg.reflexive_prop_mask,
+        transitive_prop_families=dataset.kg.transitive_prop_families,
+    )
+    return ReasoningDataset(
+        schema_graph=dataset.schema_graph,
+        data_graph=dataset.data_graph,
+        ontology_graph=dataset.ontology_graph,
+        kg=kg,
+        mapping=mapping,
+        native_abox=_native_abox_with_added_types(dataset.native_abox, additions),
+        preprocessing_plan=dataset.preprocessing_plan,
+        preprocessing_timings=None,
+    )
+
+
+def _dataset_with_updated_native_type_indices(
+    dataset: ReasoningDataset,
+    added_node_indices: torch.Tensor,
+    added_class_indices: torch.Tensor,
+) -> ReasoningDataset:
+    if (
+        dataset.native_abox is None
+        or added_node_indices.numel() == 0
+        or added_class_indices.numel() == 0
+    ):
+        return dataset
+
+    node_types = dataset.kg.node_types.clone()
+    node_types[added_node_indices, added_class_indices] = 1.0
+
+    kg = KGraph(
+        num_nodes=dataset.kg.num_nodes,
+        offsets_p=dataset.kg.offsets_p,
+        neighbors_p=dataset.kg.neighbors_p,
+        node_types=node_types,
+        literal_datatype_idx=dataset.kg.literal_datatype_idx,
+        literal_numeric_value=dataset.kg.literal_numeric_value,
+        reflexive_prop_mask=dataset.kg.reflexive_prop_mask,
+        transitive_prop_families=dataset.kg.transitive_prop_families,
+    )
+    return ReasoningDataset(
+        schema_graph=dataset.schema_graph,
+        data_graph=dataset.data_graph,
+        ontology_graph=dataset.ontology_graph,
+        kg=kg,
+        mapping=dataset.mapping,
+        native_abox=_native_abox_with_added_type_indices(
+            dataset.native_abox,
+            added_node_indices.detach().cpu().numpy().astype(np.int64, copy=False),
+            added_class_indices.detach().cpu().numpy().astype(np.int64, copy=False),
+        ),
+        preprocessing_plan=dataset.preprocessing_plan,
+        preprocessing_timings=None,
     )
 
 
@@ -785,6 +998,8 @@ def _try_reuse_kgraph_with_existing_mapping(
         node_types=node_types,
         literal_datatype_idx=previous_kg.literal_datatype_idx,
         literal_numeric_value=previous_kg.literal_numeric_value,
+        reflexive_prop_mask=previous_kg.reflexive_prop_mask,
+        transitive_prop_families=previous_kg.transitive_prop_families,
     )
 
 
@@ -794,6 +1009,7 @@ def _build_reasoning_dataset_from_preprocessed_graph(
     effective_data_graph: Graph,
     include_literals: bool,
     include_type_edges: bool,
+    include_negative_helpers: bool = True,
     preprocessing_plan: PreprocessingPlan,
     build_cache: ReasoningBuildCache,
     rerun_sameas: bool,
@@ -907,14 +1123,23 @@ def _build_reasoning_dataset_from_preprocessed_graph(
             )
             preprocessing_timings.hierarchy_elapsed_ms += (perf_counter() - t0) * 1000.0
 
+    t0 = perf_counter()
+    imported_data_graph, _imported_schema_triples = _import_referenced_schema_individual_closure(
+        effective_data_graph,
+        schema_individual_terms=build_cache.schema_individual_terms,
+        schema_individual_triples_by_subject=build_cache.schema_individual_triples_by_subject,
+    )
+    preprocessing_timings.schema_individual_import_elapsed_ms += (perf_counter() - t0) * 1000.0
+
     if build_ontology_graph:
         t0 = perf_counter()
-        ontology_graph = aggregate_rdflib_graphs((schema_graph, effective_data_graph))
+        ontology_graph = aggregate_rdflib_graphs((schema_graph, imported_data_graph))
         preprocessing_timings.ontology_merge_elapsed_ms += (perf_counter() - t0) * 1000.0
     else:
         ontology_graph = previous_dataset.ontology_graph if previous_dataset is not None else schema_graph
     reused_kg: Optional[KGraph] = None
     mapping: Optional[RDFKGraphMapping] = None
+    native_abox: Optional[NativeABox] = None
     can_attempt_reuse = (
         previous_dataset is not None
         and previous_dataset.schema_graph is schema_graph
@@ -928,10 +1153,11 @@ def _build_reasoning_dataset_from_preprocessed_graph(
         preprocessing_timings.kgraph_build_elapsed_ms = (perf_counter() - t0) * 1000.0
         if reused_kg is not None:
             mapping = previous_dataset.mapping
+            native_abox = previous_dataset.native_abox
     if reused_kg is None and can_attempt_reuse:
         t0 = perf_counter()
         reused_kg = _try_reuse_kgraph_with_existing_mapping(
-            effective_data_graph=effective_data_graph,
+            effective_data_graph=imported_data_graph,
             previous_dataset=previous_dataset,
             include_literals=include_literals,
             include_type_edges=include_type_edges,
@@ -939,31 +1165,41 @@ def _build_reasoning_dataset_from_preprocessed_graph(
         preprocessing_timings.kgraph_build_elapsed_ms = (perf_counter() - t0) * 1000.0
         if reused_kg is not None:
             mapping = previous_dataset.mapping
+            native_abox = previous_dataset.native_abox
 
     if reused_kg is not None and mapping is not None:
         kg = reused_kg
     else:
-        kg_source = effective_data_graph if len(effective_data_graph) > 0 else ontology_graph
+        kg_source = imported_data_graph if len(imported_data_graph) > 0 else ontology_graph
         t0 = perf_counter()
-        kg, mapping = rdflib_graph_to_kgraph(
+        native_abox = rdflib_graph_to_native_abox(
             kg_source,
             vocab_graph=ontology_graph,
             vocab_source=ontology_graph,
             include_literals=include_literals,
             include_type_edges=include_type_edges,
+            include_negative_helpers=include_negative_helpers,
             preprocessing_timings=preprocessing_timings,
             schema_property_terms=build_cache.schema_property_terms,
             schema_class_terms=build_cache.schema_class_terms,
             schema_datatype_terms=build_cache.schema_datatype_terms,
         )
+        kg = native_abox_to_kgraph(
+            native_abox,
+            reflexive_props=build_cache.reflexive_props,
+            transitive_prop_families=build_cache.transitive_prop_families,
+            preprocessing_timings=preprocessing_timings,
+        )
+        mapping = native_abox.mapping
         preprocessing_timings.kgraph_build_elapsed_ms = (perf_counter() - t0) * 1000.0
 
     return ReasoningDataset(
         schema_graph=schema_graph,
-        data_graph=effective_data_graph,
+        data_graph=imported_data_graph,
         ontology_graph=ontology_graph,
         kg=kg,
         mapping=mapping,
+        native_abox=native_abox,
         preprocessing_plan=preprocessing_plan,
         preprocessing_timings=preprocessing_timings,
     )
@@ -980,6 +1216,7 @@ class PositiveMaterializationTimings:
     preprocessing_plan_elapsed_ms: float = 0.0
     dependency_closure_elapsed_ms: float = 0.0
     sameas_state_init_elapsed_ms: float = 0.0
+    data_copy_elapsed_ms: float = 0.0
     ontology_merge_elapsed_ms: float = 0.0
     hierarchy_elapsed_ms: float = 0.0
     atomic_domain_range_elapsed_ms: float = 0.0
@@ -987,6 +1224,7 @@ class PositiveMaterializationTimings:
     sameas_elapsed_ms: float = 0.0
     reflexive_elapsed_ms: float = 0.0
     target_role_elapsed_ms: float = 0.0
+    schema_individual_import_elapsed_ms: float = 0.0
     kgraph_build_elapsed_ms: float = 0.0
     mapping_vocab_collect_elapsed_ms: float = 0.0
     mapping_graph_scan_elapsed_ms: float = 0.0
@@ -1004,6 +1242,7 @@ class PositiveMaterializationTimings:
     total_elapsed_ms: float = 0.0
     iteration_timings: List[MaterializationIterationTiming] = field(default_factory=list)
     final_dataset_timings: Optional[PreprocessingTimings] = None
+    profile_tree: Optional[ProfileNode] = None
 
     @property
     def avg_dataset_build_elapsed_ms(self) -> float:
@@ -1048,6 +1287,10 @@ class PositiveMaterializationTimings:
             for t in self.iteration_timings
         ) / len(self.iteration_timings)
 
+    @property
+    def scan_cache_build_elapsed_ms(self) -> float:
+        return self.mapping_vocab_collect_elapsed_ms + self.mapping_graph_scan_elapsed_ms
+
 
 @dataclass
 class StratifiedMaterializationTimings:
@@ -1056,6 +1299,7 @@ class StratifiedMaterializationTimings:
     assignment_status_elapsed_ms: float = 0.0
     conflict_policy_elapsed_ms: float = 0.0
     total_elapsed_ms: float = 0.0
+    profile_tree: Optional[ProfileNode] = None
 
 
 def _accumulate_preprocessing_timings(
@@ -1064,6 +1308,7 @@ def _accumulate_preprocessing_timings(
     *,
     iteration_timing: Optional[MaterializationIterationTiming] = None,
 ) -> None:
+    totals.data_copy_elapsed_ms += preprocessing.data_copy_elapsed_ms
     totals.ontology_merge_elapsed_ms += preprocessing.ontology_merge_elapsed_ms
     totals.hierarchy_elapsed_ms += preprocessing.hierarchy_elapsed_ms
     totals.atomic_domain_range_elapsed_ms += preprocessing.atomic_domain_range_elapsed_ms
@@ -1071,6 +1316,7 @@ def _accumulate_preprocessing_timings(
     totals.sameas_elapsed_ms += preprocessing.sameas_elapsed_ms
     totals.reflexive_elapsed_ms += preprocessing.reflexive_elapsed_ms
     totals.target_role_elapsed_ms += preprocessing.target_role_elapsed_ms
+    totals.schema_individual_import_elapsed_ms += preprocessing.schema_individual_import_elapsed_ms
     totals.kgraph_build_elapsed_ms += preprocessing.kgraph_build_elapsed_ms
     totals.mapping_vocab_collect_elapsed_ms += preprocessing.mapping_vocab_collect_elapsed_ms
     totals.mapping_graph_scan_elapsed_ms += preprocessing.mapping_graph_scan_elapsed_ms
@@ -1084,6 +1330,7 @@ def _accumulate_preprocessing_timings(
     if iteration_timing is not None:
         iteration_timing.dataset_refresh_count += 1
         iteration_timing.dataset_build_elapsed_ms += preprocessing.dataset_build_elapsed_ms
+        iteration_timing.data_copy_elapsed_ms += preprocessing.data_copy_elapsed_ms
         iteration_timing.ontology_merge_elapsed_ms += preprocessing.ontology_merge_elapsed_ms
         iteration_timing.hierarchy_elapsed_ms += preprocessing.hierarchy_elapsed_ms
         iteration_timing.atomic_domain_range_elapsed_ms += preprocessing.atomic_domain_range_elapsed_ms
@@ -1091,7 +1338,16 @@ def _accumulate_preprocessing_timings(
         iteration_timing.sameas_elapsed_ms += preprocessing.sameas_elapsed_ms
         iteration_timing.reflexive_elapsed_ms += preprocessing.reflexive_elapsed_ms
         iteration_timing.target_role_elapsed_ms += preprocessing.target_role_elapsed_ms
+        iteration_timing.schema_individual_import_elapsed_ms += preprocessing.schema_individual_import_elapsed_ms
         iteration_timing.kgraph_build_elapsed_ms += preprocessing.kgraph_build_elapsed_ms
+        iteration_timing.mapping_vocab_collect_elapsed_ms += preprocessing.mapping_vocab_collect_elapsed_ms
+        iteration_timing.mapping_graph_scan_elapsed_ms += preprocessing.mapping_graph_scan_elapsed_ms
+        iteration_timing.mapping_sort_elapsed_ms += preprocessing.mapping_sort_elapsed_ms
+        iteration_timing.mapping_index_elapsed_ms += preprocessing.mapping_index_elapsed_ms
+        iteration_timing.kgraph_edge_bucket_elapsed_ms += preprocessing.kgraph_edge_bucket_elapsed_ms
+        iteration_timing.kgraph_negative_helper_elapsed_ms += preprocessing.kgraph_negative_helper_elapsed_ms
+        iteration_timing.kgraph_literal_feature_elapsed_ms += preprocessing.kgraph_literal_feature_elapsed_ms
+        iteration_timing.kgraph_adjacency_elapsed_ms += preprocessing.kgraph_adjacency_elapsed_ms
         iteration_timing.sameas_passes_elapsed_ms.extend(preprocessing.sameas_passes_elapsed_ms)
 
 
@@ -1138,6 +1394,8 @@ def _scan_graph_build_cache(
     *,
     include_literals: bool,
     include_type_edges: bool,
+    include_negative_helpers: bool = True,
+    collect_edge_triples_by_pred: bool = True,
     preprocessing_timings: Optional[PreprocessingTimings] = None,
     schema_property_terms: Optional[Sequence[URIRef]] = None,
     schema_class_terms: Optional[Sequence[Identifier]] = None,
@@ -1164,41 +1422,76 @@ def _scan_graph_build_cache(
         preprocessing_timings.mapping_vocab_collect_elapsed_ms += (perf_counter() - t0) * 1000.0
 
     node_terms_set: set[Identifier] = set()
-    type_pairs: List[Tuple[Identifier, Identifier]] = []
-    type_edge_triples: List[Tuple[Identifier, URIRef, Identifier]] = []
-    edge_triples: List[Tuple[Identifier, URIRef, Identifier]] = []
-    edge_triples_by_pred: Dict[URIRef, List[Tuple[Identifier, Identifier]]] = defaultdict(list)
+    type_src_terms: List[Identifier] = []
+    type_class_terms: List[Identifier] = []
+    type_edge_src_terms: List[Identifier] = []
+    type_edge_dst_terms: List[Identifier] = []
+    edge_src_terms: List[Identifier] = []
+    edge_prop_terms: List[URIRef] = []
+    edge_dst_terms: List[Identifier] = []
+    edge_triples_by_pred: Optional[Dict[URIRef, List[Tuple[Identifier, Identifier]]]] = (
+        defaultdict(list) if collect_edge_triples_by_pred else None
+    )
 
     t0 = perf_counter()
+    node_terms_add = node_terms_set.add
+    class_terms_add = class_terms_set.add
+    prop_terms_add = prop_terms_set.add
+    datatype_terms_add = datatype_terms_set.add
+    type_src_append = type_src_terms.append
+    type_class_append = type_class_terms.append
+    type_edge_src_append = type_edge_src_terms.append
+    type_edge_dst_append = type_edge_dst_terms.append
+    edge_src_append = edge_src_terms.append
+    edge_prop_append = edge_prop_terms.append
+    edge_dst_append = edge_dst_terms.append
+    edge_triples_by_pred_local = edge_triples_by_pred
+    include_type_edges_local = include_type_edges
+    include_literals_local = include_literals
+    rdf_type = RDF.type
+    literal_type = Literal
+    uri_ref_type = URIRef
     for subj, pred, obj in graph:
-        node_terms_set.add(subj)
+        node_terms_add(subj)
 
-        if pred == RDF.type:
-            class_terms_set.add(obj)
-            type_pairs.append((subj, obj))
-            if include_type_edges and not isinstance(obj, Literal):
-                node_terms_set.add(obj)
-                prop_terms_set.add(pred)
-                type_edge_triples.append((subj, pred, obj))
+        if pred == rdf_type:
+            class_terms_add(obj)
+            type_src_append(subj)
+            type_class_append(obj)
+            if include_type_edges_local and not isinstance(obj, literal_type):
+                node_terms_add(obj)
+                prop_terms_add(pred)
+                type_edge_src_append(subj)
+                type_edge_dst_append(obj)
             continue
 
-        prop_terms_set.add(pred)
-        if isinstance(obj, Literal):
-            if include_literals:
-                node_terms_set.add(obj)
-                if isinstance(obj.datatype, URIRef):
-                    datatype_terms_set.add(obj.datatype)
-                edge_triples.append((subj, pred, obj))
-                edge_triples_by_pred[pred].append((subj, obj))
+        prop_terms_add(pred)
+        if isinstance(obj, literal_type):
+            if include_literals_local:
+                node_terms_add(obj)
+                if isinstance(obj.datatype, uri_ref_type):
+                    datatype_terms_add(obj.datatype)
+                edge_src_append(subj)
+                edge_prop_append(pred)
+                edge_dst_append(obj)
+                if edge_triples_by_pred_local is not None:
+                    edge_triples_by_pred_local[pred].append((subj, obj))
             continue
 
-        node_terms_set.add(obj)
-        edge_triples.append((subj, pred, obj))
-        edge_triples_by_pred[pred].append((subj, obj))
+        node_terms_add(obj)
+        edge_src_append(subj)
+        edge_prop_append(pred)
+        edge_dst_append(obj)
+        if edge_triples_by_pred_local is not None:
+            edge_triples_by_pred_local[pred].append((subj, obj))
 
-    negative_helper_edges = _collect_negative_property_assertion_edges(
-        graph,
-        include_literals=include_literals,
+    negative_helper_edges = (
+        _collect_negative_property_assertion_edges(
+            graph,
+            include_literals=include_literals,
+        )
+        if include_negative_helpers
+        else []
     )
     for helper_prop, subj, obj in negative_helper_edges:
         prop_terms_set.add(helper_prop)
@@ -1214,9 +1507,13 @@ def _scan_graph_build_cache(
         prop_terms_set=prop_terms_set,
         class_terms_set=class_terms_set,
         datatype_terms_set=datatype_terms_set,
-        type_pairs=type_pairs,
-        type_edge_triples=type_edge_triples,
-        edge_triples=edge_triples,
+        type_src_terms=type_src_terms,
+        type_class_terms=type_class_terms,
+        type_edge_src_terms=type_edge_src_terms,
+        type_edge_dst_terms=type_edge_dst_terms,
+        edge_src_terms=edge_src_terms,
+        edge_prop_terms=edge_prop_terms,
+        edge_dst_terms=edge_dst_terms,
         edge_triples_by_pred=edge_triples_by_pred,
         negative_helper_edges=negative_helper_edges,
     )
@@ -1229,33 +1526,123 @@ def _extend_graph_build_scan_cache(
     include_literals: bool,
     include_type_edges: bool,
 ) -> None:
+    node_terms_add = scan_cache.node_terms_set.add
+    class_terms_add = scan_cache.class_terms_set.add
+    prop_terms_add = scan_cache.prop_terms_set.add
+    datatype_terms_add = scan_cache.datatype_terms_set.add
+    type_src_append = scan_cache.type_src_terms.append
+    type_class_append = scan_cache.type_class_terms.append
+    type_edge_src_append = scan_cache.type_edge_src_terms.append
+    type_edge_dst_append = scan_cache.type_edge_dst_terms.append
+    edge_src_append = scan_cache.edge_src_terms.append
+    edge_prop_append = scan_cache.edge_prop_terms.append
+    edge_dst_append = scan_cache.edge_dst_terms.append
+    edge_triples_by_pred_local = scan_cache.edge_triples_by_pred
+    include_type_edges_local = include_type_edges
+    include_literals_local = include_literals
+    rdf_type = RDF.type
+    literal_type = Literal
+    uri_ref_type = URIRef
     for subj, pred, obj in added_triples:
-        scan_cache.node_terms_set.add(subj)
+        node_terms_add(subj)
 
-        if pred == RDF.type:
-            scan_cache.class_terms_set.add(obj)
-            scan_cache.type_pairs.append((subj, obj))
-            if include_type_edges and not isinstance(obj, Literal):
-                scan_cache.node_terms_set.add(obj)
-                scan_cache.prop_terms_set.add(RDF.type)
-                scan_cache.type_edge_triples.append((subj, RDF.type, obj))
+        if pred == rdf_type:
+            class_terms_add(obj)
+            type_src_append(subj)
+            type_class_append(obj)
+            if include_type_edges_local and not isinstance(obj, literal_type):
+                node_terms_add(obj)
+                prop_terms_add(rdf_type)
+                type_edge_src_append(subj)
+                type_edge_dst_append(obj)
             continue
 
-        if not isinstance(pred, URIRef):
+        if not isinstance(pred, uri_ref_type):
             continue
-        scan_cache.prop_terms_set.add(pred)
-        if isinstance(obj, Literal):
-            if include_literals:
-                scan_cache.node_terms_set.add(obj)
-                if isinstance(obj.datatype, URIRef):
-                    scan_cache.datatype_terms_set.add(obj.datatype)
-                scan_cache.edge_triples.append((subj, pred, obj))
-                scan_cache.edge_triples_by_pred[pred].append((subj, obj))
+        prop_terms_add(pred)
+        if isinstance(obj, literal_type):
+            if include_literals_local:
+                node_terms_add(obj)
+                if isinstance(obj.datatype, uri_ref_type):
+                    datatype_terms_add(obj.datatype)
+                edge_src_append(subj)
+                edge_prop_append(pred)
+                edge_dst_append(obj)
+                if edge_triples_by_pred_local is not None:
+                    edge_triples_by_pred_local[pred].append((subj, obj))
             continue
 
-        scan_cache.node_terms_set.add(obj)
-        scan_cache.edge_triples.append((subj, pred, obj))
-        scan_cache.edge_triples_by_pred[pred].append((subj, obj))
+        node_terms_add(obj)
+        edge_src_append(subj)
+        edge_prop_append(pred)
+        edge_dst_append(obj)
+        if edge_triples_by_pred_local is not None:
+            edge_triples_by_pred_local[pred].append((subj, obj))
+
+
+def _collect_schema_individual_index(
+    schema_graph: Graph,
+) -> Tuple[frozenset[Identifier], Dict[Identifier, Tuple[Tuple[Identifier, Identifier, Identifier], ...]]]:
+    schema_individual_terms: set[Identifier] = set()
+    for subj, _pred, _obj in schema_graph.triples((None, RDF.type, OWL.NamedIndividual)):
+        schema_individual_terms.add(subj)
+
+    triples_by_subject: Dict[Identifier, List[Tuple[Identifier, Identifier, Identifier]]] = defaultdict(list)
+    for subj, pred, obj in schema_graph:
+        if subj in schema_individual_terms:
+            triples_by_subject[subj].append((subj, pred, obj))
+
+    frozen_triples = {
+        subj: tuple(triples)
+        for subj, triples in triples_by_subject.items()
+    }
+    return frozenset(schema_individual_terms), frozen_triples
+
+
+def _import_referenced_schema_individual_closure(
+    data_graph: Graph,
+    *,
+    schema_individual_terms: frozenset[Identifier],
+    schema_individual_triples_by_subject: Dict[Identifier, Tuple[Tuple[Identifier, Identifier, Identifier], ...]],
+    candidate_terms: Optional[set[Identifier]] = None,
+) -> Tuple[Graph, Tuple[Tuple[Identifier, Identifier, Identifier], ...]]:
+    if not schema_individual_terms:
+        return data_graph, ()
+
+    seeds: set[Identifier] = set()
+    if candidate_terms is not None:
+        seeds.update(term for term in candidate_terms if term in schema_individual_terms)
+    else:
+        for subj, _pred, obj in data_graph:
+            if subj in schema_individual_terms:
+                seeds.add(subj)
+            if obj in schema_individual_terms:
+                seeds.add(obj)
+    if not seeds:
+        return data_graph, ()
+
+    imported_subjects: set[Identifier] = set()
+    imported_triples: List[Tuple[Identifier, Identifier, Identifier]] = []
+    queue: deque[Identifier] = deque(sorted(seeds, key=_term_sort_key))
+
+    while queue:
+        term = queue.popleft()
+        if term in imported_subjects:
+            continue
+        imported_subjects.add(term)
+        for triple in schema_individual_triples_by_subject.get(term, ()):
+            imported_triples.append(triple)
+            obj = triple[2]
+            if obj in schema_individual_terms and obj not in imported_subjects:
+                queue.append(obj)
+
+    if not imported_triples:
+        return data_graph, ()
+
+    overlay_graph = Graph()
+    for triple in imported_triples:
+        overlay_graph.add(triple)
+    return aggregate_rdflib_graphs((data_graph, overlay_graph)), tuple(imported_triples)
 
 
 def build_reasoning_build_cache(schema_graph: Graph) -> ReasoningBuildCache:
@@ -1293,6 +1680,10 @@ def build_reasoning_build_cache(schema_graph: Graph) -> ReasoningBuildCache:
     )
     singleton_nominals = _collect_singleton_nominal_axiom_consequents(schema_graph)
     has_key_axioms = _collect_has_key_axioms(schema_graph)
+    transitive_prop_families = _build_transitive_property_families(
+        subproperty_supers,
+        _collect_transitive_properties(schema_graph),
+    )
     reflexive_props = tuple(
         sorted(
             {
@@ -1304,6 +1695,7 @@ def build_reasoning_build_cache(schema_graph: Graph) -> ReasoningBuildCache:
         )
     )
     all_different_pairs = tuple(_collect_all_different_pairs(schema_graph))
+    schema_individual_terms, schema_individual_triples_by_subject = _collect_schema_individual_index(schema_graph)
     return ReasoningBuildCache(
         subproperty_supers=subproperty_supers,
         property_axioms=property_axioms,
@@ -1322,6 +1714,9 @@ def build_reasoning_build_cache(schema_graph: Graph) -> ReasoningBuildCache:
         schema_property_terms=schema_property_terms,
         schema_class_terms=schema_class_terms,
         schema_datatype_terms=schema_datatype_terms,
+        transitive_prop_families=transitive_prop_families,
+        schema_individual_terms=schema_individual_terms,
+        schema_individual_triples_by_subject=schema_individual_triples_by_subject,
     )
 
 
@@ -1812,6 +2207,9 @@ def guess_rdf_format(path: str | Path) -> Optional[str]:
 def load_rdflib_graph(
     paths: str | Path | Sequence[str | Path],
     formats: Optional[Sequence[Optional[str]]] = None,
+    *,
+    cache_mode: str = "off",
+    cache_dir: Optional[str | Path] = None,
 ) -> Graph:
     """
     Load one or more RDF files into a single rdflib.Graph.
@@ -1820,10 +2218,47 @@ def load_rdflib_graph(
     if formats is not None and len(formats) != len(path_list):
         raise ValueError("formats must match the number of input paths.")
 
+    normalized_cache_mode = str(cache_mode).strip().lower()
+    if normalized_cache_mode not in {"off", "on", "refresh"}:
+        raise ValueError("cache_mode must be one of: off, on, refresh.")
+
+    effective_formats = [
+        (None if formats is None else formats[i]) or guess_rdf_format(path)
+        for i, path in enumerate(path_list)
+    ]
+    if normalized_cache_mode != "off":
+        cache_root = Path(cache_dir) if cache_dir is not None else Path(".cache") / "rdflib_graphs"
+        cache_root.mkdir(parents=True, exist_ok=True)
+        cache_payload = {
+            "rdflib_graph_cache_version": 1,
+            "inputs": [
+                {
+                    "path": str(Path(path).resolve()),
+                    "size": Path(path).stat().st_size,
+                    "mtime_ns": Path(path).stat().st_mtime_ns,
+                    "format": fmt,
+                }
+                for path, fmt in zip(path_list, effective_formats)
+            ],
+        }
+        cache_key = hashlib.sha256(
+            json.dumps(cache_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        cache_path = cache_root / f"{cache_key}.pkl"
+        if normalized_cache_mode == "on" and cache_path.exists():
+            with cache_path.open("rb") as handle:
+                cached_graph = pickle.load(handle)
+            if isinstance(cached_graph, Graph):
+                return cached_graph
+
     graph = Graph()
-    for i, path in enumerate(path_list):
-        fmt = None if formats is None else formats[i]
-        graph.parse(path, format=fmt or guess_rdf_format(path))
+    for path, fmt in zip(path_list, effective_formats):
+        graph.parse(path, format=fmt)
+    if normalized_cache_mode != "off":
+        temp_path = cache_path.with_suffix(".tmp")
+        with temp_path.open("wb") as handle:
+            pickle.dump(graph, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        temp_path.replace(cache_path)
     return graph
 
 
@@ -3271,6 +3706,26 @@ def _collect_transitive_properties(graph: Graph) -> set[URIRef]:
     return transitive_props
 
 
+def _build_transitive_property_families(
+    subproperty_supers: Dict[URIRef, set[URIRef]],
+    transitive_props: set[URIRef],
+) -> Dict[URIRef, Tuple[URIRef, ...]]:
+    families: Dict[URIRef, Tuple[URIRef, ...]] = {}
+    if not transitive_props:
+        return families
+
+    members_by_super: Dict[URIRef, set[URIRef]] = defaultdict(set)
+    for child_prop, super_props in subproperty_supers.items():
+        for super_prop in super_props:
+            members_by_super[super_prop].add(child_prop)
+
+    for prop in transitive_props:
+        family = set(members_by_super.get(prop, set()))
+        family.add(prop)
+        families[prop] = tuple(sorted(family, key=str))
+    return families
+
+
 def _collect_target_root_expressions(
     ontology_graph: Graph,
     target_term: URIRef,
@@ -3763,9 +4218,22 @@ def build_ontology_compile_context(
     analysis_graph = schema_graph if schema_graph is not None and len(schema_graph) > 0 else ontology_graph
     sameas_graph = sameas_source_graph if sameas_source_graph is not None else ontology_graph
     dependency_analysis = analyze_named_class_dependencies(analysis_graph)
+    direct_subs = _collect_direct_subproperties(analysis_graph)
+    transitive_subproperty_closure: Dict[URIRef, Tuple[URIRef, ...]] = {}
+    for prop in direct_subs:
+        seen: set[URIRef] = set()
+        stack = list(direct_subs.get(prop, ()))
+        while stack:
+            child = stack.pop()
+            if child in seen:
+                continue
+            seen.add(child)
+            stack.extend(direct_subs.get(child, ()))
+        transitive_subproperty_closure[prop] = tuple(sorted(seen, key=str))
     return OntologyCompileContext(
         dependency_analysis=dependency_analysis,
-        direct_subs=_collect_direct_subproperties(analysis_graph),
+        direct_subs=direct_subs,
+        transitive_subproperty_closure=transitive_subproperty_closure,
         inverse_props=_collect_inverse_properties(analysis_graph),
         chains_by_conclusion=_collect_property_chains(analysis_graph),
         transitive_props=_collect_transitive_properties(analysis_graph),
@@ -4338,6 +4806,62 @@ def rdflib_graph_to_kgraph(
     - `rdf:type` edges are excluded from the property adjacency by default,
       because the engine already models them in `node_types`.
     """
+    native_abox = rdflib_graph_to_native_abox(
+        graph,
+        vocab_graph=vocab_graph,
+        vocab_source=vocab_source,
+        include_literals=include_literals,
+        include_type_edges=include_type_edges,
+        preprocessing_timings=preprocessing_timings,
+        schema_property_terms=schema_property_terms,
+        schema_class_terms=schema_class_terms,
+        schema_datatype_terms=schema_datatype_terms,
+        scan_cache=scan_cache,
+    )
+    reflexive_props: Tuple[URIRef, ...] = ()
+    if vocab_source is not None:
+        reflexive_props = tuple(
+            sorted(
+                {
+                    prop
+                    for prop, _pred, _obj in vocab_source.triples((None, RDF.type, OWL.ReflexiveProperty))
+                    if isinstance(prop, URIRef)
+                },
+                key=str,
+            )
+        )
+    kg = native_abox_to_kgraph(
+        native_abox,
+        reflexive_props=reflexive_props,
+        transitive_prop_families=_build_transitive_property_families(
+            _compute_transitive_super_map(vocab_source, RDFS.subPropertyOf),
+            _collect_transitive_properties(vocab_source),
+        ),
+        preprocessing_timings=preprocessing_timings,
+    )
+    return (kg, native_abox.mapping)
+
+
+def rdflib_graph_to_native_abox(
+    graph: Graph,
+    *,
+    vocab_graph: Optional[Graph] = None,
+    vocab_source: Optional[Graph] = None,
+    include_literals: bool = True,
+    include_type_edges: bool = False,
+    include_negative_helpers: bool = True,
+    preprocessing_timings: Optional[PreprocessingTimings] = None,
+    schema_property_terms: Optional[Sequence[URIRef]] = None,
+    schema_class_terms: Optional[Sequence[Identifier]] = None,
+    schema_datatype_terms: Optional[Sequence[URIRef]] = None,
+    scan_cache: Optional[GraphBuildScanCache] = None,
+) -> NativeABox:
+    """
+    Convert an rdflib graph into a native numeric ABox representation.
+
+    This is the Phase 1 handoff point from rdflib-backed parsing to array-based
+    working state. It intentionally preserves the current semantics and mapping.
+    """
     if vocab_source is None:
         vocab_source = graph if vocab_graph is None else aggregate_rdflib_graphs((vocab_graph, graph))
     if scan_cache is None:
@@ -4345,6 +4869,7 @@ def rdflib_graph_to_kgraph(
             graph,
             include_literals=include_literals,
             include_type_edges=include_type_edges,
+            include_negative_helpers=include_negative_helpers,
             preprocessing_timings=preprocessing_timings,
             schema_property_terms=schema_property_terms,
             schema_class_terms=schema_class_terms,
@@ -4369,38 +4894,35 @@ def rdflib_graph_to_kgraph(
     datatype_to_idx = mapping.datatype_to_idx
 
     num_nodes = len(node_terms)
-    num_classes = len(class_terms)
-    node_types = torch.zeros((num_nodes, num_classes), dtype=torch.float32)
     literal_datatype_idx = torch.full((num_nodes,), -1, dtype=torch.int64)
     literal_numeric_value = torch.full((num_nodes,), float("nan"), dtype=torch.float32)
 
-    edge_bucket_t0 = perf_counter()
-    if scan_cache.type_pairs:
+    if scan_cache.type_src_terms:
         type_src = np.fromiter(
-            (node_to_idx[subj] for subj, _class_term in scan_cache.type_pairs),
+            (node_to_idx[subj] for subj in scan_cache.type_src_terms),
             dtype=np.int64,
-            count=len(scan_cache.type_pairs),
+            count=len(scan_cache.type_src_terms),
         )
         type_cls = np.fromiter(
-            (class_to_idx[class_term] for _subj, class_term in scan_cache.type_pairs),
+            (class_to_idx[class_term] for class_term in scan_cache.type_class_terms),
             dtype=np.int64,
-            count=len(scan_cache.type_pairs),
+            count=len(scan_cache.type_class_terms),
         )
-        node_types[type_src.tolist(), type_cls.tolist()] = 1.0
+    else:
+        type_src = np.empty((0,), dtype=np.int64)
+        type_cls = np.empty((0,), dtype=np.int64)
 
     edge_src_terms: List[Identifier] = []
     edge_prop_terms: List[URIRef] = []
     edge_dst_terms: List[Identifier] = []
-    if scan_cache.type_edge_triples:
-        for subj, pred, obj in scan_cache.type_edge_triples:
-            edge_src_terms.append(subj)
-            edge_prop_terms.append(pred)
-            edge_dst_terms.append(obj)
-    if scan_cache.edge_triples:
-        for subj, pred, obj in scan_cache.edge_triples:
-            edge_src_terms.append(subj)
-            edge_prop_terms.append(pred)
-            edge_dst_terms.append(obj)
+    if scan_cache.type_edge_src_terms:
+        edge_src_terms.extend(scan_cache.type_edge_src_terms)
+        edge_prop_terms.extend(repeat(RDF.type, len(scan_cache.type_edge_src_terms)))
+        edge_dst_terms.extend(scan_cache.type_edge_dst_terms)
+    if scan_cache.edge_src_terms:
+        edge_src_terms.extend(scan_cache.edge_src_terms)
+        edge_prop_terms.extend(scan_cache.edge_prop_terms)
+        edge_dst_terms.extend(scan_cache.edge_dst_terms)
 
     negative_helper_t0 = perf_counter()
     if scan_cache.negative_helper_edges:
@@ -4419,9 +4941,6 @@ def rdflib_graph_to_kgraph(
         src_arr = np.empty((0,), dtype=np.int32)
         prop_arr = np.empty((0,), dtype=np.int32)
         dst_arr = np.empty((0,), dtype=np.int32)
-    if preprocessing_timings is not None:
-        preprocessing_timings.kgraph_edge_bucket_elapsed_ms += (perf_counter() - edge_bucket_t0) * 1000.0
-
     literal_feature_t0 = perf_counter()
     for node_idx, term in enumerate(node_terms):
         if not isinstance(term, Literal):
@@ -4438,24 +4957,57 @@ def rdflib_graph_to_kgraph(
     if preprocessing_timings is not None:
         preprocessing_timings.kgraph_literal_feature_elapsed_ms += (perf_counter() - literal_feature_t0) * 1000.0
 
+    return NativeABox(
+        mapping=mapping,
+        type_src=type_src,
+        type_cls=type_cls,
+        edge_src=src_arr,
+        edge_prop=prop_arr,
+        edge_dst=dst_arr,
+        literal_datatype_idx=literal_datatype_idx,
+        literal_numeric_value=literal_numeric_value,
+    )
+
+
+def native_abox_to_kgraph(
+    native_abox: NativeABox,
+    *,
+    reflexive_props: Optional[Sequence[URIRef]] = None,
+    transitive_prop_families: Optional[Dict[URIRef, Tuple[URIRef, ...]]] = None,
+    preprocessing_timings: Optional[PreprocessingTimings] = None,
+) -> KGraph:
+    mapping = native_abox.mapping
+    num_nodes = len(mapping.node_terms)
+    num_classes = len(mapping.class_terms)
+    node_types = torch.zeros((num_nodes, num_classes), dtype=torch.float32)
+
+    edge_bucket_t0 = perf_counter()
+    if native_abox.type_src.size:
+        node_types[
+            torch.from_numpy(native_abox.type_src.astype(np.int64, copy=False)),
+            torch.from_numpy(native_abox.type_cls.astype(np.int64, copy=False)),
+        ] = 1.0
+    if preprocessing_timings is not None:
+        preprocessing_timings.kgraph_edge_bucket_elapsed_ms += (perf_counter() - edge_bucket_t0) * 1000.0
+
     adjacency_t0 = perf_counter()
     offsets_p: List[torch.Tensor] = []
     neighbors_p: List[torch.Tensor] = []
-    if prop_arr.size:
-        order = np.lexsort((src_arr, prop_arr))
-        sorted_props = prop_arr[order]
-        sorted_srcs = src_arr[order]
-        sorted_dsts = dst_arr[order]
-        prop_offsets = np.zeros(len(prop_terms) + 1, dtype=np.int64)
-        prop_counts = np.bincount(sorted_props, minlength=len(prop_terms))
+    if native_abox.edge_prop.size:
+        order = np.lexsort((native_abox.edge_src, native_abox.edge_prop))
+        sorted_props = native_abox.edge_prop[order]
+        sorted_srcs = native_abox.edge_src[order]
+        sorted_dsts = native_abox.edge_dst[order]
+        prop_offsets = np.zeros(len(mapping.prop_terms) + 1, dtype=np.int64)
+        prop_counts = np.bincount(sorted_props, minlength=len(mapping.prop_terms))
         prop_offsets[1:] = np.cumsum(prop_counts, dtype=np.int64)
     else:
-        sorted_props = prop_arr
-        sorted_srcs = src_arr
-        sorted_dsts = dst_arr
-        prop_offsets = np.zeros(len(prop_terms) + 1, dtype=np.int64)
+        sorted_props = native_abox.edge_prop
+        sorted_srcs = native_abox.edge_src
+        sorted_dsts = native_abox.edge_dst
+        prop_offsets = np.zeros(len(mapping.prop_terms) + 1, dtype=np.int64)
 
-    for prop_idx, _prop_term in enumerate(prop_terms):
+    for prop_idx, _prop_term in enumerate(mapping.prop_terms):
         start = int(prop_offsets[prop_idx])
         end = int(prop_offsets[prop_idx + 1])
         if start == end:
@@ -4476,15 +5028,40 @@ def rdflib_graph_to_kgraph(
     if preprocessing_timings is not None:
         preprocessing_timings.kgraph_adjacency_elapsed_ms += (perf_counter() - adjacency_t0) * 1000.0
 
+    reflexive_prop_mask = torch.zeros(len(mapping.prop_terms), dtype=torch.bool)
+    if reflexive_props:
+        for prop in reflexive_props:
+            prop_idx = mapping.prop_to_idx.get(prop)
+            if prop_idx is not None:
+                reflexive_prop_mask[prop_idx] = True
+
+    transitive_family_tensors: List[torch.Tensor] = []
+    for prop_term in mapping.prop_terms:
+        family_terms = (
+            transitive_prop_families.get(prop_term, (prop_term,))
+            if transitive_prop_families is not None
+            else (prop_term,)
+        )
+        family_indices = [
+            mapping.prop_to_idx[family_term]
+            for family_term in family_terms
+            if family_term in mapping.prop_to_idx
+        ]
+        if not family_indices:
+            family_indices = [mapping.prop_to_idx[prop_term]]
+        transitive_family_tensors.append(torch.tensor(family_indices, dtype=torch.long))
+
     kg = KGraph(
             num_nodes=num_nodes,
             offsets_p=offsets_p,
             neighbors_p=neighbors_p,
             node_types=node_types,
-            literal_datatype_idx=literal_datatype_idx,
-            literal_numeric_value=literal_numeric_value,
+            literal_datatype_idx=native_abox.literal_datatype_idx,
+            literal_numeric_value=native_abox.literal_numeric_value,
+            reflexive_prop_mask=reflexive_prop_mask,
+            transitive_prop_families=transitive_family_tensors,
     )
-    return (kg, mapping)
+    return kg
 
 
 def build_rdflib_mapping(
@@ -4678,20 +5255,21 @@ def build_reasoning_dataset_from_graphs(
     materialize_reflexive_properties_policy: str = "auto",
     materialize_target_roles: Optional[bool] = None,
     materialize_target_roles_policy: str = "auto",
+    include_negative_helpers: bool = True,
     target_classes: Optional[Sequence[str | URIRef]] = None,
     dependency_closure: Optional[TargetDependencyClosure] = None,
     build_cache: Optional[ReasoningBuildCache] = None,
 ) -> ReasoningDataset:
     preprocessing_timings = PreprocessingTimings()
-    t0 = perf_counter()
-    ontology_graph = aggregate_rdflib_graphs((schema_graph, data_graph))
-    preprocessing_timings.ontology_merge_elapsed_ms += (perf_counter() - t0) * 1000.0
     if build_cache is None:
         t0 = perf_counter()
         cache = build_reasoning_build_cache(schema_graph)
         preprocessing_timings.schema_cache_elapsed_ms += (perf_counter() - t0) * 1000.0
     else:
         cache = build_cache
+    t0 = perf_counter()
+    ontology_graph = aggregate_rdflib_graphs((schema_graph, data_graph))
+    preprocessing_timings.ontology_merge_elapsed_ms += (perf_counter() - t0) * 1000.0
     subproperty_supers = cache.subproperty_supers
     property_axioms = cache.property_axioms
     atomic_domain_consequents = cache.atomic_domain_consequents
@@ -4735,12 +5313,18 @@ def build_reasoning_dataset_from_graphs(
         not preprocessing_plan.materialize_sameas.enabled
         and not preprocessing_plan.materialize_target_roles.enabled
     )
+    needs_edge_triples_by_pred = (
+        preprocessing_plan.materialize_horn_safe_domain_range.enabled
+        or preprocessing_plan.materialize_atomic_domain_range.enabled
+    )
     graph_build_scan_cache: Optional[GraphBuildScanCache] = None
     if can_incrementally_build_scan_cache:
         graph_build_scan_cache = _scan_graph_build_cache(
             data_graph,
             include_literals=include_literals,
             include_type_edges=include_type_edges,
+            include_negative_helpers=include_negative_helpers,
+            collect_edge_triples_by_pred=needs_edge_triples_by_pred,
             preprocessing_timings=preprocessing_timings,
             schema_property_terms=cache.schema_property_terms,
             schema_class_terms=cache.schema_class_terms,
@@ -4748,7 +5332,23 @@ def build_reasoning_dataset_from_graphs(
             vocab_source=ontology_graph,
         )
 
-    effective_data_graph = _copy_graph(data_graph)
+    requires_mutable_data_graph = (
+        preprocessing_plan.materialize_hierarchy.enabled
+        or preprocessing_plan.materialize_atomic_domain_range.enabled
+        or preprocessing_plan.materialize_horn_safe_domain_range.enabled
+        or preprocessing_plan.materialize_sameas.enabled
+        or preprocessing_plan.materialize_reflexive_properties.enabled
+        or (
+            preprocessing_plan.materialize_target_roles.enabled
+            and bool(target_classes)
+        )
+    )
+    if requires_mutable_data_graph:
+        t0 = perf_counter()
+        effective_data_graph = _copy_graph(data_graph)
+        preprocessing_timings.data_copy_elapsed_ms += (perf_counter() - t0) * 1000.0
+    else:
+        effective_data_graph = data_graph
     def apply_positive_preprocessing_pass(
         graph: Graph,
         *,
@@ -4937,20 +5537,45 @@ def build_reasoning_dataset_from_graphs(
         effective_data_graph = role_result.data_graph
         ontology_graph = aggregate_rdflib_graphs((schema_graph, effective_data_graph))
 
+    t0 = perf_counter()
+    effective_data_graph, imported_schema_triples = _import_referenced_schema_individual_closure(
+        effective_data_graph,
+        schema_individual_terms=cache.schema_individual_terms,
+        schema_individual_triples_by_subject=cache.schema_individual_triples_by_subject,
+        candidate_terms=(graph_build_scan_cache.node_terms_set if graph_build_scan_cache is not None else None),
+    )
+    preprocessing_timings.schema_individual_import_elapsed_ms += (perf_counter() - t0) * 1000.0
+    if graph_build_scan_cache is not None and imported_schema_triples:
+        _extend_graph_build_scan_cache(
+            graph_build_scan_cache,
+            imported_schema_triples,
+            include_literals=include_literals,
+            include_type_edges=include_type_edges,
+        )
+    ontology_graph = aggregate_rdflib_graphs((schema_graph, effective_data_graph))
+
     kg_source = effective_data_graph if len(effective_data_graph) > 0 else ontology_graph
     t0 = perf_counter()
-    kg, mapping = rdflib_graph_to_kgraph(
+    native_abox = rdflib_graph_to_native_abox(
         kg_source,
         vocab_graph=ontology_graph,
         vocab_source=ontology_graph,
         include_literals=include_literals,
         include_type_edges=include_type_edges,
+        include_negative_helpers=include_negative_helpers,
         preprocessing_timings=preprocessing_timings,
         schema_property_terms=cache.schema_property_terms,
         schema_class_terms=cache.schema_class_terms,
         schema_datatype_terms=cache.schema_datatype_terms,
         scan_cache=graph_build_scan_cache,
     )
+    kg = native_abox_to_kgraph(
+        native_abox,
+        reflexive_props=reflexive_props,
+        transitive_prop_families=cache.transitive_prop_families,
+        preprocessing_timings=preprocessing_timings,
+    )
+    mapping = native_abox.mapping
     preprocessing_timings.kgraph_build_elapsed_ms = (perf_counter() - t0) * 1000.0
 
     return ReasoningDataset(
@@ -4959,6 +5584,7 @@ def build_reasoning_dataset_from_graphs(
         ontology_graph=ontology_graph,
         kg=kg,
         mapping=mapping,
+        native_abox=native_abox,
         preprocessing_plan=preprocessing_plan,
         preprocessing_timings=preprocessing_timings,
     )
@@ -5873,16 +6499,278 @@ def compile_normalized_sufficient_condition_to_dag(
     mapping: RDFKGraphMapping,
     condition: NormalizedSufficientCondition,
     *,
+    compile_context: Optional[OntologyCompileContext] = None,
     intersection_agg: IntersectionAgg = IntersectionAgg.MIN,
     cardinality_agg: CardinalityAgg = CardinalityAgg.STRICT,
 ) -> ConstraintDAG:
     nodes: List[ConstraintNode] = []
     memo: Dict[NormalizedSufficientCondition, int] = {}
+    restriction_memo: Dict[Tuple[str, URIRef, str, int], int] = {}
+    inverse_props = compile_context.inverse_props if compile_context is not None else {}
+    chains_by_conclusion = compile_context.chains_by_conclusion if compile_context is not None else {}
+    transitive_props = compile_context.transitive_props if compile_context is not None else set()
+    transitive_subproperty_closure = (
+        compile_context.transitive_subproperty_closure if compile_context is not None else {}
+    )
 
     def new_node(**kwargs) -> int:
         idx = len(nodes)
         node = ConstraintNode(idx=idx, **kwargs)
         nodes.append(node)
+        return idx
+
+    def transitive_subproperties(prop: URIRef) -> Tuple[URIRef, ...]:
+        return transitive_subproperty_closure.get(prop, ())
+
+    def compile_condition(term: NormalizedSufficientCondition) -> int:
+        cached = memo.get(term)
+        if cached is not None:
+            return cached
+
+        if term.kind == SufficientConditionKind.TOP:
+            idx = new_node(ctype=ConstraintType.CONST)
+        elif term.kind == SufficientConditionKind.ATOMIC_CLASS:
+            if term.class_term is None or term.class_term not in mapping.class_to_idx:
+                raise KeyError(f"Class {term.class_term} not present in class mapping.")
+            idx = new_node(
+                ctype=ConstraintType.ATOMIC_CLASS,
+                class_idx=mapping.class_to_idx[term.class_term],
+            )
+        elif term.kind == SufficientConditionKind.NOMINAL:
+            if term.node_term is None or term.node_term not in mapping.node_to_idx:
+                raise KeyError(f"Node {term.node_term} not present in node mapping.")
+            idx = new_node(
+                ctype=ConstraintType.NOMINAL,
+                node_idx=mapping.node_to_idx[term.node_term],
+            )
+        elif term.kind == SufficientConditionKind.DATATYPE_CONSTRAINT:
+            datatype_idx = None
+            if term.datatype_term is not None:
+                if term.datatype_term not in mapping.datatype_to_idx:
+                    raise KeyError(f"Datatype {term.datatype_term} not present in datatype mapping.")
+                datatype_idx = mapping.datatype_to_idx[term.datatype_term]
+            idx = new_node(
+                ctype=ConstraintType.DATATYPE_CONSTRAINT,
+                datatype_idx=datatype_idx,
+                numeric_min=term.numeric_min,
+                numeric_max=term.numeric_max,
+                min_inclusive=term.min_inclusive,
+                max_inclusive=term.max_inclusive,
+            )
+        elif term.kind == SufficientConditionKind.HAS_SELF:
+            if term.prop_term is None or term.prop_term not in mapping.prop_to_idx:
+                raise KeyError(f"Property {term.prop_term} not present in property mapping.")
+            idx = new_node(
+                ctype=ConstraintType.HAS_SELF_RESTRICTION,
+                prop_idx=mapping.prop_to_idx[term.prop_term],
+                prop_direction=term.prop_direction,
+            )
+        elif term.kind == SufficientConditionKind.EXISTS:
+            if term.prop_term is None or term.prop_term not in mapping.prop_to_idx:
+                raise KeyError(f"Property {term.prop_term} not present in property mapping.")
+            if len(term.children) != 1:
+                raise ValueError("EXISTS sufficient conditions must have exactly one child.")
+            child_idx = compile_condition(term.children[0])
+            idx = compile_exists_family_restriction(
+                prop=term.prop_term,
+                prop_direction=term.prop_direction,
+                child_idx=child_idx,
+            )
+        elif term.kind == SufficientConditionKind.INTERSECTION:
+            child_indices = [compile_condition(child) for child in term.children]
+            idx = new_node(
+                ctype=ConstraintType.INTERSECTION,
+                child_indices=child_indices,
+                intersection_agg=intersection_agg,
+            )
+        elif term.kind == SufficientConditionKind.MIN_CARDINALITY:
+            if term.prop_term is None or term.prop_term not in mapping.prop_to_idx:
+                raise KeyError(f"Property {term.prop_term} not present in property mapping.")
+            if term.cardinality_target is None:
+                raise ValueError("MIN_CARDINALITY sufficient conditions must provide a target.")
+            if len(term.children) != 1:
+                raise ValueError("MIN_CARDINALITY sufficient conditions must have exactly one child.")
+            child_idx = compile_condition(term.children[0])
+            idx = new_node(
+                ctype=ConstraintType.MIN_CARDINALITY_RESTRICTION,
+                prop_idx=mapping.prop_to_idx[term.prop_term],
+                prop_direction=term.prop_direction,
+                cardinality_target=term.cardinality_target,
+                cardinality_agg=cardinality_agg,
+                child_indices=[child_idx],
+            )
+        else:
+            raise ValueError(f"Unsupported sufficient condition kind: {term.kind}")
+
+        memo[term] = idx
+        return idx
+
+    root_idx = compile_condition(condition)
+    layers = _compute_layers(nodes)
+    return ConstraintDAG(nodes=nodes, root_idx=root_idx, layers=layers)
+
+
+def compile_sufficient_condition_dag(
+    ontology_graph: Graph,
+    mapping: RDFKGraphMapping,
+    target_class: str | URIRef,
+    *,
+    rule_set: Optional[NormalizedSufficientRuleSet] = None,
+    antecedents_by_consequent: Optional[Dict[URIRef, List[NormalizedSufficientCondition]]] = None,
+    compile_context: Optional[OntologyCompileContext] = None,
+    include_atomic_seed: bool = True,
+    intersection_agg: IntersectionAgg = IntersectionAgg.MIN,
+    cardinality_agg: CardinalityAgg = CardinalityAgg.STRICT,
+) -> ConstraintDAG:
+    target_term = URIRef(target_class) if isinstance(target_class, str) else target_class
+    rules = rule_set or collect_normalized_sufficient_condition_rules(ontology_graph)
+    indexed_antecedents = (
+        antecedents_by_consequent
+        if antecedents_by_consequent is not None
+        else index_normalized_sufficient_rules_by_consequent(rules)
+    )
+    antecedents = list(indexed_antecedents.get(target_term, ()))
+
+    if include_atomic_seed:
+        antecedents = [
+            NormalizedSufficientCondition(
+                kind=SufficientConditionKind.ATOMIC_CLASS,
+                class_term=target_term,
+            )
+        ] + antecedents
+
+    if not antecedents:
+        raise ValueError(f"No sufficient-condition antecedents found for {target_term.n3()}.")
+
+    if compile_context is None:
+        compile_context = build_ontology_compile_context(ontology_graph)
+    if len(antecedents) == 1:
+        return compile_normalized_sufficient_condition_to_dag(
+            mapping,
+            antecedents[0],
+            compile_context=compile_context,
+            intersection_agg=intersection_agg,
+            cardinality_agg=cardinality_agg,
+        )
+
+    nodes: List[ConstraintNode] = []
+    memo: Dict[NormalizedSufficientCondition, int] = {}
+    restriction_memo: Dict[Tuple[str, URIRef, str, int], int] = {}
+    inverse_props = compile_context.inverse_props
+    chains_by_conclusion = compile_context.chains_by_conclusion
+    transitive_props = compile_context.transitive_props
+    transitive_subproperty_closure = compile_context.transitive_subproperty_closure
+
+    def new_node(**kwargs) -> int:
+        idx = len(nodes)
+        node = ConstraintNode(idx=idx, **kwargs)
+        nodes.append(node)
+        return idx
+
+    def direct_exists_restriction_node(
+        *,
+        prop: URIRef,
+        prop_direction: TraversalDirection,
+        child_idx: int,
+    ) -> int:
+        ctype = (
+            ConstraintType.EXISTS_TRANSITIVE_RESTRICTION
+            if prop in transitive_props
+            else ConstraintType.EXISTS_RESTRICTION
+        )
+        return new_node(
+            ctype=ctype,
+            prop_idx=mapping.prop_to_idx[prop],
+            prop_direction=prop_direction,
+            child_indices=[child_idx],
+        )
+
+    def transitive_subproperties(prop: URIRef) -> Tuple[URIRef, ...]:
+        return transitive_subproperty_closure.get(prop, ())
+
+    def compile_exists_family_restriction(
+        *,
+        prop: URIRef,
+        prop_direction: TraversalDirection,
+        child_idx: int,
+        stack: Optional[set[Tuple[URIRef, str]]] = None,
+    ) -> int:
+        key = ("exists", prop, prop_direction.value, child_idx)
+        cycle_key = (prop, prop_direction.value)
+        if key in restriction_memo:
+            return restriction_memo[key]
+
+        active_stack = set() if stack is None else set(stack)
+        if cycle_key in active_stack:
+            idx = direct_exists_restriction_node(
+                prop=prop,
+                prop_direction=prop_direction,
+                child_idx=child_idx,
+            )
+            restriction_memo[key] = idx
+            return idx
+
+        active_stack.add(cycle_key)
+        branch_indices: List[int] = [
+            direct_exists_restriction_node(
+                prop=prop,
+                prop_direction=prop_direction,
+                child_idx=child_idx,
+            )
+        ]
+
+        for subprop in transitive_subproperties(prop):
+            if subprop not in mapping.prop_to_idx:
+                continue
+            branch_indices.append(
+                compile_exists_family_restriction(
+                    prop=subprop,
+                    prop_direction=prop_direction,
+                    child_idx=child_idx,
+                    stack=active_stack,
+                )
+            )
+
+        for inverse_prop in sorted(inverse_props.get(prop, ()), key=str):
+            if inverse_prop not in mapping.prop_to_idx:
+                continue
+            inverse_direction = (
+                TraversalDirection.BACKWARD
+                if prop_direction == TraversalDirection.FORWARD
+                else TraversalDirection.FORWARD
+            )
+            branch_indices.append(
+                compile_exists_family_restriction(
+                    prop=inverse_prop,
+                    prop_direction=inverse_direction,
+                    child_idx=child_idx,
+                    stack=active_stack,
+                )
+            )
+
+        for chain in chains_by_conclusion.get(prop, ()):
+            if not all(chain_prop in mapping.prop_to_idx for chain_prop in chain):
+                continue
+            ordered_chain = chain if prop_direction == TraversalDirection.FORWARD else tuple(reversed(chain))
+            nested_child_idx = child_idx
+            for chain_prop in reversed(ordered_chain):
+                nested_child_idx = compile_exists_family_restriction(
+                    prop=chain_prop,
+                    prop_direction=prop_direction,
+                    child_idx=nested_child_idx,
+                    stack=active_stack,
+                )
+            branch_indices.append(nested_child_idx)
+
+        deduped_branches = list(dict.fromkeys(branch_indices))
+        if len(deduped_branches) == 1:
+            idx = deduped_branches[0]
+        else:
+            idx = new_node(
+                ctype=ConstraintType.UNION,
+                child_indices=deduped_branches,
+            )
+        restriction_memo[key] = idx
         return idx
 
     def compile_condition(term: NormalizedSufficientCondition) -> int:
@@ -5934,11 +6822,10 @@ def compile_normalized_sufficient_condition_to_dag(
             if len(term.children) != 1:
                 raise ValueError("EXISTS sufficient conditions must have exactly one child.")
             child_idx = compile_condition(term.children[0])
-            idx = new_node(
-                ctype=ConstraintType.EXISTS_RESTRICTION,
-                prop_idx=mapping.prop_to_idx[term.prop_term],
+            idx = compile_exists_family_restriction(
+                prop=term.prop_term,
                 prop_direction=term.prop_direction,
-                child_indices=[child_idx],
+                child_idx=child_idx,
             )
         elif term.kind == SufficientConditionKind.INTERSECTION:
             child_indices = [compile_condition(child) for child in term.children]
@@ -5969,100 +6856,11 @@ def compile_normalized_sufficient_condition_to_dag(
         memo[term] = idx
         return idx
 
-    root_idx = compile_condition(condition)
-    layers = _compute_layers(nodes)
-    return ConstraintDAG(nodes=nodes, root_idx=root_idx, layers=layers)
-
-
-def compile_sufficient_condition_dag(
-    ontology_graph: Graph,
-    mapping: RDFKGraphMapping,
-    target_class: str | URIRef,
-    *,
-    rule_set: Optional[NormalizedSufficientRuleSet] = None,
-    antecedents_by_consequent: Optional[Dict[URIRef, List[NormalizedSufficientCondition]]] = None,
-    include_atomic_seed: bool = True,
-    intersection_agg: IntersectionAgg = IntersectionAgg.MIN,
-    cardinality_agg: CardinalityAgg = CardinalityAgg.STRICT,
-) -> ConstraintDAG:
-    target_term = URIRef(target_class) if isinstance(target_class, str) else target_class
-    rules = rule_set or collect_normalized_sufficient_condition_rules(ontology_graph)
-    indexed_antecedents = (
-        antecedents_by_consequent
-        if antecedents_by_consequent is not None
-        else index_normalized_sufficient_rules_by_consequent(rules)
-    )
-    antecedents = list(indexed_antecedents.get(target_term, ()))
-
-    if include_atomic_seed:
-        antecedents = [
-            NormalizedSufficientCondition(
-                kind=SufficientConditionKind.ATOMIC_CLASS,
-                class_term=target_term,
-            )
-        ] + antecedents
-
-    if not antecedents:
-        raise ValueError(f"No sufficient-condition antecedents found for {target_term.n3()}.")
-
-    nodes: List[ConstraintNode] = []
-    memo: Dict[NormalizedSufficientCondition, int] = {}
-
-    def new_node(**kwargs) -> int:
-        idx = len(nodes)
-        node = ConstraintNode(idx=idx, **kwargs)
-        nodes.append(node)
-        return idx
-
-    def compile_condition(term: NormalizedSufficientCondition) -> int:
-        cached = memo.get(term)
-        if cached is not None:
-            return cached
-
-        compiled = compile_normalized_sufficient_condition_to_dag(
-            mapping,
-            term,
-            intersection_agg=intersection_agg,
-            cardinality_agg=cardinality_agg,
-        )
-        base_idx = len(nodes)
-        for node in compiled.nodes:
-            adjusted_children = (
-                [base_idx + child_idx for child_idx in (node.child_indices or [])]
-                if node.child_indices
-                else None
-            )
-            new_node(
-                ctype=node.ctype,
-                class_idx=node.class_idx,
-                node_idx=node.node_idx,
-                datatype_idx=node.datatype_idx,
-                numeric_min=node.numeric_min,
-                numeric_max=node.numeric_max,
-                min_inclusive=node.min_inclusive,
-                max_inclusive=node.max_inclusive,
-                prop_idx=node.prop_idx,
-                prop_direction=node.prop_direction,
-                cardinality_target=node.cardinality_target,
-                cardinality_delta=node.cardinality_delta,
-                cardinality_agg=node.cardinality_agg,
-                child_indices=adjusted_children,
-                intersection_agg=node.intersection_agg,
-                scale_factor=node.scale_factor,
-            )
-        root_idx = base_idx + compiled.root_idx
-        memo[term] = root_idx
-        return root_idx
-
-    antecedent_roots = [compile_condition(antecedent) for antecedent in antecedents]
+    antecedent_roots = list(dict.fromkeys(compile_condition(antecedent) for antecedent in antecedents))
     if len(antecedent_roots) == 1:
         root_idx = antecedent_roots[0]
     else:
-        root_idx = new_node(
-            ctype=ConstraintType.UNION,
-            child_indices=antecedent_roots,
-        )
-
+        root_idx = new_node(ctype=ConstraintType.UNION, child_indices=antecedent_roots)
     layers = _compute_layers(nodes)
     return ConstraintDAG(nodes=nodes, root_idx=root_idx, layers=layers)
 
@@ -6795,19 +7593,30 @@ def compile_class_to_dag(
     memo: Dict[Identifier, int] = {}
     if compile_context is None:
         direct_subs = _collect_direct_subproperties(ontology_graph)
+        transitive_subproperty_closure: Dict[URIRef, Tuple[URIRef, ...]] = {}
         inverse_props = _collect_inverse_properties(ontology_graph)
         chains_by_conclusion = _collect_property_chains(ontology_graph)
         transitive_props = _collect_transitive_properties(ontology_graph)
         functional_props = _collect_functional_property_terms_from_graph(ontology_graph)
         sameas_equivalence_map = collect_sameas_equivalence_map(ontology_graph)
+        for prop in direct_subs:
+            seen: set[URIRef] = set()
+            stack = list(direct_subs.get(prop, ()))
+            while stack:
+                child = stack.pop()
+                if child in seen:
+                    continue
+                seen.add(child)
+                stack.extend(direct_subs.get(child, ()))
+            transitive_subproperty_closure[prop] = tuple(sorted(seen, key=str))
     else:
         direct_subs = compile_context.direct_subs
+        transitive_subproperty_closure = compile_context.transitive_subproperty_closure
         inverse_props = compile_context.inverse_props
         chains_by_conclusion = compile_context.chains_by_conclusion
         transitive_props = compile_context.transitive_props
         functional_props = compile_context.functional_props
         sameas_equivalence_map = compile_context.sameas_equivalence_map
-    subproperty_closure_cache: Dict[URIRef, Tuple[URIRef, ...]] = {}
     restriction_memo: Dict[Tuple[str, URIRef, str, int], int] = {}
     active_exprs: set[Identifier] = set()
 
@@ -6846,22 +7655,7 @@ def compile_class_to_dag(
         )
 
     def transitive_subproperties(prop: URIRef) -> Tuple[URIRef, ...]:
-        cached = subproperty_closure_cache.get(prop)
-        if cached is not None:
-            return cached
-
-        seen: set[URIRef] = set()
-        stack = list(direct_subs.get(prop, ()))
-        while stack:
-            child = stack.pop()
-            if child in seen:
-                continue
-            seen.add(child)
-            stack.extend(direct_subs.get(child, ()))
-
-        result = tuple(sorted(seen, key=str))
-        subproperty_closure_cache[prop] = result
-        return result
+        return transitive_subproperty_closure.get(prop, ())
 
     def compile_property_restriction(
         *,
@@ -7321,6 +8115,9 @@ def compile_class_to_dag(
             for member_expr in _rdf_list_members(ontology_graph, expr):
                 root_children.append(compile_expr(member_expr))
 
+    if root_children:
+        root_children = list(dict.fromkeys(root_children))
+
     if not root_children:
         base_idx = compile_expr(target_term)
     elif len(root_children) == 1:
@@ -7463,8 +8260,10 @@ def materialize_supported_class_inferences(
     include_literals: bool = True,
     include_type_edges: bool = False,
     materialize_hierarchy: bool = True,
+    materialize_horn_safe_domain_range: Optional[bool] = None,
     materialize_sameas: Optional[bool] = None,
     materialize_haskey_equality: Optional[bool] = None,
+    materialize_reflexive_properties: Optional[bool] = None,
     materialize_target_roles: bool = False,
     target_classes: Optional[Sequence[str | URIRef]] = None,
     threshold: float = 0.999,
@@ -7500,8 +8299,10 @@ def materialize_supported_class_inferences(
             include_literals=include_literals,
             include_type_edges=include_type_edges,
             materialize_hierarchy=materialize_hierarchy,
+            materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
             materialize_sameas=materialize_sameas,
             materialize_haskey_equality=materialize_haskey_equality,
+            materialize_reflexive_properties=materialize_reflexive_properties,
             materialize_target_roles=False,
         )
         closure = compute_target_dependency_closure(
@@ -7518,8 +8319,10 @@ def materialize_supported_class_inferences(
             include_literals=include_literals,
             include_type_edges=include_type_edges,
             materialize_hierarchy=materialize_hierarchy,
+            materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
             materialize_sameas=materialize_sameas,
             materialize_haskey_equality=materialize_haskey_equality,
+            materialize_reflexive_properties=materialize_reflexive_properties,
             materialize_target_roles=materialize_target_roles,
             target_classes=target_classes,
             dependency_closure=closure,
@@ -7570,6 +8373,10 @@ def materialize_supported_class_inferences(
         include_literals=include_literals,
         include_type_edges=include_type_edges,
         materialize_hierarchy=materialize_hierarchy,
+        materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+        materialize_sameas=materialize_sameas,
+        materialize_haskey_equality=materialize_haskey_equality,
+        materialize_reflexive_properties=materialize_reflexive_properties,
         materialize_target_roles=materialize_target_roles,
         target_classes=target_classes,
         dependency_closure=closure,
@@ -7588,8 +8395,10 @@ def materialize_positive_sufficient_class_inferences(
     include_literals: bool = True,
     include_type_edges: bool = False,
     materialize_hierarchy: bool = True,
+    materialize_horn_safe_domain_range: Optional[bool] = None,
     materialize_sameas: Optional[bool] = None,
     materialize_haskey_equality: Optional[bool] = None,
+    materialize_reflexive_properties: Optional[bool] = None,
     materialize_target_roles: bool = False,
     target_classes: Optional[Sequence[str | URIRef]] = None,
     threshold: float = 0.999,
@@ -7607,38 +8416,89 @@ def materialize_positive_sufficient_class_inferences(
 
     total_t0 = perf_counter()
     timings = PositiveMaterializationTimings()
-
-    current_data_graph = Graph()
-    for triple in data_graph:
-        current_data_graph.add(triple)
+    profiler = ProfileRecorder()
+    positive_root = profiler.start_root(
+        "positive_reasoning",
+        "positive_reasoning",
+        category="host_runtime",
+        device=device,
+    )
 
     inferred_assertions: List[Tuple[Identifier, URIRef]] = []
     iterations = 0
     closure: Optional[TargetDependencyClosure] = None
     target_terms = [URIRef(term) if isinstance(term, str) else term for term in target_classes] if target_classes else None
-    t0 = perf_counter()
-    base_rule_set = collect_normalized_sufficient_condition_rules(schema_graph)
-    timings.rule_extraction_elapsed_ms = (perf_counter() - t0) * 1000.0
-    t0 = perf_counter()
-    antecedents_by_consequent = index_normalized_sufficient_rules_by_consequent(base_rule_set)
-    timings.rule_index_elapsed_ms = (perf_counter() - t0) * 1000.0
-    t0 = perf_counter()
-    build_cache = build_reasoning_build_cache(schema_graph)
-    timings.schema_cache_elapsed_ms = (perf_counter() - t0) * 1000.0
-    t0 = perf_counter()
-    initial_ontology_graph = aggregate_rdflib_graphs((schema_graph, data_graph))
-    timings.initial_ontology_merge_elapsed_ms = (perf_counter() - t0) * 1000.0
-    t0 = perf_counter()
-    preprocessing_plan = plan_reasoning_preprocessing(
-        initial_ontology_graph,
-        target_classes=target_terms,
-        materialize_hierarchy=materialize_hierarchy,
-        materialize_horn_safe_domain_range=True if materialize_hierarchy else None,
-        materialize_sameas=materialize_sameas,
-        materialize_haskey_equality=materialize_haskey_equality,
-        materialize_target_roles=materialize_target_roles,
-    )
-    timings.preprocessing_plan_elapsed_ms = (perf_counter() - t0) * 1000.0
+    with profiler.scoped("schema_setup", "schema_setup", category="tbox_cacheable") as schema_setup_node:
+        t0 = perf_counter()
+        base_rule_set = collect_normalized_sufficient_condition_rules(schema_graph)
+        timings.rule_extraction_elapsed_ms = (perf_counter() - t0) * 1000.0
+        schema_setup_node.add_child(
+            ProfileNode(
+                name="rule_extraction",
+                label="rule extraction",
+                elapsed_ms_inclusive=timings.rule_extraction_elapsed_ms,
+                meta={"category": "tbox_cacheable"},
+            )
+        )
+        t0 = perf_counter()
+        antecedents_by_consequent = index_normalized_sufficient_rules_by_consequent(base_rule_set)
+        timings.rule_index_elapsed_ms = (perf_counter() - t0) * 1000.0
+        if timings.rule_index_elapsed_ms:
+            schema_setup_node.add_child(
+                ProfileNode(
+                    name="rule_index",
+                    label="rule index",
+                    elapsed_ms_inclusive=timings.rule_index_elapsed_ms,
+                    meta={"category": "tbox_cacheable"},
+                )
+            )
+        t0 = perf_counter()
+        build_cache = build_reasoning_build_cache(schema_graph)
+        timings.schema_cache_elapsed_ms = (perf_counter() - t0) * 1000.0
+        t0 = perf_counter()
+        sufficient_compile_context = build_ontology_compile_context(schema_graph)
+        timings.schema_cache_elapsed_ms += (perf_counter() - t0) * 1000.0
+        schema_setup_node.add_child(
+            ProfileNode(
+                name="schema_cache",
+                label="schema cache / compile context",
+                elapsed_ms_inclusive=timings.schema_cache_elapsed_ms,
+                meta={"category": "tbox_cacheable"},
+            )
+        )
+        t0 = perf_counter()
+        initial_ontology_graph = aggregate_rdflib_graphs((schema_graph, data_graph))
+        timings.initial_ontology_merge_elapsed_ms = (perf_counter() - t0) * 1000.0
+        if timings.initial_ontology_merge_elapsed_ms:
+            schema_setup_node.add_child(
+                ProfileNode(
+                    name="initial_ontology_merge",
+                    label="initial ontology merge",
+                    elapsed_ms_inclusive=timings.initial_ontology_merge_elapsed_ms,
+                    meta={"category": "abox_once"},
+                )
+            )
+        t0 = perf_counter()
+        preprocessing_plan = plan_reasoning_preprocessing(
+            initial_ontology_graph,
+            target_classes=target_terms,
+            materialize_hierarchy=materialize_hierarchy,
+            materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+            materialize_sameas=materialize_sameas,
+            materialize_haskey_equality=materialize_haskey_equality,
+            materialize_reflexive_properties=materialize_reflexive_properties,
+            materialize_target_roles=materialize_target_roles,
+        )
+        timings.preprocessing_plan_elapsed_ms = (perf_counter() - t0) * 1000.0
+        if timings.preprocessing_plan_elapsed_ms:
+            schema_setup_node.add_child(
+                ProfileNode(
+                    name="preprocessing_plan",
+                    label="preprocessing plan",
+                    elapsed_ms_inclusive=timings.preprocessing_plan_elapsed_ms,
+                    meta={"category": "abox_once"},
+                )
+            )
     active_has_key_axioms = (
         build_cache.has_key_axioms
         if preprocessing_plan.materialize_haskey_equality.enabled
@@ -7656,6 +8516,14 @@ def materialize_positive_sufficient_class_inferences(
         t0 = perf_counter()
         closure = compute_sufficient_rule_dependency_closure(base_rule_set, target_terms)
         timings.dependency_closure_elapsed_ms = (perf_counter() - t0) * 1000.0
+        positive_root.children[0].add_child(
+            ProfileNode(
+                name="dependency_closure",
+                label="dependency closure",
+                elapsed_ms_inclusive=timings.dependency_closure_elapsed_ms,
+                meta={"category": "tbox_cacheable"},
+            )
+        )
     target_classes_to_materialize = (
         [
             class_term
@@ -7666,217 +8534,475 @@ def materialize_positive_sufficient_class_inferences(
         else sorted(antecedents_by_consequent.keys(), key=str)
     )
     compiled_dags: Dict[URIRef, ConstraintDAG] = {}
+    native_fast_reasoner = None
+    native_fast_sim_class: Optional[torch.Tensor] = None
     use_incremental_rebuild = False
     previous_incremental_dataset: Optional[ReasoningDataset] = None
     seeded_dataset: Optional[ReasoningDataset] = None
     pending_type_assertions: Optional[List[Tuple[Identifier, URIRef]]] = None
+    final_dataset: Optional[ReasoningDataset] = None
+    terminated_early = False
+    use_native_gpu_el_loop = (
+        not preprocessing_plan.materialize_hierarchy.enabled
+        and not preprocessing_plan.materialize_horn_safe_domain_range.enabled
+        and not preprocessing_plan.materialize_atomic_domain_range.enabled
+        and not preprocessing_plan.materialize_sameas.enabled
+        and not preprocessing_plan.materialize_reflexive_properties.enabled
+        and not preprocessing_plan.materialize_target_roles.enabled
+        and not include_type_edges
+    )
+    if use_native_gpu_el_loop:
+        current_data_graph = data_graph
+    else:
+        t0 = perf_counter()
+        current_data_graph = Graph()
+        for triple in data_graph:
+            current_data_graph.add(triple)
+        timings.initial_data_copy_elapsed_ms = (perf_counter() - t0) * 1000.0
+        positive_root.add_child(
+            ProfileNode(
+                name="initial_data_copy",
+                label="initial data copy",
+                elapsed_ms_inclusive=timings.initial_data_copy_elapsed_ms,
+                meta={"category": "abox_once"},
+            )
+        )
+    native_fast_dataset: Optional[ReasoningDataset] = None
+
+    def _attach_dataset_refresh_breakdown(
+        dataset_node: ProfileNode,
+        preprocessing: PreprocessingTimings,
+    ) -> None:
+        scan_cache_elapsed_ms = preprocessing.scan_cache_build_elapsed_ms
+        if scan_cache_elapsed_ms:
+            scan_cache_node = dataset_node.add_child(
+                ProfileNode(
+                    name="scan_cache_index_prep",
+                    label="scan cache/index prep",
+                    elapsed_ms_inclusive=scan_cache_elapsed_ms,
+                    meta={"category": "host_runtime"},
+                )
+            )
+            if preprocessing.mapping_vocab_collect_elapsed_ms:
+                scan_cache_node.add_child(
+                    ProfileNode(
+                        name="mapping_vocab_collect",
+                        label="vocab collect",
+                        elapsed_ms_inclusive=preprocessing.mapping_vocab_collect_elapsed_ms,
+                        meta={"category": "host_runtime"},
+                    )
+                )
+            if preprocessing.mapping_graph_scan_elapsed_ms:
+                scan_cache_node.add_child(
+                    ProfileNode(
+                        name="mapping_graph_scan",
+                        label="graph scan",
+                        elapsed_ms_inclusive=preprocessing.mapping_graph_scan_elapsed_ms,
+                        meta={"category": "host_runtime"},
+                    )
+                )
+        assembly_elapsed_ms = (
+            preprocessing.data_copy_elapsed_ms
+            + preprocessing.ontology_merge_elapsed_ms
+            + preprocessing.hierarchy_elapsed_ms
+            + preprocessing.atomic_domain_range_elapsed_ms
+            + preprocessing.horn_safe_domain_range_elapsed_ms
+            + preprocessing.sameas_elapsed_ms
+            + preprocessing.reflexive_elapsed_ms
+            + preprocessing.target_role_elapsed_ms
+            + preprocessing.schema_individual_import_elapsed_ms
+            + preprocessing.kgraph_build_elapsed_ms
+        )
+        dataset_assembly = dataset_node.add_child(
+            ProfileNode(
+                name="dataset_native_assembly",
+                label="dataset build/native assembly",
+                elapsed_ms_inclusive=assembly_elapsed_ms,
+                meta={"category": "host_runtime"},
+            )
+        )
+        for child_name, child_label, child_elapsed, category in (
+            ("data_copy", "data copy", preprocessing.data_copy_elapsed_ms, "host_runtime"),
+            ("ontology_merge", "ontology merge", preprocessing.ontology_merge_elapsed_ms, "host_runtime"),
+            ("hierarchy", "hierarchy", preprocessing.hierarchy_elapsed_ms, "host_runtime"),
+            ("atomic_domain_range", "atomic domain/range", preprocessing.atomic_domain_range_elapsed_ms, "host_runtime"),
+            ("horn_safe_domain_range", "horn-safe domain/range", preprocessing.horn_safe_domain_range_elapsed_ms, "host_runtime"),
+            ("sameas", "sameAs", preprocessing.sameas_elapsed_ms, "host_runtime"),
+            ("reflexive", "reflexive", preprocessing.reflexive_elapsed_ms, "host_runtime"),
+            ("target_roles", "target roles", preprocessing.target_role_elapsed_ms, "host_runtime"),
+            ("schema_individual_import", "schema individual import", preprocessing.schema_individual_import_elapsed_ms, "host_runtime"),
+        ):
+            if child_elapsed:
+                dataset_assembly.add_child(
+                    ProfileNode(
+                        name=child_name,
+                        label=child_label,
+                        elapsed_ms_inclusive=child_elapsed,
+                        meta={"category": category},
+                    )
+                )
+
+        if preprocessing.kgraph_build_elapsed_ms:
+            kgraph_node = dataset_assembly.add_child(
+                ProfileNode(
+                    name="kgraph_build",
+                    label="kgraph build",
+                    elapsed_ms_inclusive=preprocessing.kgraph_build_elapsed_ms,
+                    meta={"category": "host_runtime"},
+                )
+            )
+            mapping_finalize_total = (
+                preprocessing.mapping_sort_elapsed_ms
+                + preprocessing.mapping_index_elapsed_ms
+            )
+            if mapping_finalize_total:
+                mapping_finalize = kgraph_node.add_child(
+                    ProfileNode(
+                        name="mapping_finalize",
+                        label="mapping finalize",
+                        elapsed_ms_inclusive=mapping_finalize_total,
+                        meta={"category": "host_runtime"},
+                    )
+                )
+                if preprocessing.mapping_sort_elapsed_ms:
+                    mapping_finalize.add_child(
+                        ProfileNode(
+                            "mapping_sort",
+                            "mapping sort",
+                            preprocessing.mapping_sort_elapsed_ms,
+                            meta={"category": "host_runtime"},
+                        )
+                    )
+                if preprocessing.mapping_index_elapsed_ms:
+                    mapping_finalize.add_child(
+                        ProfileNode(
+                            "mapping_index",
+                            "mapping index",
+                            preprocessing.mapping_index_elapsed_ms,
+                            meta={"category": "host_runtime"},
+                        )
+                    )
+            kgraph_internal_total = (
+                preprocessing.kgraph_edge_bucket_elapsed_ms
+                + preprocessing.kgraph_negative_helper_elapsed_ms
+                + preprocessing.kgraph_literal_feature_elapsed_ms
+                + preprocessing.kgraph_adjacency_elapsed_ms
+            )
+            if kgraph_internal_total:
+                kgraph_internals = kgraph_node.add_child(
+                    ProfileNode(
+                        name="kgraph_internals",
+                        label="kgraph internals",
+                        elapsed_ms_inclusive=kgraph_internal_total,
+                        meta={"category": "host_runtime"},
+                    )
+                )
+                for child_name, child_label, child_elapsed in (
+                    ("edge_buckets", "edge buckets", preprocessing.kgraph_edge_bucket_elapsed_ms),
+                    ("negative_helpers", "negative helpers", preprocessing.kgraph_negative_helper_elapsed_ms),
+                    ("literal_features", "literal features", preprocessing.kgraph_literal_feature_elapsed_ms),
+                    ("adjacency", "adjacency", preprocessing.kgraph_adjacency_elapsed_ms),
+                ):
+                    if child_elapsed:
+                        kgraph_internals.add_child(
+                            ProfileNode(
+                                name=child_name,
+                                label=child_label,
+                                elapsed_ms_inclusive=child_elapsed,
+                                meta={"category": "host_runtime"},
+                            )
+                        )
+
+    def _build_subclass_similarity_matrix_for_dataset(
+        dataset: ReasoningDataset,
+    ) -> Optional[torch.Tensor]:
+        num_classes = len(dataset.mapping.class_terms)
+        if num_classes == 0:
+            return None
+
+        sim_class = torch.eye(num_classes, dtype=torch.float32)
+        for stored_class, stored_idx in dataset.mapping.class_to_idx.items():
+            for super_class in sufficient_compile_context.subclass_supers.get(stored_class, ()):
+                super_idx = dataset.mapping.class_to_idx.get(super_class)
+                if super_idx is not None:
+                    sim_class[stored_idx, super_idx] = 1.0
+        return sim_class
 
     while iterations < max_iterations:
         iterations += 1
         timings.iterations = iterations
         iteration_timing = MaterializationIterationTiming(iteration=iterations)
-        if seeded_dataset is not None:
-            dataset = seeded_dataset
-            seeded_dataset = None
-        elif use_incremental_rebuild:
-            dataset = _build_reasoning_dataset_from_preprocessed_graph(
-                schema_graph=schema_graph,
-                effective_data_graph=current_data_graph,
-                include_literals=include_literals,
-                include_type_edges=include_type_edges,
-                preprocessing_plan=loop_preprocessing_plan,
-                build_cache=build_cache,
-                rerun_sameas=False,
-                previous_dataset=previous_incremental_dataset,
-                new_type_assertions=pending_type_assertions,
-                build_ontology_graph=False,
-                sameas_state=sameas_state,
-            )
-        else:
-            dataset = build_reasoning_dataset_from_graphs(
-                schema_graph=schema_graph,
-                data_graph=current_data_graph,
-                include_literals=include_literals,
-                include_type_edges=include_type_edges,
-                materialize_hierarchy=loop_materialize_hierarchy,
-                materialize_horn_safe_domain_range=loop_materialize_horn_safe_domain_range,
-                materialize_atomic_domain_range=loop_materialize_atomic_domain_range,
-                materialize_sameas=loop_materialize_sameas,
-                materialize_haskey_equality=loop_materialize_haskey_equality,
-                materialize_target_roles=materialize_target_roles,
-                target_classes=target_terms,
-                dependency_closure=closure,
-                build_cache=build_cache,
-            )
-            if (
-                sameas_state is None
-                and preprocessing_plan.materialize_sameas.enabled
-                and sameas_trigger_classes
+        with profiler.scoped(
+            f"iteration_{iterations}",
+            f"iteration_{iterations}",
+            category="host_runtime",
+            iteration=iterations,
+        ) as iteration_node:
+            if use_native_gpu_el_loop and native_fast_dataset is not None:
+                dataset = native_fast_dataset
+                native_fast_dataset = None
+            elif seeded_dataset is not None:
+                dataset = seeded_dataset
+                seeded_dataset = None
+            elif use_incremental_rebuild:
+                with profiler.scoped("dataset_refresh", "dataset_refresh", category="host_runtime") as dataset_node:
+                    dataset = _build_reasoning_dataset_from_preprocessed_graph(
+                        schema_graph=schema_graph,
+                        effective_data_graph=current_data_graph,
+                        include_literals=include_literals,
+                        include_type_edges=include_type_edges,
+                        include_negative_helpers=False,
+                        preprocessing_plan=loop_preprocessing_plan,
+                        build_cache=build_cache,
+                        rerun_sameas=False,
+                        previous_dataset=previous_incremental_dataset,
+                        new_type_assertions=pending_type_assertions,
+                        build_ontology_graph=False,
+                        sameas_state=sameas_state,
+                    )
+                    if dataset.preprocessing_timings is not None:
+                        _accumulate_preprocessing_timings(
+                            timings,
+                            dataset.preprocessing_timings,
+                            iteration_timing=iteration_timing,
+                        )
+                        _attach_dataset_refresh_breakdown(dataset_node, dataset.preprocessing_timings)
+            else:
+                with profiler.scoped("dataset_refresh", "dataset_refresh", category="host_runtime") as dataset_node:
+                    dataset = build_reasoning_dataset_from_graphs(
+                        schema_graph=schema_graph,
+                        data_graph=current_data_graph,
+                        include_literals=include_literals,
+                        include_type_edges=include_type_edges,
+                        include_negative_helpers=False,
+                        materialize_hierarchy=loop_materialize_hierarchy,
+                        materialize_horn_safe_domain_range=loop_materialize_horn_safe_domain_range,
+                        materialize_atomic_domain_range=loop_materialize_atomic_domain_range,
+                        materialize_sameas=loop_materialize_sameas,
+                        materialize_haskey_equality=loop_materialize_haskey_equality,
+                        materialize_reflexive_properties=preprocessing_plan.materialize_reflexive_properties.enabled,
+                        materialize_target_roles=materialize_target_roles,
+                        target_classes=target_terms,
+                        dependency_closure=closure,
+                        build_cache=build_cache,
+                    )
+                    if (
+                        sameas_state is None
+                        and preprocessing_plan.materialize_sameas.enabled
+                        and sameas_trigger_classes
+                    ):
+                        t0 = perf_counter()
+                        sameas_state = _build_sameas_incremental_state(
+                            dataset.data_graph,
+                            singleton_nominals=build_cache.singleton_nominals,
+                            has_key_axioms=active_has_key_axioms,
+                        )
+                        timings.sameas_state_init_elapsed_ms += (perf_counter() - t0) * 1000.0
+                    if dataset.preprocessing_timings is not None:
+                        _accumulate_preprocessing_timings(
+                            timings,
+                            dataset.preprocessing_timings,
+                            iteration_timing=iteration_timing,
+                        )
+                        _attach_dataset_refresh_breakdown(dataset_node, dataset.preprocessing_timings)
+
+            if not target_classes_to_materialize:
+                timings.iteration_timings.append(iteration_timing)
+                final_dataset = dataset
+                terminated_early = True
+                break
+
+            from .dag_reasoner import DAGReasoner
+
+            with profiler.scoped("reasoner_setup", "reasoner setup", category="host_runtime", device=device):
+                reasoner_t0 = perf_counter()
+                if use_native_gpu_el_loop:
+                    if native_fast_sim_class is None:
+                        native_fast_sim_class = _build_subclass_similarity_matrix_for_dataset(dataset)
+                    if native_fast_reasoner is None:
+                        reasoner = DAGReasoner(dataset.kg, device=device, sim_class=native_fast_sim_class)
+                        native_fast_reasoner = reasoner
+                    else:
+                        reasoner = native_fast_reasoner
+                        reasoner.update_node_types(dataset.kg.node_types)
+                        reasoner.clear_concepts()
+                else:
+                    sim_class = None
+                    if not loop_materialize_hierarchy:
+                        sim_class = _build_subclass_similarity_matrix_for_dataset(dataset)
+                    reasoner = DAGReasoner(dataset.kg, device=device, sim_class=sim_class)
+                reasoner_elapsed_ms = (perf_counter() - reasoner_t0) * 1000.0
+                timings.reasoner_setup_elapsed_ms += reasoner_elapsed_ms
+                iteration_timing.reasoner_setup_elapsed_ms += reasoner_elapsed_ms
+            with profiler.scoped("dag_compile", "dag compile", category="host_runtime", device=device):
+                compile_t0 = perf_counter()
+                for class_term in target_classes_to_materialize:
+                    dag = compiled_dags.get(class_term)
+                    if dag is None:
+                        dag = compile_sufficient_condition_dag(
+                            schema_graph,
+                            dataset.mapping,
+                            class_term,
+                            rule_set=base_rule_set,
+                            antecedents_by_consequent=antecedents_by_consequent,
+                            compile_context=sufficient_compile_context,
+                        )
+                        compiled_dags[class_term] = dag
+                    reasoner.add_concept(str(class_term), dag)
+                compile_elapsed_ms = (perf_counter() - compile_t0) * 1000.0
+                timings.dag_compile_elapsed_ms += compile_elapsed_ms
+                iteration_timing.dag_compile_elapsed_ms += compile_elapsed_ms
+
+            with profiler.scoped(
+                "dag_eval",
+                "dag eval",
+                category="device_runtime",
+                device=device,
+                sync_cuda=device.startswith("cuda"),
             ):
-                t0 = perf_counter()
-                sameas_state = _build_sameas_incremental_state(
-                    dataset.data_graph,
-                    singleton_nominals=build_cache.singleton_nominals,
-                    has_key_axioms=active_has_key_axioms,
+                eval_t0 = perf_counter()
+                scores = reasoner.evaluate_all().detach()
+                eval_elapsed_ms = (perf_counter() - eval_t0) * 1000.0
+                timings.dag_eval_elapsed_ms += eval_elapsed_ms
+                iteration_timing.dag_eval_elapsed_ms += eval_elapsed_ms
+
+            with profiler.scoped("assertion_update", "assertion update", category="host_runtime"):
+                update_t0 = perf_counter()
+                node_terms = dataset.mapping.node_terms
+                class_indices_for_cols = torch.tensor(
+                    [dataset.mapping.class_to_idx[class_term] for class_term in target_classes_to_materialize],
+                    device=scores.device,
+                    dtype=torch.long,
                 )
-                timings.sameas_state_init_elapsed_ms += (perf_counter() - t0) * 1000.0
-        if dataset.preprocessing_timings is not None:
-            _accumulate_preprocessing_timings(
-                timings,
-                dataset.preprocessing_timings,
-                iteration_timing=iteration_timing,
-            )
+                current_node_types = reasoner.eval_graph.node_types
+                candidate_matrix = scores >= threshold
+                existing_type_matrix = current_node_types[:, class_indices_for_cols] >= threshold
+                candidate_matrix = candidate_matrix & (~existing_type_matrix)
+                positive_pairs = torch.nonzero(candidate_matrix, as_tuple=False)
 
-        if not target_classes_to_materialize:
-            timings.iteration_timings.append(iteration_timing)
-            timings.total_elapsed_ms = (perf_counter() - total_t0) * 1000.0
-            return ClassMaterializationResult(
-                dataset=dataset,
-                inferred_assertions=inferred_assertions,
-                iterations=iterations,
-                timings=timings,
-            )
+                if positive_pairs.numel() == 0:
+                    update_elapsed_ms = (perf_counter() - update_t0) * 1000.0
+                    timings.assertion_update_elapsed_ms += update_elapsed_ms
+                    iteration_timing.assertion_update_elapsed_ms += update_elapsed_ms
+                    timings.iteration_timings.append(iteration_timing)
+                    final_dataset = dataset
+                    terminated_early = True
+                    break
 
-        from .dag_reasoner import DAGReasoner
-
-        reasoner_t0 = perf_counter()
-        reasoner = DAGReasoner(dataset.kg, device=device)
-        reasoner_elapsed_ms = (perf_counter() - reasoner_t0) * 1000.0
-        timings.reasoner_setup_elapsed_ms += reasoner_elapsed_ms
-        iteration_timing.reasoner_setup_elapsed_ms += reasoner_elapsed_ms
-        compile_t0 = perf_counter()
-        for class_term in target_classes_to_materialize:
-            dag = compiled_dags.get(class_term)
-            if dag is None:
-                dag = compile_sufficient_condition_dag(
-                    schema_graph,
-                    dataset.mapping,
-                    class_term,
-                    rule_set=base_rule_set,
-                    antecedents_by_consequent=antecedents_by_consequent,
+                added_node_indices = positive_pairs[:, 0]
+                added_class_col_indices = positive_pairs[:, 1]
+                added_class_indices = class_indices_for_cols[added_class_col_indices]
+                added_node_indices_cpu = added_node_indices.detach().cpu().tolist()
+                added_class_col_indices_cpu = added_class_col_indices.detach().cpu().tolist()
+                additions_this_round = [
+                    (node_terms[node_idx], target_classes_to_materialize[class_col_idx])
+                    for node_idx, class_col_idx in zip(added_node_indices_cpu, added_class_col_indices_cpu)
+                ]
+                inferred_assertions.extend(additions_this_round)
+                current_data_graph = dataset.data_graph
+                triggering_sameas_classes = sorted(
+                    {
+                        class_term
+                        for _node_term, class_term in additions_this_round
+                        if class_term in sameas_trigger_classes
+                    },
+                    key=str,
                 )
-                compiled_dags[class_term] = dag
-            reasoner.add_concept(str(class_term), dag)
-        compile_elapsed_ms = (perf_counter() - compile_t0) * 1000.0
-        timings.dag_compile_elapsed_ms += compile_elapsed_ms
-        iteration_timing.dag_compile_elapsed_ms += compile_elapsed_ms
+                rerun_sameas = bool(triggering_sameas_classes)
+                if use_native_gpu_el_loop:
+                    native_fast_dataset = _dataset_with_updated_native_type_indices(
+                        dataset,
+                        added_node_indices,
+                        added_class_indices,
+                    )
+                    pending_type_assertions = additions_this_round
+                else:
+                    for node_term, class_term in additions_this_round:
+                        current_data_graph.add((node_term, RDF.type, class_term))
+                    use_incremental_rebuild = True
+                if not use_native_gpu_el_loop and rerun_sameas:
+                    dataset = _build_reasoning_dataset_from_preprocessed_graph(
+                        schema_graph=schema_graph,
+                        effective_data_graph=current_data_graph,
+                        include_literals=include_literals,
+                        include_type_edges=include_type_edges,
+                        include_negative_helpers=False,
+                        preprocessing_plan=loop_preprocessing_plan,
+                        build_cache=build_cache,
+                        rerun_sameas=True,
+                        new_type_assertions=additions_this_round,
+                        sameas_trigger_classes=triggering_sameas_classes,
+                        sameas_state=sameas_state,
+                    )
+                    if dataset.preprocessing_timings is not None:
+                        _accumulate_preprocessing_timings(
+                            timings,
+                            dataset.preprocessing_timings,
+                            iteration_timing=iteration_timing,
+                        )
+                    current_data_graph = dataset.data_graph
+                    previous_incremental_dataset = dataset
+                    seeded_dataset = dataset
+                    pending_type_assertions = None
+                elif not use_native_gpu_el_loop:
+                    previous_incremental_dataset = dataset
+                    pending_type_assertions = additions_this_round
+                update_elapsed_ms = (perf_counter() - update_t0) * 1000.0
+                timings.assertion_update_elapsed_ms += update_elapsed_ms
+                iteration_timing.assertion_update_elapsed_ms += update_elapsed_ms
+                timings.iteration_timings.append(iteration_timing)
+        if terminated_early:
+            break
 
-        eval_t0 = perf_counter()
-        scores = reasoner.evaluate_all().detach().cpu()
-        eval_elapsed_ms = (perf_counter() - eval_t0) * 1000.0
-        timings.dag_eval_elapsed_ms += eval_elapsed_ms
-        iteration_timing.dag_eval_elapsed_ms += eval_elapsed_ms
-
-        update_t0 = perf_counter()
-        additions_this_round: List[Tuple[Identifier, URIRef]] = []
-        node_terms = dataset.mapping.node_terms
-        for class_col, class_term in enumerate(target_classes_to_materialize):
-            class_idx = dataset.mapping.class_to_idx.get(class_term)
-            candidate_mask = scores[:, class_col] >= threshold
-            if class_idx is not None:
-                candidate_mask = candidate_mask & (dataset.kg.node_types[:, class_idx].detach().cpu() < threshold)
-            candidate_indices = torch.nonzero(candidate_mask, as_tuple=False).flatten().tolist()
-            for node_idx in candidate_indices:
-                additions_this_round.append((node_terms[node_idx], class_term))
-
-        if not additions_this_round:
-            update_elapsed_ms = (perf_counter() - update_t0) * 1000.0
-            timings.assertion_update_elapsed_ms += update_elapsed_ms
-            iteration_timing.assertion_update_elapsed_ms += update_elapsed_ms
-            timings.iteration_timings.append(iteration_timing)
-            timings.total_elapsed_ms = (perf_counter() - total_t0) * 1000.0
-            return ClassMaterializationResult(
-                dataset=dataset,
-                inferred_assertions=inferred_assertions,
-                iterations=iterations,
-                timings=timings,
-            )
-
-        inferred_assertions.extend(additions_this_round)
-        current_data_graph = dataset.data_graph
-        triggering_sameas_classes = sorted(
-            {
-                class_term
-                for _node_term, class_term in additions_this_round
-                if class_term in sameas_trigger_classes
-            },
-            key=str,
-        )
-        rerun_sameas = bool(triggering_sameas_classes)
-        for node_term, class_term in additions_this_round:
-            current_data_graph.add((node_term, RDF.type, class_term))
-        use_incremental_rebuild = True
-        if rerun_sameas:
-            dataset = _build_reasoning_dataset_from_preprocessed_graph(
-                schema_graph=schema_graph,
-                effective_data_graph=current_data_graph,
-                include_literals=include_literals,
-                include_type_edges=include_type_edges,
-                preprocessing_plan=loop_preprocessing_plan,
-                build_cache=build_cache,
-                rerun_sameas=True,
-                new_type_assertions=additions_this_round,
-                sameas_trigger_classes=triggering_sameas_classes,
-                sameas_state=sameas_state,
-            )
-            if dataset.preprocessing_timings is not None:
-                _accumulate_preprocessing_timings(
-                    timings,
-                    dataset.preprocessing_timings,
-                    iteration_timing=iteration_timing,
-                )
-            current_data_graph = dataset.data_graph
-            previous_incremental_dataset = dataset
-            seeded_dataset = dataset
-            pending_type_assertions = None
-        else:
-            previous_incremental_dataset = dataset
-            pending_type_assertions = additions_this_round
-        update_elapsed_ms = (perf_counter() - update_t0) * 1000.0
-        timings.assertion_update_elapsed_ms += update_elapsed_ms
-        iteration_timing.assertion_update_elapsed_ms += update_elapsed_ms
-        timings.iteration_timings.append(iteration_timing)
-
-    dataset = (
-        _build_reasoning_dataset_from_preprocessed_graph(
+    if final_dataset is not None:
+        dataset = final_dataset
+    elif use_native_gpu_el_loop and native_fast_dataset is not None:
+        dataset = native_fast_dataset
+    elif use_incremental_rebuild:
+        dataset = _build_reasoning_dataset_from_preprocessed_graph(
             schema_graph=schema_graph,
             effective_data_graph=current_data_graph,
             include_literals=include_literals,
             include_type_edges=include_type_edges,
+            include_negative_helpers=False,
             preprocessing_plan=loop_preprocessing_plan,
-              build_cache=build_cache,
-              rerun_sameas=False,
-              previous_dataset=previous_incremental_dataset,
-              new_type_assertions=pending_type_assertions,
-              build_ontology_graph=True,
-              sameas_state=sameas_state,
-          )
-        if use_incremental_rebuild
-        else build_reasoning_dataset_from_graphs(
+            build_cache=build_cache,
+            rerun_sameas=False,
+            previous_dataset=previous_incremental_dataset,
+            new_type_assertions=pending_type_assertions,
+            build_ontology_graph=True,
+            sameas_state=sameas_state,
+        )
+    else:
+        dataset = build_reasoning_dataset_from_graphs(
             schema_graph=schema_graph,
             data_graph=current_data_graph,
             include_literals=include_literals,
             include_type_edges=include_type_edges,
+            include_negative_helpers=False,
             materialize_hierarchy=loop_materialize_hierarchy,
             materialize_horn_safe_domain_range=loop_materialize_horn_safe_domain_range,
             materialize_atomic_domain_range=loop_materialize_atomic_domain_range,
             materialize_sameas=loop_materialize_sameas,
             materialize_haskey_equality=loop_materialize_haskey_equality,
+            materialize_reflexive_properties=preprocessing_plan.materialize_reflexive_properties.enabled,
             materialize_target_roles=materialize_target_roles,
             target_classes=target_terms,
             dependency_closure=closure,
             build_cache=build_cache,
         )
-    )
     if dataset.preprocessing_timings is not None:
         _accumulate_preprocessing_timings(timings, dataset.preprocessing_timings)
         timings.final_dataset_timings = dataset.preprocessing_timings
     timings.total_elapsed_ms = (perf_counter() - total_t0) * 1000.0
+    timings.profile_tree = profiler.build_tree()
     return ClassMaterializationResult(
         dataset=dataset,
         inferred_assertions=inferred_assertions,
         iterations=iterations,
         timings=timings,
+        compiled_target_dags=dict(compiled_dags),
+        profile_tree=timings.profile_tree,
     )
 
 
@@ -8046,23 +9172,35 @@ def collect_assignment_statuses(
             continue
         ensure_status(subj, obj).asserted = True
 
+    mapping = positive_result.dataset.mapping
+    node_terms = mapping.node_terms
     node_types = positive_result.dataset.kg.node_types.detach().cpu()
+    node_order = {node_term: idx for idx, node_term in enumerate(node_terms)}
+    class_order = {class_term: idx for idx, class_term in enumerate(mapping.class_terms)}
     if target_filter is None:
         target_terms = [
             class_term
-            for class_term in positive_result.dataset.mapping.class_terms
+            for class_term in mapping.class_terms
             if isinstance(class_term, URIRef)
         ]
     else:
         target_terms = sorted(target_filter, key=str)
 
+    target_class_indices: List[int] = []
+    target_terms_for_indices: List[URIRef] = []
     for class_term in target_terms:
-        class_idx = positive_result.dataset.mapping.class_to_idx.get(class_term)
+        class_idx = mapping.class_to_idx.get(class_term)
         if class_idx is None:
             continue
-        for node_idx, node_term in enumerate(positive_result.dataset.mapping.node_terms):
-            if float(node_types[node_idx, class_idx].item()) < 0.999:
-                continue
+        target_terms_for_indices.append(class_term)
+        target_class_indices.append(class_idx)
+
+    if target_class_indices:
+        selected_types = node_types[:, target_class_indices]
+        positive_pairs = torch.nonzero(selected_types >= 0.999, as_tuple=False)
+        for row_idx, col_idx in positive_pairs.tolist():
+            node_term = node_terms[row_idx]
+            class_term = target_terms_for_indices[col_idx]
             status = ensure_status(node_term, class_term)
             if not status.asserted:
                 status.positively_derived = True
@@ -8085,7 +9223,10 @@ def collect_assignment_statuses(
 
     return sorted(
         status_by_key.values(),
-        key=lambda status: (str(status.target_class), str(status.node_term)),
+        key=lambda status: (
+            class_order.get(status.target_class, len(class_order)),
+            node_order.get(status.node_term, len(node_order)),
+        ),
     )
 
 
@@ -8189,50 +9330,99 @@ def materialize_stratified_class_inferences(
     include_literals: bool = True,
     include_type_edges: bool = False,
     materialize_hierarchy: bool = True,
+    materialize_horn_safe_domain_range: Optional[bool] = None,
     materialize_sameas: Optional[bool] = None,
     materialize_haskey_equality: Optional[bool] = None,
+    materialize_reflexive_properties: Optional[bool] = None,
     materialize_target_roles: bool = False,
     target_classes: Optional[Sequence[str | URIRef]] = None,
     threshold: float = 0.999,
     max_iterations: int = 10,
     device: str = "cpu",
     conflict_policy: ConflictPolicy = ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED,
+    enable_negative_verification: bool = True,
 ) -> StratifiedMaterializationResult:
     total_t0 = perf_counter()
+    profiler = ProfileRecorder()
+    profiler.start_root(
+        "stratified_total",
+        "stratified_total",
+        category="host_runtime",
+        device=device,
+    )
     positive_result = materialize_positive_sufficient_class_inferences(
         schema_graph=schema_graph,
         data_graph=data_graph,
         include_literals=include_literals,
         include_type_edges=include_type_edges,
         materialize_hierarchy=materialize_hierarchy,
+        materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
         materialize_sameas=materialize_sameas,
         materialize_haskey_equality=materialize_haskey_equality,
+        materialize_reflexive_properties=materialize_reflexive_properties,
         materialize_target_roles=materialize_target_roles,
         target_classes=target_classes,
         threshold=threshold,
         max_iterations=max_iterations,
         device=device,
     )
-    negative_t0 = perf_counter()
-    negative_result = materialize_negative_class_blockers(
-        dataset=positive_result.dataset,
-        target_classes=target_classes,
-    )
-    negative_elapsed_ms = (perf_counter() - negative_t0) * 1000.0
-    assignment_t0 = perf_counter()
-    assignment_statuses = collect_assignment_statuses(
-        original_data_graph=data_graph,
-        positive_result=positive_result,
-        negative_result=negative_result,
-        target_classes=target_classes,
-    )
-    assignment_elapsed_ms = (perf_counter() - assignment_t0) * 1000.0
-    policy_t0 = perf_counter()
-    policy_result = apply_conflict_policy(
-        assignment_statuses,
-        policy=conflict_policy,
-    )
-    policy_elapsed_ms = (perf_counter() - policy_t0) * 1000.0
+    positive_profile = positive_result.profile_tree
+    if positive_profile is not None:
+        profiler.snapshot().add_child(positive_profile)
+    with profiler.scoped("negative_reasoning", "negative_reasoning", category="host_runtime") as negative_parent:
+        negative_t0 = perf_counter()
+        if enable_negative_verification:
+            negative_result = materialize_negative_class_blockers(
+                dataset=positive_result.dataset,
+                target_classes=target_classes,
+            )
+        else:
+            negative_result = NegativeBlockerResult(
+                dataset=positive_result.dataset,
+                blocker_specs={},
+                blocked_assertions=[],
+                conflicting_positive_assertions=[],
+            )
+        negative_elapsed_ms = (perf_counter() - negative_t0) * 1000.0
+        negative_parent.add_child(
+            ProfileNode(
+                name="negative_blocker",
+                label="negative/blocker",
+                elapsed_ms_inclusive=negative_elapsed_ms,
+                meta={"category": "host_runtime"},
+            )
+        )
+    with profiler.scoped("assignment_reporting", "assignment_reporting", category="host_runtime") as reporting_parent:
+        assignment_t0 = perf_counter()
+        assignment_statuses = collect_assignment_statuses(
+            original_data_graph=data_graph,
+            positive_result=positive_result,
+            negative_result=negative_result,
+            target_classes=target_classes,
+        )
+        assignment_elapsed_ms = (perf_counter() - assignment_t0) * 1000.0
+        reporting_parent.add_child(
+            ProfileNode(
+                name="assignment_status",
+                label="assignment status",
+                elapsed_ms_inclusive=assignment_elapsed_ms,
+                meta={"category": "host_runtime"},
+            )
+        )
+        policy_t0 = perf_counter()
+        policy_result = apply_conflict_policy(
+            assignment_statuses,
+            policy=conflict_policy,
+        )
+        policy_elapsed_ms = (perf_counter() - policy_t0) * 1000.0
+        reporting_parent.add_child(
+            ProfileNode(
+                name="conflict_policy",
+                label="conflict policy",
+                elapsed_ms_inclusive=policy_elapsed_ms,
+                meta={"category": "host_runtime"},
+            )
+        )
     timings = StratifiedMaterializationTimings(
         positive_timings=positive_result.timings or PositiveMaterializationTimings(iterations=positive_result.iterations),
         negative_blocker_elapsed_ms=negative_elapsed_ms,
@@ -8240,12 +9430,14 @@ def materialize_stratified_class_inferences(
         conflict_policy_elapsed_ms=policy_elapsed_ms,
         total_elapsed_ms=(perf_counter() - total_t0) * 1000.0,
     )
+    timings.profile_tree = profiler.build_tree()
     return StratifiedMaterializationResult(
         positive_result=positive_result,
         negative_result=negative_result,
         assignment_statuses=assignment_statuses,
         policy_result=policy_result,
         timings=timings,
+        profile_tree=timings.profile_tree,
     )
 
 

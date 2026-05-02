@@ -22,3 +22,6 @@ timestamp,cpu_name,gpu_name,device,num_nodes,num_props,num_classes,avg_degree_pe
 2025-12-11_14-44-37,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,1000,5.0,100,50000000,engine_only,502.9354139987845,,,,,,True
 2025-12-11_14-44-46,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,10000,5.0,100,50000000,engine_only,626.1170369998581,,,,,,True
 2025-12-11_14-46-12,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,1000,5.0,10000,50000000,engine_only,1568.5045509999327,,,,,,True
+2026-05-01_16-09-19,"Intel64 Family 6 Model 158 Stepping 10, GenuineIntel",NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,1000,5.0,10000,50000000,engine_only,3168.895100010559,,,,,,True
+2026-05-01_16-27-59,"Intel64 Family 6 Model 158 Stepping 10, GenuineIntel",NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,1000,5.0,10000,50000000,engine_only,3053.813499995158,,,,,,True
+2026-05-01_16-34-41,"Intel64 Family 6 Model 158 Stepping 10, GenuineIntel",NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,10000,5.0,100,50000000,engine_only,603.2017999968957,,,,,,True

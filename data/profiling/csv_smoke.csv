@@ -1,0 +1,2 @@
+path,name,label,parent_path,depth,inclusive_ms,self_ms,percent_of_parent,percent_of_root,category,iteration,device,notes
+root,root,root,,0,1.0,1.0,100.0,100.0,,,,

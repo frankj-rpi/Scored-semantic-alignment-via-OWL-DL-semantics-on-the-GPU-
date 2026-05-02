@@ -1,6 +1,7 @@
 from __future__ import annotations
-
+from collections import defaultdict
 from dataclasses import dataclass
+from functools import lru_cache
 from hashlib import sha1
 from pathlib import Path
 import shutil
@@ -41,11 +42,24 @@ from .ontology_parse import (
     compile_class_to_dag,
     compile_sufficient_condition_dag,
     load_rdflib_graph,
+    materialize_positive_sufficient_class_inferences,
     materialize_stratified_class_inferences,
     materialize_supported_class_inferences,
     plan_reasoning_preprocessing,
     query_target_is_obviously_supported,
     summarize_loaded_kgraph,
+)
+from .profiling import (
+    ProfileNode,
+    ProfileRecorder,
+    ProfileSummary,
+    ProfileValidationWarning,
+    aggregate_by_category,
+    render_profile_tree,
+    tolerance_ms as profile_tolerance_ms,
+    validate_profile_tree,
+    write_profile_csv,
+    write_profile_json,
 )
 
 
@@ -70,10 +84,10 @@ class EngineQueryResult(BackendQueryResult):
     dataset: Optional[ReasoningDataset] = None
     scores_by_target: Optional[Dict[URIRef, Dict[Identifier, float]]] = None
     materialization_iterations: Optional[int] = None
-    engine_mode: str = "query"
+    engine_mode: str = "admissibility"
     conflict_policy: Optional[str] = None
     stratified_result: Optional[StratifiedMaterializationResult] = None
-    filtered_query_result: Optional["FilteredQueryResult"] = None
+    filtered_admissibility_result: Optional["FilteredAdmissibilityResult"] = None
     ontology_merge_elapsed_ms: float = 0.0
     stratified_initial_data_copy_elapsed_ms: float = 0.0
     stratified_initial_ontology_merge_elapsed_ms: float = 0.0
@@ -84,6 +98,7 @@ class EngineQueryResult(BackendQueryResult):
     dependency_closure_elapsed_ms: float = 0.0
     sameas_state_init_elapsed_ms: float = 0.0
     dataset_build_elapsed_ms: float = 0.0
+    data_copy_elapsed_ms: float = 0.0
     hierarchy_elapsed_ms: float = 0.0
     atomic_domain_range_elapsed_ms: float = 0.0
     horn_safe_domain_range_elapsed_ms: float = 0.0
@@ -113,8 +128,15 @@ class EngineQueryResult(BackendQueryResult):
     stratified_assignment_status_elapsed_ms: float = 0.0
     stratified_conflict_policy_elapsed_ms: float = 0.0
     stratified_reporting_compile_elapsed_ms: float = 0.0
+    result_projection_elapsed_ms: float = 0.0
     stratified_iteration_timings: Optional[List[MaterializationIterationTiming]] = None
     stratified_final_dataset_timing: Optional[PreprocessingTimings] = None
+    dag_requested_device: str = "cpu"
+    dag_effective_device: str = "cpu"
+    torch_cuda_available: Optional[bool] = None
+    dag_stats_by_target: Optional[Dict[URIRef, "DAGStats"]] = None
+    profile_tree: Optional[ProfileNode] = None
+    profile_summary: Optional[ProfileSummary] = None
 
 
 @dataclass
@@ -140,10 +162,11 @@ class QueryEvaluationSnapshot:
     kgraph_adjacency_elapsed_ms: float
     dag_compile_elapsed_ms: float
     dag_eval_elapsed_ms: float
+    profile_tree: Optional[ProfileNode] = None
 
 
 @dataclass
-class FilteredQueryResult:
+class FilteredAdmissibilityResult:
     raw_members_by_target: Dict[URIRef, Set[Identifier]]
     necessary_stable_members_by_target: Dict[URIRef, Set[Identifier]]
     closure_blocked_members_by_target: Dict[URIRef, Set[Identifier]]
@@ -154,6 +177,10 @@ class FilteredQueryResult:
     final_emitted_count: int
     necessary_fixpoint_iterations: int
     stratified_result: StratifiedMaterializationResult
+    profile_tree: Optional[ProfileNode] = None
+
+
+FilteredQueryResult = FilteredAdmissibilityResult
 
 
 @dataclass
@@ -163,12 +190,762 @@ class TargetResolutionResult:
     skipped_targets: List[Tuple[str, str]]
 
 
+@dataclass
+class EngineProfileOptions:
+    materialize_hierarchy: Optional[bool]
+    materialize_horn_safe_domain_range: Optional[bool]
+    materialize_reflexive_properties: Optional[bool]
+    materialize_sameas: Optional[bool]
+    materialize_haskey_equality: Optional[bool]
+    materialize_target_roles: Optional[bool]
+    augment_property_domain_range: Optional[bool]
+    enable_negative_verification: Optional[bool]
+
+
+@dataclass
+class DAGStats:
+    num_nodes: int
+    num_layers: int
+    num_edges: int
+    num_leaves: int
+    max_layer_width: int
+    avg_layer_width: float
+    max_fan_in: int
+    max_fan_out: int
+    node_type_counts: Dict[str, int]
+
+
+PROFILE_ALIASES = {
+    "default": "default",
+    "gpu-el": "gpu-el",
+    "gpu-el-verify": "gpu-el-verify",
+    "gpu-e1": "gpu-el",
+    "gpu-e1-verify": "gpu-el-verify",
+}
+
+ENGINE_MODE_ALIASES = {
+    "query": "admissibility",
+    "admissibility": "admissibility",
+    "filtered_query": "filtered_admissibility",
+    "filtered-query": "filtered_admissibility",
+    "filtered_admissibility": "filtered_admissibility",
+    "filtered-admissibility": "filtered_admissibility",
+    "stratified": "stratified",
+}
+
+
 def _render_term(term: Identifier) -> str:
     return term.n3() if hasattr(term, "n3") else str(term)
 
 
+def _compute_dag_stats(dag: ConstraintDAG) -> DAGStats:
+    fan_out = [0] * len(dag.nodes)
+    num_edges = 0
+    max_fan_in = 0
+    node_type_counts: Dict[str, int] = {}
+    for node in dag.nodes:
+        node_type_counts[node.ctype.name] = node_type_counts.get(node.ctype.name, 0) + 1
+        child_indices = node.child_indices or []
+        fan_in = len(child_indices)
+        max_fan_in = max(max_fan_in, fan_in)
+        num_edges += fan_in
+        for child_idx in child_indices:
+            if 0 <= child_idx < len(fan_out):
+                fan_out[child_idx] += 1
+
+    layer_widths = [len(layer) for layer in dag.layers]
+    return DAGStats(
+        num_nodes=len(dag.nodes),
+        num_layers=len(dag.layers),
+        num_edges=num_edges,
+        num_leaves=(len(dag.layers[0]) if dag.layers else 0),
+        max_layer_width=max(layer_widths) if layer_widths else 0,
+        avg_layer_width=(sum(layer_widths) / len(layer_widths) if layer_widths else 0.0),
+        max_fan_in=max_fan_in,
+        max_fan_out=max(fan_out) if fan_out else 0,
+        node_type_counts=node_type_counts,
+    )
+
+
+def _format_dag_stats(
+    dag_stats_by_target: Optional[Dict[URIRef, DAGStats]],
+    *,
+    verbose: bool = False,
+    max_items: int = 10,
+) -> List[str]:
+    if not dag_stats_by_target:
+        return []
+
+    lines = ["DAG stats:"]
+    stat_items = list(dag_stats_by_target.items())
+    total_targets = len(stat_items)
+    total_nodes = sum(stats.num_nodes for _target_term, stats in stat_items)
+    total_edges = sum(stats.num_edges for _target_term, stats in stat_items)
+    total_leaves = sum(stats.num_leaves for _target_term, stats in stat_items)
+    max_layers = max(stats.num_layers for _target_term, stats in stat_items)
+    max_layer_width = max(stats.max_layer_width for _target_term, stats in stat_items)
+    max_fan_in = max(stats.max_fan_in for _target_term, stats in stat_items)
+    max_fan_out = max(stats.max_fan_out for _target_term, stats in stat_items)
+    avg_nodes = total_nodes / total_targets if total_targets else 0.0
+    avg_edges = total_edges / total_targets if total_targets else 0.0
+    lines.append(
+        "  - compiled target DAGs: "
+        f"count={total_targets}, total nodes={total_nodes}, total edges={total_edges}, "
+        f"total leaves={total_leaves}, max layers={max_layers}, max layer width={max_layer_width}, "
+        f"max fan-in={max_fan_in}, max fan-out={max_fan_out}, "
+        f"avg nodes/target={avg_nodes:.2f}, avg edges/target={avg_edges:.2f}"
+    )
+
+    ordered_items = sorted(
+        stat_items,
+        key=lambda item: (-item[1].num_layers, -item[1].num_nodes, -item[1].num_edges, str(item[0])),
+    )
+    display_items = ordered_items if verbose else ordered_items[:max_items]
+    for target_term, stats in display_items:
+        top_types = sorted(
+            stats.node_type_counts.items(),
+            key=lambda item: (-item[1], item[0]),
+        )[:4]
+        top_types_text = ", ".join(f"{name}={count}" for name, count in top_types)
+        lines.append(
+            "  - "
+            f"{_render_term(target_term)}: layers={stats.num_layers}, nodes={stats.num_nodes}, "
+            f"edges={stats.num_edges}, leaves={stats.num_leaves}, "
+            f"max layer width={stats.max_layer_width}, avg layer width={stats.avg_layer_width:.2f}, "
+            f"max fan-in={stats.max_fan_in}, max fan-out={stats.max_fan_out}"
+        )
+        if top_types_text:
+            lines.append(f"      top node types: {top_types_text}")
+    if not verbose and total_targets > len(display_items):
+        lines.append(f"  ... and {total_targets - len(display_items)} more target DAGs omitted")
+    return lines
+
+
+def _build_subclass_similarity_matrix(
+    dataset: ReasoningDataset,
+    compile_context: Optional[OntologyCompileContext],
+) -> Optional[torch.Tensor]:
+    if compile_context is None:
+        return None
+    num_classes = len(dataset.mapping.class_terms)
+    if num_classes == 0:
+        return None
+
+    sim_class = torch.eye(num_classes, dtype=torch.float32)
+    for stored_class, stored_idx in dataset.mapping.class_to_idx.items():
+        for super_class in compile_context.subclass_supers.get(stored_class, ()):
+            super_idx = dataset.mapping.class_to_idx.get(super_class)
+            if super_idx is not None:
+                sim_class[stored_idx, super_idx] = 1.0
+    return sim_class
+
+
+def normalize_engine_profile_name(profile: Optional[str]) -> str:
+    if profile is None:
+        return "default"
+    normalized = profile.strip().lower()
+    resolved = PROFILE_ALIASES.get(normalized)
+    if resolved is None:
+        raise ValueError(
+            f"Unsupported engine profile: {profile}. "
+            f"Supported profiles: {', '.join(sorted(PROFILE_ALIASES))}."
+        )
+    return resolved
+
+
+def normalize_engine_mode_name(engine_mode: str) -> str:
+    normalized = engine_mode.strip().lower()
+    resolved = ENGINE_MODE_ALIASES.get(normalized)
+    if resolved is None:
+        raise ValueError(
+            f"Unsupported engine mode: {engine_mode}. "
+            f"Supported modes: {', '.join(sorted(set(ENGINE_MODE_ALIASES.values())))}."
+        )
+    return resolved
+
+
+def apply_engine_profile(
+    *,
+    profile: Optional[str],
+    materialize_hierarchy: Optional[bool],
+    materialize_horn_safe_domain_range: Optional[bool],
+    materialize_reflexive_properties: Optional[bool],
+    materialize_sameas: Optional[bool],
+    materialize_haskey_equality: Optional[bool],
+    materialize_target_roles: Optional[bool],
+    augment_property_domain_range: Optional[bool],
+    enable_negative_verification: Optional[bool],
+) -> EngineProfileOptions:
+    resolved_profile = normalize_engine_profile_name(profile)
+    if resolved_profile == "default":
+        return EngineProfileOptions(
+            materialize_hierarchy=materialize_hierarchy,
+            materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+            materialize_reflexive_properties=materialize_reflexive_properties,
+            materialize_sameas=materialize_sameas,
+            materialize_haskey_equality=materialize_haskey_equality,
+            materialize_target_roles=materialize_target_roles,
+            augment_property_domain_range=augment_property_domain_range,
+            enable_negative_verification=enable_negative_verification,
+        )
+
+    def choose(explicit: Optional[bool], profile_default: bool) -> bool:
+        return explicit if explicit is not None else profile_default
+
+    verification_default = resolved_profile == "gpu-el-verify"
+    return EngineProfileOptions(
+        materialize_hierarchy=choose(materialize_hierarchy, False),
+        materialize_horn_safe_domain_range=choose(materialize_horn_safe_domain_range, False),
+        materialize_reflexive_properties=choose(materialize_reflexive_properties, False),
+        materialize_sameas=choose(materialize_sameas, False),
+        materialize_haskey_equality=choose(materialize_haskey_equality, False),
+        materialize_target_roles=choose(materialize_target_roles, False),
+        augment_property_domain_range=choose(augment_property_domain_range, True),
+        enable_negative_verification=choose(enable_negative_verification, verification_default),
+    )
+
+
 def _sorted_terms(terms: Iterable[Identifier]) -> List[Identifier]:
     return sorted(terms, key=lambda term: _render_term(term))
+
+
+def _format_elapsed_seconds(elapsed_ms: float) -> str:
+    return f"{(elapsed_ms / 1000.0):.3f} s"
+
+
+def _timing_reconciliation_tolerance_ms(total_elapsed_ms: float) -> float:
+    return max(50.0, total_elapsed_ms * 0.01)
+
+
+def _build_engine_profile_tree(engine_result: EngineQueryResult) -> tuple[ProfileNode, ProfileSummary]:
+    if engine_result.profile_tree is not None:
+        root = _clone_profile_node(engine_result.profile_tree)
+        root.elapsed_ms_inclusive = engine_result.elapsed_ms
+        root.meta["device"] = engine_result.dag_effective_device
+        warnings = validate_profile_tree(root)
+        disjoint_top_level_elapsed_ms = sum(child.elapsed_ms_inclusive for child in root.children)
+        residual = root.elapsed_ms_inclusive - disjoint_top_level_elapsed_ms
+        root_tol = profile_tolerance_ms(root.elapsed_ms_inclusive)
+        if abs(residual) > root_tol:
+            warnings.append(
+                ProfileValidationWarning(
+                    path=root.name,
+                    issue="top-level children do not reconcile to engine total",
+                    elapsed_ms=abs(residual),
+                    tolerance_ms=root_tol,
+                )
+            )
+        summary = ProfileSummary(
+            root_elapsed_ms=root.elapsed_ms_inclusive,
+            category_totals_ms=aggregate_by_category(root),
+            warnings=warnings,
+            reconciliation_residual_ms=residual,
+        )
+        return root, summary
+
+    if engine_result.engine_mode == "stratified" and engine_result.stratified_result is not None:
+        stratified_tree = engine_result.stratified_result.profile_tree
+        if stratified_tree is not None:
+            top_children = list(stratified_tree.children)
+            if stratified_tree.self_ms > 0.0:
+                top_children.append(
+                    ProfileNode(
+                        name="stratified_wrapper_overhead",
+                        label="stratified wrapper overhead",
+                        elapsed_ms_inclusive=stratified_tree.self_ms,
+                        meta={"category": "host_runtime"},
+                    )
+                )
+            if engine_result.result_projection_elapsed_ms:
+                top_children.append(
+                    ProfileNode(
+                        name="result_projection",
+                        label="result projection",
+                        elapsed_ms_inclusive=engine_result.result_projection_elapsed_ms,
+                        meta={"category": "host_runtime"},
+                    )
+                )
+            root = ProfileNode(
+                name="engine_total",
+                label="engine_total",
+                elapsed_ms_inclusive=engine_result.elapsed_ms,
+                children=top_children,
+                meta={"device": engine_result.dag_effective_device},
+            )
+            warnings = validate_profile_tree(root)
+            disjoint_top_level_elapsed_ms = sum(child.elapsed_ms_inclusive for child in root.children)
+            residual = root.elapsed_ms_inclusive - disjoint_top_level_elapsed_ms
+            root_tol = profile_tolerance_ms(root.elapsed_ms_inclusive)
+            if abs(residual) > root_tol:
+                warnings.append(
+                    ProfileValidationWarning(
+                        path=root.name,
+                        issue="top-level children do not reconcile to engine total",
+                        elapsed_ms=abs(residual),
+                        tolerance_ms=root_tol,
+                    )
+                )
+            summary = ProfileSummary(
+                root_elapsed_ms=root.elapsed_ms_inclusive,
+                category_totals_ms=aggregate_by_category(root),
+                warnings=warnings,
+                reconciliation_residual_ms=residual,
+            )
+            return root, summary
+
+    root = ProfileNode(
+        name="engine_total",
+        label="engine_total",
+        elapsed_ms_inclusive=engine_result.elapsed_ms,
+        meta={"device": engine_result.dag_effective_device},
+    )
+
+    schema_setup = ProfileNode(
+        name="schema_setup",
+        label="schema_setup",
+        elapsed_ms_inclusive=(
+            engine_result.schema_cache_elapsed_ms
+            + engine_result.sufficient_rule_extraction_elapsed_ms
+            + engine_result.sufficient_rule_index_elapsed_ms
+            + engine_result.dependency_closure_elapsed_ms
+        ),
+        meta={"category": "tbox_cacheable"},
+    )
+    root.add_child(
+        ProfileNode(
+            name=schema_setup.name,
+            label=schema_setup.label,
+            elapsed_ms_inclusive=schema_setup.elapsed_ms_inclusive,
+            meta=schema_setup.meta,
+        )
+    )
+    schema_setup = root.children[-1]
+    if engine_result.schema_cache_elapsed_ms:
+        schema_setup.add_child(
+            ProfileNode(
+                name="schema_cache",
+                label="schema cache / compile context",
+                elapsed_ms_inclusive=engine_result.schema_cache_elapsed_ms,
+                meta={"category": "tbox_cacheable"},
+            )
+        )
+    if engine_result.sufficient_rule_extraction_elapsed_ms:
+        schema_setup.add_child(
+            ProfileNode(
+                name="rule_extraction",
+                label="rule extraction",
+                elapsed_ms_inclusive=engine_result.sufficient_rule_extraction_elapsed_ms,
+                meta={"category": "tbox_cacheable"},
+            )
+        )
+    if engine_result.sufficient_rule_index_elapsed_ms:
+        schema_setup.add_child(
+            ProfileNode(
+                name="rule_index",
+                label="rule index",
+                elapsed_ms_inclusive=engine_result.sufficient_rule_index_elapsed_ms,
+                meta={"category": "tbox_cacheable"},
+            )
+        )
+    if engine_result.dependency_closure_elapsed_ms:
+        schema_setup.add_child(
+            ProfileNode(
+                name="dependency_closure",
+                label="dependency closure",
+                elapsed_ms_inclusive=engine_result.dependency_closure_elapsed_ms,
+                meta={"category": "tbox_cacheable"},
+            )
+        )
+
+    has_positive_loop = engine_result.stratified_positive_total_elapsed_ms > 0.0
+    input_lowering: Optional[ProfileNode] = None
+    if not has_positive_loop:
+        input_lowering = root.add_child(
+            ProfileNode(
+                name="input_lowering",
+                label="input_lowering",
+                elapsed_ms_inclusive=(
+                    engine_result.stratified_initial_data_copy_elapsed_ms
+                    + engine_result.stratified_initial_ontology_merge_elapsed_ms
+                    + engine_result.preprocessing_plan_elapsed_ms
+                    + engine_result.sameas_state_init_elapsed_ms
+                    + engine_result.mapping_vocab_collect_elapsed_ms
+                    + engine_result.mapping_graph_scan_elapsed_ms
+                    + engine_result.dataset_build_elapsed_ms
+                ),
+                meta={"category": "abox_once"},
+            )
+        )
+    if input_lowering is not None and (
+        engine_result.stratified_initial_data_copy_elapsed_ms or engine_result.stratified_initial_ontology_merge_elapsed_ms
+    ):
+        initial_graph_prep = input_lowering.add_child(
+            ProfileNode(
+                name="initial_graph_prep",
+                label="initial_graph_prep",
+                elapsed_ms_inclusive=(
+                    engine_result.stratified_initial_data_copy_elapsed_ms
+                    + engine_result.stratified_initial_ontology_merge_elapsed_ms
+                ),
+                meta={"category": "abox_once"},
+            )
+        )
+        if engine_result.stratified_initial_data_copy_elapsed_ms:
+            initial_graph_prep.add_child(
+                ProfileNode(
+                    name="data_copy",
+                    label="data copy",
+                    elapsed_ms_inclusive=engine_result.stratified_initial_data_copy_elapsed_ms,
+                    meta={"category": "abox_once"},
+                )
+            )
+        if engine_result.stratified_initial_ontology_merge_elapsed_ms:
+            initial_graph_prep.add_child(
+                ProfileNode(
+                    name="ontology_merge",
+                    label="ontology merge",
+                    elapsed_ms_inclusive=engine_result.stratified_initial_ontology_merge_elapsed_ms,
+                    meta={"category": "abox_once"},
+                )
+            )
+    if input_lowering is not None and engine_result.preprocessing_plan_elapsed_ms:
+        input_lowering.add_child(
+            ProfileNode(
+                name="preprocessing_plan",
+                label="preprocessing plan",
+                elapsed_ms_inclusive=engine_result.preprocessing_plan_elapsed_ms,
+                meta={"category": "abox_once"},
+            )
+        )
+    if input_lowering is not None and engine_result.sameas_state_init_elapsed_ms:
+        input_lowering.add_child(
+            ProfileNode(
+                name="sameas_state_init",
+                label="sameAs state init",
+                elapsed_ms_inclusive=engine_result.sameas_state_init_elapsed_ms,
+                meta={"category": "abox_once"},
+            )
+        )
+    if input_lowering is not None:
+        scan_cache = input_lowering.add_child(
+        ProfileNode(
+            name="scan_cache_index_prep",
+            label="scan cache/index prep",
+            elapsed_ms_inclusive=engine_result.mapping_vocab_collect_elapsed_ms + engine_result.mapping_graph_scan_elapsed_ms,
+            meta={"category": "abox_once"},
+        )
+        )
+        if engine_result.mapping_vocab_collect_elapsed_ms:
+            scan_cache.add_child(
+                ProfileNode(
+                    name="mapping_vocab_collect",
+                    label="vocab collect",
+                    elapsed_ms_inclusive=engine_result.mapping_vocab_collect_elapsed_ms,
+                    meta={"category": "abox_once"},
+                )
+            )
+        if engine_result.mapping_graph_scan_elapsed_ms:
+            scan_cache.add_child(
+                ProfileNode(
+                    name="mapping_graph_scan",
+                    label="graph scan",
+                    elapsed_ms_inclusive=engine_result.mapping_graph_scan_elapsed_ms,
+                    meta={"category": "abox_once"},
+                )
+            )
+        dataset_assembly = input_lowering.add_child(
+            ProfileNode(
+                name="dataset_native_assembly",
+                label="dataset build/native assembly",
+                elapsed_ms_inclusive=engine_result.dataset_build_elapsed_ms,
+                meta={"category": "host_runtime"},
+            )
+        )
+    else:
+        dataset_assembly = None
+    for name, label, elapsed, category in (
+        ("data_copy", "data copy", engine_result.data_copy_elapsed_ms, "host_runtime"),
+        ("ontology_merge", "ontology merge", engine_result.ontology_merge_elapsed_ms, "host_runtime"),
+        ("hierarchy", "hierarchy", engine_result.hierarchy_elapsed_ms, "host_runtime"),
+        ("atomic_domain_range", "atomic domain/range", engine_result.atomic_domain_range_elapsed_ms, "host_runtime"),
+        ("horn_safe_domain_range", "horn-safe domain/range", engine_result.horn_safe_domain_range_elapsed_ms, "host_runtime"),
+        ("sameas", "sameAs", engine_result.sameas_elapsed_ms, "host_runtime"),
+        ("reflexive", "reflexive", engine_result.reflexive_elapsed_ms, "host_runtime"),
+        ("target_roles", "target roles", engine_result.target_role_elapsed_ms, "host_runtime"),
+    ):
+        if elapsed and dataset_assembly is not None:
+            dataset_assembly.add_child(
+                ProfileNode(name=name, label=label, elapsed_ms_inclusive=elapsed, meta={"category": category})
+            )
+    if dataset_assembly is not None:
+        kgraph_build = dataset_assembly.add_child(
+        ProfileNode(
+            name="kgraph_build",
+            label="kgraph build",
+            elapsed_ms_inclusive=engine_result.kgraph_build_elapsed_ms,
+            meta={"category": "host_runtime"},
+        )
+        )
+        mapping_finalize = kgraph_build.add_child(
+        ProfileNode(
+            name="mapping_finalize",
+            label="mapping finalize",
+            elapsed_ms_inclusive=engine_result.mapping_sort_elapsed_ms + engine_result.mapping_index_elapsed_ms,
+            meta={"category": "host_runtime"},
+        )
+        )
+        if engine_result.mapping_sort_elapsed_ms:
+            mapping_finalize.add_child(ProfileNode("sort", "sort", engine_result.mapping_sort_elapsed_ms, meta={"category": "host_runtime"}))
+        if engine_result.mapping_index_elapsed_ms:
+            mapping_finalize.add_child(ProfileNode("index", "index", engine_result.mapping_index_elapsed_ms, meta={"category": "host_runtime"}))
+        kgraph_internals = kgraph_build.add_child(
+        ProfileNode(
+            name="kgraph_internals",
+            label="kgraph internals",
+            elapsed_ms_inclusive=(
+                engine_result.kgraph_edge_bucket_elapsed_ms
+                + engine_result.kgraph_negative_helper_elapsed_ms
+                + engine_result.kgraph_literal_feature_elapsed_ms
+                + engine_result.kgraph_adjacency_elapsed_ms
+            ),
+            meta={"category": "host_runtime"},
+        )
+        )
+        for name, label, elapsed in (
+            ("edge_buckets", "edge buckets", engine_result.kgraph_edge_bucket_elapsed_ms),
+            ("negative_helpers", "negative helpers", engine_result.kgraph_negative_helper_elapsed_ms),
+            ("literal_features", "literal features", engine_result.kgraph_literal_feature_elapsed_ms),
+            ("adjacency", "adjacency", engine_result.kgraph_adjacency_elapsed_ms),
+        ):
+            if elapsed:
+                kgraph_internals.add_child(ProfileNode(name, label, elapsed, meta={"category": "host_runtime"}))
+
+    positive_profile_tree: Optional[ProfileNode] = None
+    if engine_result.stratified_result is not None:
+        positive_profile_tree = engine_result.stratified_result.positive_result.profile_tree
+    elif engine_result.filtered_admissibility_result is None and engine_result.engine_mode in {"admissibility", "filtered_admissibility"}:
+        positive_profile_tree = None
+
+    if has_positive_loop:
+        if positive_profile_tree is not None:
+            positive_reasoning = ProfileNode(
+                name=positive_profile_tree.name,
+                label=(
+                    "stratified positive OWA loop"
+                    if engine_result.engine_mode == "stratified"
+                    else "initial forward Task M pass"
+                ),
+                elapsed_ms_inclusive=positive_profile_tree.elapsed_ms_inclusive,
+                children=list(positive_profile_tree.children),
+                meta=dict(positive_profile_tree.meta),
+            )
+            root.add_child(positive_reasoning)
+        else:
+            positive_reasoning = root.add_child(
+                ProfileNode(
+                    name="positive_reasoning",
+                    label=(
+                        "stratified positive OWA loop"
+                        if engine_result.engine_mode == "stratified"
+                        else "initial forward Task M pass"
+                    ),
+                    elapsed_ms_inclusive=engine_result.stratified_positive_total_elapsed_ms,
+                    meta={"category": "host_runtime"},
+                )
+            )
+        if schema_setup in root.children:
+            root.children.remove(schema_setup)
+            if all(child.name != "schema_setup" for child in positive_reasoning.children):
+                positive_reasoning.children.insert(0, schema_setup)
+        if positive_profile_tree is None:
+            for iteration_timing in engine_result.stratified_iteration_timings or ():
+                scan_total = iteration_timing.mapping_vocab_collect_elapsed_ms + iteration_timing.mapping_graph_scan_elapsed_ms
+                iteration_total = (
+                    scan_total
+                    + iteration_timing.dataset_build_elapsed_ms
+                    + iteration_timing.reasoner_setup_elapsed_ms
+                    + iteration_timing.dag_compile_elapsed_ms
+                    + iteration_timing.dag_eval_elapsed_ms
+                    + iteration_timing.assertion_update_elapsed_ms
+                )
+                iteration_node = positive_reasoning.add_child(
+                    ProfileNode(
+                        name=f"iteration_{iteration_timing.iteration}",
+                        label=f"iteration_{iteration_timing.iteration}",
+                        elapsed_ms_inclusive=iteration_total,
+                        meta={
+                            "category": "host_runtime",
+                            "iteration": iteration_timing.iteration,
+                            "refresh_count": iteration_timing.dataset_refresh_count,
+                        },
+                    )
+                )
+                if iteration_timing.dataset_build_elapsed_ms:
+                    dataset_refresh = iteration_node.add_child(
+                        ProfileNode(
+                            name="dataset_refresh",
+                            label="dataset_refresh",
+                            elapsed_ms_inclusive=iteration_timing.dataset_build_elapsed_ms,
+                            meta={"category": "host_runtime"},
+                        )
+                    )
+                    for name, label, elapsed in (
+                        ("data_copy", "data copy", iteration_timing.data_copy_elapsed_ms),
+                        ("ontology_merge", "ontology merge", iteration_timing.ontology_merge_elapsed_ms),
+                        ("hierarchy", "hierarchy", iteration_timing.hierarchy_elapsed_ms),
+                        ("atomic_domain_range", "atomic domain/range", iteration_timing.atomic_domain_range_elapsed_ms),
+                        ("horn_safe_domain_range", "horn-safe domain/range", iteration_timing.horn_safe_domain_range_elapsed_ms),
+                        ("sameas", "sameAs", iteration_timing.sameas_elapsed_ms),
+                        ("reflexive", "reflexive", iteration_timing.reflexive_elapsed_ms),
+                        ("target_roles", "target roles", iteration_timing.target_role_elapsed_ms),
+                    ):
+                        if elapsed:
+                            dataset_refresh.add_child(ProfileNode(name, label, elapsed, meta={"category": "host_runtime"}))
+                    kgraph_iter = dataset_refresh.add_child(
+                        ProfileNode("kgraph_build", "kgraph build", iteration_timing.kgraph_build_elapsed_ms, meta={"category": "host_runtime"})
+                    )
+                    mapping_iter = kgraph_iter.add_child(
+                        ProfileNode(
+                            "mapping_finalize",
+                            "mapping finalize",
+                            iteration_timing.mapping_sort_elapsed_ms + iteration_timing.mapping_index_elapsed_ms,
+                            meta={"category": "host_runtime"},
+                        )
+                    )
+                    if iteration_timing.mapping_sort_elapsed_ms:
+                        mapping_iter.add_child(ProfileNode("mapping_sort", "mapping sort", iteration_timing.mapping_sort_elapsed_ms, meta={"category": "host_runtime"}))
+                    if iteration_timing.mapping_index_elapsed_ms:
+                        mapping_iter.add_child(ProfileNode("mapping_index", "mapping index", iteration_timing.mapping_index_elapsed_ms, meta={"category": "host_runtime"}))
+                    internals_iter = kgraph_iter.add_child(
+                        ProfileNode(
+                            "kgraph_internals",
+                            "kgraph internals",
+                            iteration_timing.kgraph_edge_bucket_elapsed_ms
+                            + iteration_timing.kgraph_negative_helper_elapsed_ms
+                            + iteration_timing.kgraph_literal_feature_elapsed_ms
+                            + iteration_timing.kgraph_adjacency_elapsed_ms,
+                            meta={"category": "host_runtime"},
+                        )
+                    )
+                    for name, label, elapsed in (
+                        ("edge_buckets", "edge buckets", iteration_timing.kgraph_edge_bucket_elapsed_ms),
+                        ("negative_helpers", "negative helpers", iteration_timing.kgraph_negative_helper_elapsed_ms),
+                        ("literal_features", "literal features", iteration_timing.kgraph_literal_feature_elapsed_ms),
+                        ("adjacency", "adjacency", iteration_timing.kgraph_adjacency_elapsed_ms),
+                    ):
+                        if elapsed:
+                            internals_iter.add_child(ProfileNode(name, label, elapsed, meta={"category": "host_runtime"}))
+                if scan_total:
+                    scan_iter = iteration_node.add_child(
+                        ProfileNode("scan_cache_index_prep", "scan cache/index prep", scan_total, meta={"category": "abox_once"})
+                    )
+                    if iteration_timing.mapping_vocab_collect_elapsed_ms:
+                        scan_iter.add_child(ProfileNode("mapping_vocab_collect", "vocab collect", iteration_timing.mapping_vocab_collect_elapsed_ms, meta={"category": "abox_once"}))
+                    if iteration_timing.mapping_graph_scan_elapsed_ms:
+                        scan_iter.add_child(ProfileNode("mapping_graph_scan", "graph scan", iteration_timing.mapping_graph_scan_elapsed_ms, meta={"category": "abox_once"}))
+                if iteration_timing.reasoner_setup_elapsed_ms:
+                    iteration_node.add_child(ProfileNode("reasoner_setup", "reasoner setup", iteration_timing.reasoner_setup_elapsed_ms, meta={"category": "host_runtime", "device": engine_result.dag_effective_device}))
+                if iteration_timing.dag_compile_elapsed_ms:
+                    iteration_node.add_child(ProfileNode("dag_compile", "dag compile", iteration_timing.dag_compile_elapsed_ms, meta={"category": "host_runtime", "device": engine_result.dag_effective_device}))
+                if iteration_timing.dag_eval_elapsed_ms:
+                    iteration_node.add_child(ProfileNode("dag_eval", "dag eval", iteration_timing.dag_eval_elapsed_ms, meta={"category": "device_runtime", "device": engine_result.dag_effective_device}))
+                if iteration_timing.assertion_update_elapsed_ms:
+                    iteration_node.add_child(ProfileNode("assertion_update", "assertion update", iteration_timing.assertion_update_elapsed_ms, meta={"category": "host_runtime"}))
+    elif engine_result.dag_compile_elapsed_ms or engine_result.dag_eval_elapsed_ms:
+        query_evaluation = root.add_child(
+            ProfileNode(
+                name="query_evaluation",
+                label="query_evaluation",
+                elapsed_ms_inclusive=engine_result.dag_compile_elapsed_ms + engine_result.dag_eval_elapsed_ms,
+                meta={"category": "host_runtime"},
+            )
+        )
+        if engine_result.dag_compile_elapsed_ms:
+            query_evaluation.add_child(
+                ProfileNode(
+                    "dag_compile",
+                    "dag compile",
+                    engine_result.dag_compile_elapsed_ms,
+                    meta={"category": "host_runtime", "device": engine_result.dag_effective_device},
+                )
+            )
+        if engine_result.dag_eval_elapsed_ms:
+            query_evaluation.add_child(
+                ProfileNode(
+                    "dag_eval",
+                    "dag eval",
+                    engine_result.dag_eval_elapsed_ms,
+                    meta={"category": "device_runtime", "device": engine_result.dag_effective_device},
+                )
+            )
+
+    if engine_result.engine_mode == "stratified":
+        negative_reasoning_total = engine_result.stratified_negative_blocker_elapsed_ms
+        if negative_reasoning_total:
+            negative_reasoning = root.add_child(ProfileNode("negative_reasoning", "negative_reasoning", negative_reasoning_total, meta={"category": "host_runtime"}))
+            negative_reasoning.add_child(ProfileNode("negative_blocker", "negative/blocker", engine_result.stratified_negative_blocker_elapsed_ms, meta={"category": "host_runtime"}))
+        assignment_reporting_total = (
+            engine_result.stratified_assignment_status_elapsed_ms
+            + engine_result.stratified_conflict_policy_elapsed_ms
+            + engine_result.stratified_reporting_compile_elapsed_ms
+        )
+        if assignment_reporting_total:
+            assignment_reporting = root.add_child(ProfileNode("assignment_reporting", "assignment_reporting", assignment_reporting_total, meta={"category": "host_runtime"}))
+            if engine_result.stratified_assignment_status_elapsed_ms:
+                assignment_reporting.add_child(ProfileNode("assignment_status", "assignment status", engine_result.stratified_assignment_status_elapsed_ms, meta={"category": "host_runtime"}))
+            if engine_result.stratified_conflict_policy_elapsed_ms:
+                assignment_reporting.add_child(ProfileNode("conflict_policy", "conflict policy", engine_result.stratified_conflict_policy_elapsed_ms, meta={"category": "host_runtime"}))
+            if engine_result.stratified_reporting_compile_elapsed_ms:
+                assignment_reporting.add_child(ProfileNode("final_reporting_compile", "final reporting compile", engine_result.stratified_reporting_compile_elapsed_ms, meta={"category": "host_runtime"}))
+
+    warnings = validate_profile_tree(root)
+    disjoint_top_level_elapsed_ms = sum(child.elapsed_ms_inclusive for child in root.children)
+    residual = root.elapsed_ms_inclusive - disjoint_top_level_elapsed_ms
+    root_tol = profile_tolerance_ms(root.elapsed_ms_inclusive)
+    if abs(residual) > root_tol:
+        warnings.append(
+            ProfileValidationWarning(
+                path=root.name,
+                issue="top-level children do not reconcile to engine total",
+                elapsed_ms=abs(residual),
+                tolerance_ms=root_tol,
+            )
+        )
+    summary = ProfileSummary(
+        root_elapsed_ms=root.elapsed_ms_inclusive,
+        category_totals_ms=aggregate_by_category(root),
+        warnings=warnings,
+        reconciliation_residual_ms=residual,
+    )
+    return root, summary
+
+
+@lru_cache(maxsize=8)
+def _resolve_effective_torch_device(requested_device: str) -> str:
+    normalized = (requested_device or "cpu").strip().lower()
+    if normalized.startswith("cuda"):
+        if not _torch_cuda_available():
+            return "unavailable"
+        try:
+            return str(torch.device(requested_device))
+        except Exception:
+            return "cuda"
+    try:
+        return str(torch.device(requested_device))
+    except Exception:
+        return requested_device
+
+
+@lru_cache(maxsize=1)
+def _torch_cuda_available() -> bool:
+    return torch.cuda.is_available()
+
+
+def _reported_torch_cuda_available(requested_device: str) -> Optional[bool]:
+    normalized = (requested_device or "cpu").strip().lower()
+    if normalized.startswith("cuda"):
+        return _torch_cuda_available()
+    return None
 
 
 def _copy_graph(graph: Graph) -> Graph:
@@ -219,191 +996,41 @@ def _build_binary_scores(
     return scores_by_target
 
 
-def format_engine_timing_breakdown(engine_result: EngineQueryResult) -> str:
+def format_engine_timing_breakdown(
+    engine_result: EngineQueryResult,
+    *,
+    verbose: bool = False,
+) -> str:
+    root = engine_result.profile_tree
+    summary = engine_result.profile_summary
+    if root is None or summary is None:
+        root, summary = _build_engine_profile_tree(engine_result)
     lines = ["Engine timing breakdown:"]
-    if (
-        engine_result.schema_cache_elapsed_ms
-        or engine_result.preprocessing_plan_elapsed_ms
-        or engine_result.sufficient_rule_extraction_elapsed_ms
-        or engine_result.sufficient_rule_index_elapsed_ms
-        or engine_result.dependency_closure_elapsed_ms
-        or engine_result.sameas_state_init_elapsed_ms
-    ):
-        lines.extend(
-            [
-                (
-                    "  - stage 1 schema cache extraction: "
-                    f"{engine_result.schema_cache_elapsed_ms:.3f} ms"
-                ),
-                (
-                    "  - stage 2 preprocessing plan selection: "
-                    f"{engine_result.preprocessing_plan_elapsed_ms:.3f} ms"
-                ),
-                (
-                    "  - stage 3 initial graph prep: "
-                    f"data copy={engine_result.stratified_initial_data_copy_elapsed_ms:.3f} ms, "
-                    f"ontology merge={engine_result.stratified_initial_ontology_merge_elapsed_ms:.3f} ms"
-                ),
-                (
-                    "  - stage 5 target/dependency prep: "
-                    f"rule extraction={engine_result.sufficient_rule_extraction_elapsed_ms:.3f} ms, "
-                    f"rule index={engine_result.sufficient_rule_index_elapsed_ms:.3f} ms, "
-                    f"dependency closure={engine_result.dependency_closure_elapsed_ms:.3f} ms, "
-                    f"sameAs state init={engine_result.sameas_state_init_elapsed_ms:.3f} ms"
-                ),
-            ]
-        )
-    lines.extend(
-        [
-            (
-                "  - preprocessing/dataset build: "
-                f"{engine_result.dataset_build_elapsed_ms:.3f} ms"
-            ),
-            (
-                "      merge="
-                f"{engine_result.ontology_merge_elapsed_ms:.3f} ms, "
-                "hierarchy="
-                f"{engine_result.hierarchy_elapsed_ms:.3f} ms, "
-                "atomic domain/range="
-                f"{engine_result.atomic_domain_range_elapsed_ms:.3f} ms, "
-                "horn-safe domain/range="
-                f"{engine_result.horn_safe_domain_range_elapsed_ms:.3f} ms, "
-                f"sameAs={engine_result.sameas_elapsed_ms:.3f} ms, "
-                f"reflexive={engine_result.reflexive_elapsed_ms:.3f} ms, "
-                f"target roles={engine_result.target_role_elapsed_ms:.3f} ms, "
-                f"kgraph build={engine_result.kgraph_build_elapsed_ms:.3f} ms"
-            ),
-            (
-                "      mapping: vocab collect="
-                f"{engine_result.mapping_vocab_collect_elapsed_ms:.3f} ms, "
-                f"graph scan={engine_result.mapping_graph_scan_elapsed_ms:.3f} ms, "
-                f"sort={engine_result.mapping_sort_elapsed_ms:.3f} ms, "
-                f"index={engine_result.mapping_index_elapsed_ms:.3f} ms"
-            ),
-            (
-                "      kgraph internals: edge buckets="
-                f"{engine_result.kgraph_edge_bucket_elapsed_ms:.3f} ms, "
-                f"negative helpers={engine_result.kgraph_negative_helper_elapsed_ms:.3f} ms, "
-                f"literal features={engine_result.kgraph_literal_feature_elapsed_ms:.3f} ms, "
-                f"adjacency={engine_result.kgraph_adjacency_elapsed_ms:.3f} ms"
-            ),
-            f"  - DAG compile: {engine_result.dag_compile_elapsed_ms:.3f} ms",
-            f"  - DAG eval: {engine_result.dag_eval_elapsed_ms:.3f} ms",
-        ]
+    cuda_status = (
+        "not_checked"
+        if engine_result.torch_cuda_available is None
+        else str(engine_result.torch_cuda_available)
     )
-    if engine_result.sameas_passes_elapsed_ms:
+    lines.append(
+        "  - DAG device: "
+        f"requested={engine_result.dag_requested_device}, "
+        f"effective={engine_result.dag_effective_device}, "
+        f"torch.cuda.is_available={cuda_status}"
+    )
+    rendered_tree = render_profile_tree(root, warnings=summary.warnings)
+    lines.extend(f"  {line}" for line in rendered_tree.splitlines())
+    lines.append(
+        "  - timing reconciliation: "
+        f"engine={_format_elapsed_seconds(summary.root_elapsed_ms)}, "
+        f"disjoint accounted={_format_elapsed_seconds(summary.root_elapsed_ms - summary.reconciliation_residual_ms)}, "
+        f"residual={_format_elapsed_seconds(summary.reconciliation_residual_ms)}"
+    )
+    if abs(summary.reconciliation_residual_ms) > _timing_reconciliation_tolerance_ms(summary.root_elapsed_ms):
         lines.append(
-            "      sameAs passes: "
-            + ", ".join(f"{elapsed_ms:.3f} ms" for elapsed_ms in engine_result.sameas_passes_elapsed_ms)
+            "  - timing warning: disjoint phase totals do not reconcile with engine time "
+            f"within tolerance ({_format_elapsed_seconds(_timing_reconciliation_tolerance_ms(summary.root_elapsed_ms))})"
         )
-    if engine_result.engine_mode == "stratified" and engine_result.stratified_positive_iterations:
-        positive_accounted_elapsed_ms = (
-            engine_result.stratified_initial_data_copy_elapsed_ms
-            + engine_result.stratified_initial_ontology_merge_elapsed_ms
-            + engine_result.dataset_build_elapsed_ms
-            + engine_result.stratified_positive_reasoner_setup_elapsed_ms
-            + engine_result.dag_compile_elapsed_ms
-            + engine_result.dag_eval_elapsed_ms
-            + engine_result.stratified_positive_assertion_update_elapsed_ms
-        )
-        positive_overhead_elapsed_ms = max(
-            0.0,
-            engine_result.stratified_positive_total_elapsed_ms - positive_accounted_elapsed_ms,
-        )
-        lines.extend(
-            [
-                (
-                    "  - stratified positive OWA loop: "
-                    f"{engine_result.stratified_positive_total_elapsed_ms:.3f} ms "
-                    f"over {engine_result.stratified_positive_iterations} iterations"
-                ),
-                (
-                    "      avg/iter: dataset build="
-                    f"{engine_result.stratified_positive_avg_dataset_build_elapsed_ms:.3f} ms, "
-                    "reasoner setup="
-                    f"{(engine_result.stratified_positive_reasoner_setup_elapsed_ms / engine_result.stratified_positive_iterations if engine_result.stratified_positive_iterations else 0.0):.3f} ms, "
-                    "dag compile="
-                    f"{engine_result.stratified_positive_avg_dag_compile_elapsed_ms:.3f} ms, "
-                    "dag eval="
-                    f"{engine_result.stratified_positive_avg_dag_eval_elapsed_ms:.3f} ms, "
-                    "assertion update="
-                    f"{(engine_result.stratified_positive_assertion_update_elapsed_ms / engine_result.stratified_positive_iterations if engine_result.stratified_positive_iterations else 0.0):.3f} ms"
-                ),
-                (
-                    "      one-off setup/overhead="
-                    f"{positive_overhead_elapsed_ms:.3f} ms "
-                    "(includes pre-loop rule/cache prep and loop-control work)"
-                ),
-            ]
-        )
-        for iteration_timing in engine_result.stratified_iteration_timings or ():
-            lines.append(
-                "      iter "
-                f"{iteration_timing.iteration}: refreshes={iteration_timing.dataset_refresh_count}, "
-                f"dataset build={iteration_timing.dataset_build_elapsed_ms:.3f} ms, "
-                f"merge={iteration_timing.ontology_merge_elapsed_ms:.3f} ms, "
-                f"hierarchy={iteration_timing.hierarchy_elapsed_ms:.3f} ms, "
-                f"atomic={iteration_timing.atomic_domain_range_elapsed_ms:.3f} ms, "
-                f"horn-safe={iteration_timing.horn_safe_domain_range_elapsed_ms:.3f} ms, "
-                f"sameAs={iteration_timing.sameas_elapsed_ms:.3f} ms, "
-                f"reflexive={iteration_timing.reflexive_elapsed_ms:.3f} ms, "
-                f"target roles={iteration_timing.target_role_elapsed_ms:.3f} ms, "
-                f"kgraph={iteration_timing.kgraph_build_elapsed_ms:.3f} ms, "
-                f"reasoner setup={iteration_timing.reasoner_setup_elapsed_ms:.3f} ms, "
-                f"dag compile={iteration_timing.dag_compile_elapsed_ms:.3f} ms, "
-                f"dag eval={iteration_timing.dag_eval_elapsed_ms:.3f} ms, "
-                f"assertion update={iteration_timing.assertion_update_elapsed_ms:.3f} ms"
-            )
-            if iteration_timing.sameas_passes_elapsed_ms:
-                lines.append(
-                    "          sameAs passes: "
-                    + ", ".join(
-                        f"{elapsed_ms:.3f} ms"
-                        for elapsed_ms in iteration_timing.sameas_passes_elapsed_ms
-                    )
-                )
-        if engine_result.stratified_final_dataset_timing is not None:
-            final_timing = engine_result.stratified_final_dataset_timing
-            lines.append(
-                "      final dataset refresh: "
-                f"dataset build={final_timing.dataset_build_elapsed_ms:.3f} ms, "
-                f"merge={final_timing.ontology_merge_elapsed_ms:.3f} ms, "
-                f"hierarchy={final_timing.hierarchy_elapsed_ms:.3f} ms, "
-                f"atomic={final_timing.atomic_domain_range_elapsed_ms:.3f} ms, "
-                f"horn-safe={final_timing.horn_safe_domain_range_elapsed_ms:.3f} ms, "
-                f"sameAs={final_timing.sameas_elapsed_ms:.3f} ms, "
-                f"reflexive={final_timing.reflexive_elapsed_ms:.3f} ms, "
-                f"target roles={final_timing.target_role_elapsed_ms:.3f} ms, "
-                f"kgraph={final_timing.kgraph_build_elapsed_ms:.3f} ms"
-            )
-            if final_timing.sameas_passes_elapsed_ms:
-                lines.append(
-                    "          sameAs passes: "
-                    + ", ".join(
-                        f"{elapsed_ms:.3f} ms"
-                        for elapsed_ms in final_timing.sameas_passes_elapsed_ms
-                    )
-                )
-        lines.extend(
-            [
-                (
-                    "  - stratified negative/blocker: "
-                    f"{engine_result.stratified_negative_blocker_elapsed_ms:.3f} ms"
-                ),
-                (
-                    "  - stratified assignment status: "
-                    f"{engine_result.stratified_assignment_status_elapsed_ms:.3f} ms"
-                ),
-                (
-                    "  - stratified conflict policy: "
-                    f"{engine_result.stratified_conflict_policy_elapsed_ms:.3f} ms"
-                ),
-                (
-                    "  - stratified final reporting compile: "
-                    f"{engine_result.stratified_reporting_compile_elapsed_ms:.3f} ms"
-                ),
-            ]
-        )
+    lines.extend(_format_dag_stats(engine_result.dag_stats_by_target, verbose=verbose))
     return "\n".join(lines)
 
 
@@ -452,13 +1079,13 @@ def resolve_target_classes(
     schema_graph: Graph,
     data_graph: Graph,
     target_class_specs: Sequence[str],
-    engine_mode: str = "query",
+    engine_mode: str = "admissibility",
     include_literals: bool = False,
     include_type_edges: bool = False,
     materialize_hierarchy: Optional[bool] = None,
     augment_property_domain_range: Optional[bool] = None,
 ) -> TargetResolutionResult:
-    ontology_graph = aggregate_rdflib_graphs((schema_graph, data_graph))
+    ontology_graph = schema_graph
 
     requested_specs = tuple(target_class_specs)
     candidate_targets: Set[URIRef] = set()
@@ -481,7 +1108,7 @@ def resolve_target_classes(
         )
 
     mapping = build_rdflib_mapping(
-        data_graph,
+        schema_graph,
         vocab_source=ontology_graph,
         include_literals=include_literals,
         include_type_edges=include_type_edges,
@@ -498,6 +1125,7 @@ def resolve_target_classes(
                     ontology_graph,
                     mapping,
                     target_term,
+                    compile_context=compile_context,
                 )
             else:
                 query_plan = plan_reasoning_preprocessing(
@@ -627,16 +1255,19 @@ def _collect_query_root_expressions(
 def _build_query_expression_term(
     query_graph: Graph,
     target_term: URIRef,
+    *,
+    source_graph: Optional[Graph] = None,
 ) -> Identifier:
-    root_exprs = _collect_query_root_expressions(query_graph, target_term)
+    source = query_graph if source_graph is None else source_graph
+    root_exprs = _collect_query_root_expressions(source, target_term)
 
-    for expr in query_graph.objects(target_term, OWL.disjointWith):
+    for expr in source.objects(target_term, OWL.disjointWith):
         neg_expr = BNode()
         query_graph.add((neg_expr, OWL.complementOf, expr))
         query_graph.add((neg_expr, RDF.type, OWL.Class))
         root_exprs.append(neg_expr)
 
-    for expr in query_graph.subjects(OWL.disjointWith, target_term):
+    for expr in source.subjects(OWL.disjointWith, target_term):
         if not isinstance(expr, Identifier) or expr == target_term:
             continue
         neg_expr = BNode()
@@ -694,28 +1325,46 @@ def build_oracle_query_graph(
     the original target classes.
     """
 
-    query_graph = _copy_graph(ontology_graph)
-    if mode == "query" and bridge_supported_definitions:
-        query_graph = add_definitional_bridge_axioms(query_graph)
     query_class_by_target: Dict[URIRef, URIRef] = {}
+
+    if mode == "native":
+        for target in target_classes:
+            target_term = URIRef(target) if isinstance(target, str) else target
+            query_class_by_target[target_term] = target_term
+        return ontology_graph, query_class_by_target
+
+    if bridge_supported_definitions:
+        query_graph = _copy_graph(ontology_graph)
+        query_graph = add_definitional_bridge_axioms(query_graph)
+    else:
+        query_overlay = Graph()
+        query_graph = query_overlay
+        query_source_graph = aggregate_rdflib_graphs((ontology_graph, query_overlay))
 
     for target in target_classes:
         target_term = URIRef(target) if isinstance(target, str) else target
-
-        if mode == "native":
-            query_class_by_target[target_term] = target_term
-            continue
 
         query_hash = sha1(str(target_term).encode("utf-8")).hexdigest()
         query_class = URIRef(ORACLE_NS[f"query/{query_hash}"])
         query_graph.add((query_class, RDF.type, OWL.Class))
         query_graph.add((query_class, RDFS.label, Literal(f"OracleQuery({target_term})")))
 
-        query_graph.add((query_class, OWL.equivalentClass, _build_query_expression_term(query_graph, target_term)))
+        query_graph.add((
+            query_class,
+            OWL.equivalentClass,
+            _build_query_expression_term(
+                query_graph,
+                target_term,
+                source_graph=(query_graph if bridge_supported_definitions else query_source_graph),
+            ),
+        ))
 
         query_class_by_target[target_term] = query_class
 
-    return query_graph, query_class_by_target
+    return (
+        query_graph if bridge_supported_definitions else aggregate_rdflib_graphs((ontology_graph, query_graph)),
+        query_class_by_target,
+    )
 
 
 def _extract_dataset_timing_breakdown(
@@ -737,14 +1386,6 @@ def _extract_dataset_timing_breakdown(
     kgraph_literal_feature_elapsed_ms = 0.0
     kgraph_adjacency_elapsed_ms = 0.0
     dataset_build_elapsed_ms = 0.0
-    mapping_vocab_collect_elapsed_ms = 0.0
-    mapping_graph_scan_elapsed_ms = 0.0
-    mapping_sort_elapsed_ms = 0.0
-    mapping_index_elapsed_ms = 0.0
-    kgraph_edge_bucket_elapsed_ms = 0.0
-    kgraph_negative_helper_elapsed_ms = 0.0
-    kgraph_literal_feature_elapsed_ms = 0.0
-    kgraph_adjacency_elapsed_ms = 0.0
     if dataset.preprocessing_timings is not None:
         dataset_build_elapsed_ms = dataset.preprocessing_timings.dataset_build_elapsed_ms
         hierarchy_elapsed_ms = dataset.preprocessing_timings.hierarchy_elapsed_ms
@@ -798,7 +1439,11 @@ def _compile_and_evaluate_query_dataset(
         augment_property_domain_range=augment_property_domain_range,
     )
 
-    reasoner = DAGReasoner(dataset.kg, device=device)
+    sim_class = None
+    if not dataset.preprocessing_plan or not dataset.preprocessing_plan.materialize_hierarchy.enabled:
+        sim_class = _build_subclass_similarity_matrix(dataset, compile_context)
+
+    reasoner = DAGReasoner(dataset.kg, device=device, sim_class=sim_class)
     dags_by_target: Dict[URIRef, ConstraintDAG] = {}
     compile_t0 = perf_counter()
     for target_term in target_classes:
@@ -834,6 +1479,201 @@ def _compile_and_evaluate_query_dataset(
     return members_by_target, scores_by_target, dags_by_target, dag_compile_elapsed_ms, dag_eval_elapsed_ms
 
 
+def _clone_profile_node(node: ProfileNode) -> ProfileNode:
+    return ProfileNode(
+        name=node.name,
+        label=node.label,
+        elapsed_ms_inclusive=node.elapsed_ms_inclusive,
+        children=[_clone_profile_node(child) for child in node.children],
+        meta=dict(node.meta),
+    )
+
+
+def _build_query_snapshot_profile_tree(
+    *,
+    dataset_build_elapsed_ms: float,
+    data_copy_elapsed_ms: float,
+    ontology_merge_elapsed_ms: float,
+    hierarchy_elapsed_ms: float,
+    atomic_domain_range_elapsed_ms: float,
+    horn_safe_domain_range_elapsed_ms: float,
+    sameas_elapsed_ms: float,
+    reflexive_elapsed_ms: float,
+    target_role_elapsed_ms: float,
+    kgraph_build_elapsed_ms: float,
+    mapping_vocab_collect_elapsed_ms: float,
+    mapping_graph_scan_elapsed_ms: float,
+    mapping_sort_elapsed_ms: float,
+    mapping_index_elapsed_ms: float,
+    kgraph_edge_bucket_elapsed_ms: float,
+    kgraph_negative_helper_elapsed_ms: float,
+    kgraph_literal_feature_elapsed_ms: float,
+    kgraph_adjacency_elapsed_ms: float,
+    dag_compile_elapsed_ms: float,
+    dag_eval_elapsed_ms: float,
+    device: str,
+    name: str = "admissibility_snapshot",
+    label: str = "admissibility snapshot",
+) -> ProfileNode:
+    root = ProfileNode(
+        name=name,
+        label=label,
+        elapsed_ms_inclusive=dataset_build_elapsed_ms + dag_compile_elapsed_ms + dag_eval_elapsed_ms,
+        meta={"category": "host_runtime", "device": device},
+    )
+    scan_total = mapping_vocab_collect_elapsed_ms + mapping_graph_scan_elapsed_ms
+    if scan_total or dataset_build_elapsed_ms:
+        input_lowering = root.add_child(
+            ProfileNode(
+                name="input_lowering",
+                label="input_lowering",
+                elapsed_ms_inclusive=scan_total + dataset_build_elapsed_ms,
+                meta={"category": "abox_once"},
+            )
+        )
+        if scan_total:
+            scan_cache = input_lowering.add_child(
+                ProfileNode(
+                    name="scan_cache_index_prep",
+                    label="scan cache/index prep",
+                    elapsed_ms_inclusive=scan_total,
+                    meta={"category": "abox_once"},
+                )
+            )
+            if mapping_vocab_collect_elapsed_ms:
+                scan_cache.add_child(
+                    ProfileNode(
+                        name="mapping_vocab_collect",
+                        label="vocab collect",
+                        elapsed_ms_inclusive=mapping_vocab_collect_elapsed_ms,
+                        meta={"category": "abox_once"},
+                    )
+                )
+            if mapping_graph_scan_elapsed_ms:
+                scan_cache.add_child(
+                    ProfileNode(
+                        name="mapping_graph_scan",
+                        label="graph scan",
+                        elapsed_ms_inclusive=mapping_graph_scan_elapsed_ms,
+                        meta={"category": "abox_once"},
+                    )
+                )
+        if dataset_build_elapsed_ms:
+            dataset_assembly = input_lowering.add_child(
+                ProfileNode(
+                    name="dataset_native_assembly",
+                    label="dataset build/native assembly",
+                    elapsed_ms_inclusive=dataset_build_elapsed_ms,
+                    meta={"category": "host_runtime"},
+                )
+            )
+            for child_name, child_label, child_elapsed, category in (
+                ("data_copy", "data copy", data_copy_elapsed_ms, "host_runtime"),
+                ("ontology_merge", "ontology merge", ontology_merge_elapsed_ms, "host_runtime"),
+                ("hierarchy", "hierarchy", hierarchy_elapsed_ms, "host_runtime"),
+                ("atomic_domain_range", "atomic domain/range", atomic_domain_range_elapsed_ms, "host_runtime"),
+                ("horn_safe_domain_range", "horn-safe domain/range", horn_safe_domain_range_elapsed_ms, "host_runtime"),
+                ("sameas", "sameAs", sameas_elapsed_ms, "host_runtime"),
+                ("reflexive", "reflexive", reflexive_elapsed_ms, "host_runtime"),
+                ("target_roles", "target roles", target_role_elapsed_ms, "host_runtime"),
+            ):
+                if child_elapsed:
+                    dataset_assembly.add_child(
+                        ProfileNode(
+                            name=child_name,
+                            label=child_label,
+                            elapsed_ms_inclusive=child_elapsed,
+                            meta={"category": category},
+                        )
+                    )
+            if kgraph_build_elapsed_ms:
+                kgraph_build = dataset_assembly.add_child(
+                    ProfileNode(
+                        name="kgraph_build",
+                        label="kgraph build",
+                        elapsed_ms_inclusive=kgraph_build_elapsed_ms,
+                        meta={"category": "host_runtime"},
+                    )
+                )
+                mapping_finalize_total = mapping_sort_elapsed_ms + mapping_index_elapsed_ms
+                if mapping_finalize_total:
+                    mapping_finalize = kgraph_build.add_child(
+                        ProfileNode(
+                            name="mapping_finalize",
+                            label="mapping finalize",
+                            elapsed_ms_inclusive=mapping_finalize_total,
+                            meta={"category": "host_runtime"},
+                        )
+                    )
+                    if mapping_sort_elapsed_ms:
+                        mapping_finalize.add_child(
+                            ProfileNode(
+                                name="mapping_sort",
+                                label="mapping sort",
+                                elapsed_ms_inclusive=mapping_sort_elapsed_ms,
+                                meta={"category": "host_runtime"},
+                            )
+                        )
+                    if mapping_index_elapsed_ms:
+                        mapping_finalize.add_child(
+                            ProfileNode(
+                                name="mapping_index",
+                                label="mapping index",
+                                elapsed_ms_inclusive=mapping_index_elapsed_ms,
+                                meta={"category": "host_runtime"},
+                            )
+                        )
+                kgraph_internal_total = (
+                    kgraph_edge_bucket_elapsed_ms
+                    + kgraph_negative_helper_elapsed_ms
+                    + kgraph_literal_feature_elapsed_ms
+                    + kgraph_adjacency_elapsed_ms
+                )
+                if kgraph_internal_total:
+                    kgraph_internals = kgraph_build.add_child(
+                        ProfileNode(
+                            name="kgraph_internals",
+                            label="kgraph internals",
+                            elapsed_ms_inclusive=kgraph_internal_total,
+                            meta={"category": "host_runtime"},
+                        )
+                    )
+                    for child_name, child_label, child_elapsed in (
+                        ("edge_buckets", "edge buckets", kgraph_edge_bucket_elapsed_ms),
+                        ("negative_helpers", "negative helpers", kgraph_negative_helper_elapsed_ms),
+                        ("literal_features", "literal features", kgraph_literal_feature_elapsed_ms),
+                        ("adjacency", "adjacency", kgraph_adjacency_elapsed_ms),
+                    ):
+                        if child_elapsed:
+                            kgraph_internals.add_child(
+                                ProfileNode(
+                                    name=child_name,
+                                    label=child_label,
+                                    elapsed_ms_inclusive=child_elapsed,
+                                    meta={"category": "host_runtime"},
+                                )
+                            )
+    if dag_compile_elapsed_ms:
+        root.add_child(
+            ProfileNode(
+                name="dag_compile",
+                label="dag compile",
+                elapsed_ms_inclusive=dag_compile_elapsed_ms,
+                meta={"category": "host_runtime"},
+            )
+        )
+    if dag_eval_elapsed_ms:
+        root.add_child(
+            ProfileNode(
+                name="dag_eval",
+                label="dag eval",
+                elapsed_ms_inclusive=dag_eval_elapsed_ms,
+                meta={"category": "device_runtime", "device": device},
+            )
+        )
+    return root
+
+
 def _evaluate_query_snapshot(
     *,
     schema_graph: Graph,
@@ -844,8 +1684,10 @@ def _evaluate_query_snapshot(
     include_literals: bool,
     include_type_edges: bool,
     materialize_hierarchy: Optional[bool],
+    materialize_horn_safe_domain_range: Optional[bool],
     materialize_sameas: Optional[bool],
     materialize_haskey_equality: Optional[bool],
+    materialize_reflexive_properties: Optional[bool],
     materialize_target_roles: Optional[bool],
     augment_property_domain_range: Optional[bool],
 ) -> QueryEvaluationSnapshot:
@@ -857,6 +1699,14 @@ def _evaluate_query_snapshot(
     reflexive_elapsed_ms = 0.0
     target_role_elapsed_ms = 0.0
     kgraph_build_elapsed_ms = 0.0
+    mapping_vocab_collect_elapsed_ms = 0.0
+    mapping_graph_scan_elapsed_ms = 0.0
+    mapping_sort_elapsed_ms = 0.0
+    mapping_index_elapsed_ms = 0.0
+    kgraph_edge_bucket_elapsed_ms = 0.0
+    kgraph_negative_helper_elapsed_ms = 0.0
+    kgraph_literal_feature_elapsed_ms = 0.0
+    kgraph_adjacency_elapsed_ms = 0.0
     dag_compile_elapsed_ms = 0.0
     dag_eval_elapsed_ms = 0.0
 
@@ -866,8 +1716,10 @@ def _evaluate_query_snapshot(
         include_literals=include_literals,
         include_type_edges=include_type_edges,
         materialize_hierarchy=materialize_hierarchy,
+        materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
         materialize_sameas=materialize_sameas,
         materialize_haskey_equality=materialize_haskey_equality,
+        materialize_reflexive_properties=materialize_reflexive_properties,
         materialize_target_roles=materialize_target_roles,
         target_classes=target_classes,
     )
@@ -965,8 +1817,10 @@ def _evaluate_query_snapshot(
                 include_literals=include_literals,
                 include_type_edges=include_type_edges,
                 materialize_hierarchy=materialize_hierarchy,
+                materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
                 materialize_sameas=materialize_sameas,
                 materialize_haskey_equality=materialize_haskey_equality,
+                materialize_reflexive_properties=materialize_reflexive_properties,
                 materialize_target_roles=materialize_target_roles,
                 target_classes=sorted(set(target_classes) | helper_cycle_classes, key=str),
             )
@@ -1034,8 +1888,10 @@ def _evaluate_query_snapshot(
             include_literals=include_literals,
             include_type_edges=include_type_edges,
             materialize_hierarchy=materialize_hierarchy,
+            materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
             materialize_sameas=materialize_sameas,
             materialize_haskey_equality=materialize_haskey_equality,
+            materialize_reflexive_properties=materialize_reflexive_properties,
             materialize_target_roles=materialize_target_roles,
             target_classes=target_classes,
         )
@@ -1088,6 +1944,38 @@ def _evaluate_query_snapshot(
     dag_compile_elapsed_ms += compile_ms
     dag_eval_elapsed_ms += eval_ms
 
+    snapshot_tree = _build_query_snapshot_profile_tree(
+        dataset_build_elapsed_ms=dataset_build_elapsed_ms,
+        data_copy_elapsed_ms=(
+            dataset.preprocessing_timings.data_copy_elapsed_ms
+            if dataset.preprocessing_timings is not None
+            else 0.0
+        ),
+        ontology_merge_elapsed_ms=(
+            dataset.preprocessing_timings.ontology_merge_elapsed_ms
+            if dataset.preprocessing_timings is not None
+            else 0.0
+        ),
+        hierarchy_elapsed_ms=hierarchy_elapsed_ms,
+        atomic_domain_range_elapsed_ms=atomic_domain_range_elapsed_ms,
+        horn_safe_domain_range_elapsed_ms=horn_safe_domain_range_elapsed_ms,
+        sameas_elapsed_ms=sameas_elapsed_ms,
+        reflexive_elapsed_ms=reflexive_elapsed_ms,
+        target_role_elapsed_ms=target_role_elapsed_ms,
+        kgraph_build_elapsed_ms=kgraph_build_elapsed_ms,
+        mapping_vocab_collect_elapsed_ms=mapping_vocab_collect_elapsed_ms,
+        mapping_graph_scan_elapsed_ms=mapping_graph_scan_elapsed_ms,
+        mapping_sort_elapsed_ms=mapping_sort_elapsed_ms,
+        mapping_index_elapsed_ms=mapping_index_elapsed_ms,
+        kgraph_edge_bucket_elapsed_ms=kgraph_edge_bucket_elapsed_ms,
+        kgraph_negative_helper_elapsed_ms=kgraph_negative_helper_elapsed_ms,
+        kgraph_literal_feature_elapsed_ms=kgraph_literal_feature_elapsed_ms,
+        kgraph_adjacency_elapsed_ms=kgraph_adjacency_elapsed_ms,
+        dag_compile_elapsed_ms=dag_compile_elapsed_ms,
+        dag_eval_elapsed_ms=dag_eval_elapsed_ms,
+        device=device,
+    )
+
     return QueryEvaluationSnapshot(
         dataset=dataset,
         members_by_target=members_by_target,
@@ -1110,6 +1998,7 @@ def _evaluate_query_snapshot(
         kgraph_adjacency_elapsed_ms=kgraph_adjacency_elapsed_ms,
         dag_compile_elapsed_ms=dag_compile_elapsed_ms,
         dag_eval_elapsed_ms=dag_eval_elapsed_ms,
+        profile_tree=snapshot_tree,
     )
 
 
@@ -1123,22 +2012,35 @@ def run_engine_queries(
     include_literals: bool = False,
     include_type_edges: bool = False,
     materialize_hierarchy: Optional[bool] = None,
+    materialize_horn_safe_domain_range: Optional[bool] = None,
     materialize_sameas: Optional[bool] = None,
     materialize_haskey_equality: Optional[bool] = None,
+    materialize_reflexive_properties: Optional[bool] = None,
     materialize_target_roles: Optional[bool] = None,
     materialize_supported_types: bool = False,
     augment_property_domain_range: Optional[bool] = None,
-    engine_mode: str = "query",
+    engine_mode: str = "admissibility",
     conflict_policy: str = ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED.value,
+    enable_negative_verification: Optional[bool] = None,
 ) -> EngineQueryResult:
-    device_to_use = device
-    if device_to_use == "cuda" and not torch.cuda.is_available():
-        device_to_use = "cpu"
+    engine_mode = normalize_engine_mode_name(engine_mode)
+    dag_requested_device = device
+    dag_effective_device = _resolve_effective_torch_device(device)
+    torch_cuda_available = _reported_torch_cuda_available(device)
+    device_to_use = "cpu" if dag_effective_device == "unavailable" else dag_effective_device
 
     t0 = perf_counter()
+    engine_profiler: Optional[ProfileRecorder] = None
+    if engine_mode in {"admissibility", "filtered_admissibility", "stratified"}:
+        engine_profiler = ProfileRecorder()
+        engine_profiler.start_root(
+            "engine_total",
+            "engine_total",
+            device=dag_effective_device,
+        )
     iterations: Optional[int] = None
     stratified_result: Optional[StratifiedMaterializationResult] = None
-    filtered_query_result: Optional[FilteredQueryResult] = None
+    filtered_admissibility_result: Optional[FilteredAdmissibilityResult] = None
     stratified_positive_total_elapsed_ms = 0.0
     stratified_positive_iterations = 0
     stratified_positive_avg_dataset_build_elapsed_ms = 0.0
@@ -1150,6 +2052,7 @@ def run_engine_queries(
     stratified_assignment_status_elapsed_ms = 0.0
     stratified_conflict_policy_elapsed_ms = 0.0
     stratified_reporting_compile_elapsed_ms = 0.0
+    result_projection_elapsed_ms = 0.0
     ontology_merge_elapsed_ms = 0.0
     stratified_initial_data_copy_elapsed_ms = 0.0
     stratified_initial_ontology_merge_elapsed_ms = 0.0
@@ -1160,6 +2063,7 @@ def run_engine_queries(
     dependency_closure_elapsed_ms = 0.0
     sameas_state_init_elapsed_ms = 0.0
     dataset_build_elapsed_ms = 0.0
+    data_copy_elapsed_ms = 0.0
     hierarchy_elapsed_ms = 0.0
     atomic_domain_range_elapsed_ms = 0.0
     horn_safe_domain_range_elapsed_ms = 0.0
@@ -1180,26 +2084,162 @@ def run_engine_queries(
     dag_eval_elapsed_ms = 0.0
     stratified_iteration_timings: Optional[List[MaterializationIterationTiming]] = None
     stratified_final_dataset_timing: Optional[PreprocessingTimings] = None
+    query_input_data_graph = data_graph
+
+    if engine_mode in {"admissibility", "filtered_admissibility"}:
+        if engine_profiler is not None:
+            with engine_profiler.scoped(
+                "positive_reasoning",
+                "initial forward Task M pass",
+                category="host_runtime",
+            ) as positive_node:
+                positive_result = materialize_positive_sufficient_class_inferences(
+                    schema_graph=schema_graph,
+                    data_graph=data_graph,
+                    include_literals=include_literals,
+                    include_type_edges=include_type_edges,
+                    materialize_hierarchy=(True if materialize_hierarchy is None else materialize_hierarchy),
+                    materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+                    materialize_sameas=materialize_sameas,
+                    materialize_haskey_equality=materialize_haskey_equality,
+                    materialize_reflexive_properties=materialize_reflexive_properties,
+                    materialize_target_roles=False,
+                    target_classes=target_classes,
+                    threshold=threshold,
+                    device=device_to_use,
+                )
+                if positive_result.profile_tree is not None:
+                    positive_node.children = [
+                        _clone_profile_node(child)
+                        for child in positive_result.profile_tree.children
+                    ]
+        else:
+            positive_result = materialize_positive_sufficient_class_inferences(
+                schema_graph=schema_graph,
+                data_graph=data_graph,
+                include_literals=include_literals,
+                include_type_edges=include_type_edges,
+                materialize_hierarchy=(True if materialize_hierarchy is None else materialize_hierarchy),
+                materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+                materialize_sameas=materialize_sameas,
+                materialize_haskey_equality=materialize_haskey_equality,
+                materialize_reflexive_properties=materialize_reflexive_properties,
+                materialize_target_roles=False,
+                target_classes=target_classes,
+                threshold=threshold,
+                device=device_to_use,
+            )
+        iterations = positive_result.iterations
+        positive_timings = positive_result.timings
+        if positive_timings is not None:
+            stratified_initial_data_copy_elapsed_ms = positive_timings.initial_data_copy_elapsed_ms
+            stratified_initial_ontology_merge_elapsed_ms = positive_timings.initial_ontology_merge_elapsed_ms
+            schema_cache_elapsed_ms = positive_timings.schema_cache_elapsed_ms
+            preprocessing_plan_elapsed_ms = positive_timings.preprocessing_plan_elapsed_ms
+            sufficient_rule_extraction_elapsed_ms = positive_timings.rule_extraction_elapsed_ms
+            sufficient_rule_index_elapsed_ms = positive_timings.rule_index_elapsed_ms
+            dependency_closure_elapsed_ms = positive_timings.dependency_closure_elapsed_ms
+            sameas_state_init_elapsed_ms = positive_timings.sameas_state_init_elapsed_ms
+            data_copy_elapsed_ms = positive_timings.data_copy_elapsed_ms
+            hierarchy_elapsed_ms = positive_timings.hierarchy_elapsed_ms
+            atomic_domain_range_elapsed_ms = positive_timings.atomic_domain_range_elapsed_ms
+            horn_safe_domain_range_elapsed_ms = positive_timings.horn_safe_domain_range_elapsed_ms
+            sameas_elapsed_ms = positive_timings.sameas_elapsed_ms
+            reflexive_elapsed_ms = positive_timings.reflexive_elapsed_ms
+            target_role_elapsed_ms = positive_timings.target_role_elapsed_ms
+            kgraph_build_elapsed_ms = positive_timings.kgraph_build_elapsed_ms
+            mapping_vocab_collect_elapsed_ms = positive_timings.mapping_vocab_collect_elapsed_ms
+            mapping_graph_scan_elapsed_ms = positive_timings.mapping_graph_scan_elapsed_ms
+            mapping_sort_elapsed_ms = positive_timings.mapping_sort_elapsed_ms
+            mapping_index_elapsed_ms = positive_timings.mapping_index_elapsed_ms
+            kgraph_edge_bucket_elapsed_ms = positive_timings.kgraph_edge_bucket_elapsed_ms
+            kgraph_negative_helper_elapsed_ms = positive_timings.kgraph_negative_helper_elapsed_ms
+            kgraph_literal_feature_elapsed_ms = positive_timings.kgraph_literal_feature_elapsed_ms
+            kgraph_adjacency_elapsed_ms = positive_timings.kgraph_adjacency_elapsed_ms
+            dataset_build_elapsed_ms = positive_timings.dataset_build_elapsed_ms
+            dag_compile_elapsed_ms = positive_timings.dag_compile_elapsed_ms
+            dag_eval_elapsed_ms = positive_timings.dag_eval_elapsed_ms
+            stratified_positive_total_elapsed_ms = positive_timings.total_elapsed_ms
+            stratified_positive_iterations = positive_timings.iterations
+            stratified_positive_avg_dataset_build_elapsed_ms = positive_timings.avg_dataset_build_elapsed_ms
+            stratified_positive_avg_dag_compile_elapsed_ms = positive_timings.avg_dag_compile_elapsed_ms
+            stratified_positive_avg_dag_eval_elapsed_ms = positive_timings.avg_dag_eval_elapsed_ms
+            stratified_positive_reasoner_setup_elapsed_ms = positive_timings.reasoner_setup_elapsed_ms
+            stratified_positive_assertion_update_elapsed_ms = positive_timings.assertion_update_elapsed_ms
+            stratified_iteration_timings = positive_timings.iteration_timings
+            stratified_final_dataset_timing = positive_timings.final_dataset_timings
+        if positive_result.inferred_assertions:
+            seed_members_by_target: Dict[URIRef, Set[Identifier]] = defaultdict(set)
+            for node_term, class_term in positive_result.inferred_assertions:
+                seed_members_by_target[class_term].add(node_term)
+            if engine_profiler is not None:
+                with engine_profiler.scoped(
+                    "seed_admissibility_input",
+                    "seed admissibility input",
+                    category="host_runtime",
+                ):
+                    query_input_data_graph = _add_type_assignments(data_graph, seed_members_by_target)
+            else:
+                query_input_data_graph = _add_type_assignments(data_graph, seed_members_by_target)
 
     if engine_mode == "stratified":
-        stratified_result = materialize_stratified_class_inferences(
-            schema_graph=schema_graph,
-            data_graph=data_graph,
-            include_literals=include_literals,
-            include_type_edges=include_type_edges,
-            materialize_hierarchy=(True if materialize_hierarchy is None else materialize_hierarchy),
-            materialize_sameas=materialize_sameas,
-            materialize_haskey_equality=materialize_haskey_equality,
-            materialize_target_roles=False,
-            target_classes=target_classes,
-            threshold=threshold,
-            device=device_to_use,
-            conflict_policy=ConflictPolicy(conflict_policy),
-        )
+        if engine_profiler is not None:
+            with engine_profiler.scoped(
+                "stratified_execution",
+                "stratified execution",
+                category="host_runtime",
+            ) as stratified_node:
+                stratified_result = materialize_stratified_class_inferences(
+                    schema_graph=schema_graph,
+                    data_graph=data_graph,
+                    include_literals=include_literals,
+                    include_type_edges=include_type_edges,
+                    materialize_hierarchy=(True if materialize_hierarchy is None else materialize_hierarchy),
+                    materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+                    materialize_sameas=materialize_sameas,
+                    materialize_haskey_equality=materialize_haskey_equality,
+                    materialize_reflexive_properties=materialize_reflexive_properties,
+                    materialize_target_roles=False,
+                    target_classes=target_classes,
+                    threshold=threshold,
+                    device=device_to_use,
+                    conflict_policy=ConflictPolicy(conflict_policy),
+                    enable_negative_verification=(True if enable_negative_verification is None else enable_negative_verification),
+                )
+                if stratified_result.profile_tree is not None:
+                    stratified_node.children = [
+                        _clone_profile_node(child)
+                        for child in stratified_result.profile_tree.children
+                    ]
+        else:
+            stratified_result = materialize_stratified_class_inferences(
+                schema_graph=schema_graph,
+                data_graph=data_graph,
+                include_literals=include_literals,
+                include_type_edges=include_type_edges,
+                materialize_hierarchy=(True if materialize_hierarchy is None else materialize_hierarchy),
+                materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+                materialize_sameas=materialize_sameas,
+                materialize_haskey_equality=materialize_haskey_equality,
+                materialize_reflexive_properties=materialize_reflexive_properties,
+                materialize_target_roles=False,
+                target_classes=target_classes,
+                threshold=threshold,
+                device=device_to_use,
+                conflict_policy=ConflictPolicy(conflict_policy),
+                enable_negative_verification=(True if enable_negative_verification is None else enable_negative_verification),
+            )
+        if engine_profiler is not None:
+            engine_profiler.push(
+                "stratified_result_marshalling",
+                "stratified result marshalling",
+                category="host_runtime",
+            )
         dataset = stratified_result.positive_result.dataset
         iterations = stratified_result.positive_result.iterations
         if dataset.preprocessing_timings is not None:
             dataset_build_elapsed_ms = dataset.preprocessing_timings.dataset_build_elapsed_ms
+            data_copy_elapsed_ms = dataset.preprocessing_timings.data_copy_elapsed_ms
             ontology_merge_elapsed_ms = dataset.preprocessing_timings.ontology_merge_elapsed_ms
             schema_cache_elapsed_ms = dataset.preprocessing_timings.schema_cache_elapsed_ms
             preprocessing_plan_elapsed_ms = dataset.preprocessing_timings.preprocessing_plan_elapsed_ms
@@ -1219,21 +2259,51 @@ def run_engine_queries(
             kgraph_literal_feature_elapsed_ms = dataset.preprocessing_timings.kgraph_literal_feature_elapsed_ms
             kgraph_adjacency_elapsed_ms = dataset.preprocessing_timings.kgraph_adjacency_elapsed_ms
             sameas_passes_elapsed_ms.extend(dataset.preprocessing_timings.sameas_passes_elapsed_ms)
-    elif engine_mode == "filtered_query":
-        raw_snapshot = _evaluate_query_snapshot(
-            schema_graph=schema_graph,
-            data_graph=data_graph,
-            target_classes=target_classes,
-            device=device_to_use,
-            threshold=threshold,
-            include_literals=include_literals,
-            include_type_edges=include_type_edges,
-            materialize_hierarchy=materialize_hierarchy,
-            materialize_sameas=materialize_sameas,
-            materialize_haskey_equality=materialize_haskey_equality,
-            materialize_target_roles=materialize_target_roles,
-            augment_property_domain_range=augment_property_domain_range,
-        )
+    elif engine_mode == "filtered_admissibility":
+        if engine_profiler is not None:
+            with engine_profiler.scoped(
+                "raw_admissibility",
+                "raw admissibility snapshot",
+                category="host_runtime",
+            ) as raw_node:
+                raw_snapshot = _evaluate_query_snapshot(
+                    schema_graph=schema_graph,
+                    data_graph=query_input_data_graph,
+                    target_classes=target_classes,
+                    device=device_to_use,
+                    threshold=threshold,
+                    include_literals=include_literals,
+                    include_type_edges=include_type_edges,
+                    materialize_hierarchy=materialize_hierarchy,
+                    materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+                    materialize_sameas=materialize_sameas,
+                    materialize_haskey_equality=materialize_haskey_equality,
+                    materialize_reflexive_properties=materialize_reflexive_properties,
+                    materialize_target_roles=materialize_target_roles,
+                    augment_property_domain_range=augment_property_domain_range,
+                )
+                if raw_snapshot.profile_tree is not None:
+                    raw_node.children = [
+                        _clone_profile_node(child)
+                        for child in raw_snapshot.profile_tree.children
+                    ]
+        else:
+            raw_snapshot = _evaluate_query_snapshot(
+                schema_graph=schema_graph,
+                data_graph=query_input_data_graph,
+                target_classes=target_classes,
+                device=device_to_use,
+                threshold=threshold,
+                include_literals=include_literals,
+                include_type_edges=include_type_edges,
+                materialize_hierarchy=materialize_hierarchy,
+                materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+                materialize_sameas=materialize_sameas,
+                materialize_haskey_equality=materialize_haskey_equality,
+                materialize_reflexive_properties=materialize_reflexive_properties,
+                materialize_target_roles=materialize_target_roles,
+                augment_property_domain_range=augment_property_domain_range,
+            )
         raw_members_by_target = _clone_members_by_target(raw_snapshot.members_by_target)
         current_members_by_target = _clone_members_by_target(raw_members_by_target)
         stable_snapshot = raw_snapshot
@@ -1262,98 +2332,239 @@ def run_engine_queries(
             sameas_passes_elapsed_ms.extend(raw_snapshot.dataset.preprocessing_timings.sameas_passes_elapsed_ms)
 
         necessary_fixpoint_iterations = 0
-        while True:
-            necessary_fixpoint_iterations += 1
-            augmented_data_graph = _add_type_assignments(data_graph, current_members_by_target)
-            stable_snapshot = _evaluate_query_snapshot(
-                schema_graph=schema_graph,
-                data_graph=augmented_data_graph,
-                target_classes=target_classes,
-                device=device_to_use,
-                threshold=threshold,
-                include_literals=include_literals,
-                include_type_edges=include_type_edges,
-                materialize_hierarchy=materialize_hierarchy,
-                materialize_sameas=materialize_sameas,
-                materialize_haskey_equality=materialize_haskey_equality,
-                materialize_target_roles=materialize_target_roles,
-                augment_property_domain_range=augment_property_domain_range,
-            )
-            dataset_build_elapsed_ms += stable_snapshot.dataset_build_elapsed_ms
-            hierarchy_elapsed_ms += stable_snapshot.hierarchy_elapsed_ms
-            atomic_domain_range_elapsed_ms += stable_snapshot.atomic_domain_range_elapsed_ms
-            horn_safe_domain_range_elapsed_ms += stable_snapshot.horn_safe_domain_range_elapsed_ms
-            sameas_elapsed_ms += stable_snapshot.sameas_elapsed_ms
-            reflexive_elapsed_ms += stable_snapshot.reflexive_elapsed_ms
-            target_role_elapsed_ms += stable_snapshot.target_role_elapsed_ms
-            kgraph_build_elapsed_ms += stable_snapshot.kgraph_build_elapsed_ms
-            mapping_vocab_collect_elapsed_ms += stable_snapshot.mapping_vocab_collect_elapsed_ms
-            mapping_graph_scan_elapsed_ms += stable_snapshot.mapping_graph_scan_elapsed_ms
-            mapping_sort_elapsed_ms += stable_snapshot.mapping_sort_elapsed_ms
-            mapping_index_elapsed_ms += stable_snapshot.mapping_index_elapsed_ms
-            kgraph_edge_bucket_elapsed_ms += stable_snapshot.kgraph_edge_bucket_elapsed_ms
-            kgraph_negative_helper_elapsed_ms += stable_snapshot.kgraph_negative_helper_elapsed_ms
-            kgraph_literal_feature_elapsed_ms += stable_snapshot.kgraph_literal_feature_elapsed_ms
-            kgraph_adjacency_elapsed_ms += stable_snapshot.kgraph_adjacency_elapsed_ms
-            dag_compile_elapsed_ms += stable_snapshot.dag_compile_elapsed_ms
-            dag_eval_elapsed_ms += stable_snapshot.dag_eval_elapsed_ms
-            if stable_snapshot.dataset.preprocessing_timings is not None:
-                ontology_merge_elapsed_ms += stable_snapshot.dataset.preprocessing_timings.ontology_merge_elapsed_ms
-                schema_cache_elapsed_ms += stable_snapshot.dataset.preprocessing_timings.schema_cache_elapsed_ms
-                preprocessing_plan_elapsed_ms += stable_snapshot.dataset.preprocessing_timings.preprocessing_plan_elapsed_ms
-                sameas_passes_elapsed_ms.extend(stable_snapshot.dataset.preprocessing_timings.sameas_passes_elapsed_ms)
+        if engine_profiler is not None:
+            with engine_profiler.scoped(
+                "necessary_fixpoint",
+                "filtered admissibility stabilization",
+                category="host_runtime",
+            ):
+                while True:
+                    necessary_fixpoint_iterations += 1
+                    with engine_profiler.scoped(
+                        f"necessary_iteration_{necessary_fixpoint_iterations}",
+                        f"necessary iteration {necessary_fixpoint_iterations}",
+                        category="host_runtime",
+                        iteration=necessary_fixpoint_iterations,
+                    ) as iteration_node:
+                        augmented_data_graph = _add_type_assignments(query_input_data_graph, current_members_by_target)
+                        stable_snapshot = _evaluate_query_snapshot(
+                            schema_graph=schema_graph,
+                            data_graph=augmented_data_graph,
+                            target_classes=target_classes,
+                            device=device_to_use,
+                            threshold=threshold,
+                            include_literals=include_literals,
+                            include_type_edges=include_type_edges,
+                            materialize_hierarchy=materialize_hierarchy,
+                            materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+                            materialize_sameas=materialize_sameas,
+                            materialize_haskey_equality=materialize_haskey_equality,
+                            materialize_reflexive_properties=materialize_reflexive_properties,
+                            materialize_target_roles=materialize_target_roles,
+                            augment_property_domain_range=augment_property_domain_range,
+                        )
+                        if stable_snapshot.profile_tree is not None:
+                            iteration_node.children = [
+                                _clone_profile_node(child)
+                                for child in stable_snapshot.profile_tree.children
+                            ]
+                    dataset_build_elapsed_ms += stable_snapshot.dataset_build_elapsed_ms
+                    hierarchy_elapsed_ms += stable_snapshot.hierarchy_elapsed_ms
+                    atomic_domain_range_elapsed_ms += stable_snapshot.atomic_domain_range_elapsed_ms
+                    horn_safe_domain_range_elapsed_ms += stable_snapshot.horn_safe_domain_range_elapsed_ms
+                    sameas_elapsed_ms += stable_snapshot.sameas_elapsed_ms
+                    reflexive_elapsed_ms += stable_snapshot.reflexive_elapsed_ms
+                    target_role_elapsed_ms += stable_snapshot.target_role_elapsed_ms
+                    kgraph_build_elapsed_ms += stable_snapshot.kgraph_build_elapsed_ms
+                    mapping_vocab_collect_elapsed_ms += stable_snapshot.mapping_vocab_collect_elapsed_ms
+                    mapping_graph_scan_elapsed_ms += stable_snapshot.mapping_graph_scan_elapsed_ms
+                    mapping_sort_elapsed_ms += stable_snapshot.mapping_sort_elapsed_ms
+                    mapping_index_elapsed_ms += stable_snapshot.mapping_index_elapsed_ms
+                    kgraph_edge_bucket_elapsed_ms += stable_snapshot.kgraph_edge_bucket_elapsed_ms
+                    kgraph_negative_helper_elapsed_ms += stable_snapshot.kgraph_negative_helper_elapsed_ms
+                    kgraph_literal_feature_elapsed_ms += stable_snapshot.kgraph_literal_feature_elapsed_ms
+                    kgraph_adjacency_elapsed_ms += stable_snapshot.kgraph_adjacency_elapsed_ms
+                    dag_compile_elapsed_ms += stable_snapshot.dag_compile_elapsed_ms
+                    dag_eval_elapsed_ms += stable_snapshot.dag_eval_elapsed_ms
+                    if stable_snapshot.dataset.preprocessing_timings is not None:
+                        ontology_merge_elapsed_ms += stable_snapshot.dataset.preprocessing_timings.ontology_merge_elapsed_ms
+                        schema_cache_elapsed_ms += stable_snapshot.dataset.preprocessing_timings.schema_cache_elapsed_ms
+                        preprocessing_plan_elapsed_ms += stable_snapshot.dataset.preprocessing_timings.preprocessing_plan_elapsed_ms
+                        sameas_passes_elapsed_ms.extend(stable_snapshot.dataset.preprocessing_timings.sameas_passes_elapsed_ms)
 
-            next_members_by_target: Dict[URIRef, Set[Identifier]] = {}
-            for target_term in target_classes:
-                previous_members = current_members_by_target.get(target_term, set())
-                scores = stable_snapshot.scores_by_target.get(target_term, {})
-                next_members_by_target[target_term] = {
-                    node_term
-                    for node_term in previous_members
-                    if scores.get(node_term, 0.0) >= threshold
-                }
-            if next_members_by_target == current_members_by_target:
+                    next_members_by_target: Dict[URIRef, Set[Identifier]] = {}
+                    for target_term in target_classes:
+                        previous_members = current_members_by_target.get(target_term, set())
+                        scores = stable_snapshot.scores_by_target.get(target_term, {})
+                        next_members_by_target[target_term] = {
+                            node_term
+                            for node_term in previous_members
+                            if scores.get(node_term, 0.0) >= threshold
+                        }
+                    if next_members_by_target == current_members_by_target:
+                        current_members_by_target = next_members_by_target
+                        break
+                    current_members_by_target = next_members_by_target
+        else:
+            while True:
+                necessary_fixpoint_iterations += 1
+                augmented_data_graph = _add_type_assignments(query_input_data_graph, current_members_by_target)
+                stable_snapshot = _evaluate_query_snapshot(
+                    schema_graph=schema_graph,
+                    data_graph=augmented_data_graph,
+                    target_classes=target_classes,
+                    device=device_to_use,
+                    threshold=threshold,
+                    include_literals=include_literals,
+                    include_type_edges=include_type_edges,
+                    materialize_hierarchy=materialize_hierarchy,
+                    materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+                    materialize_sameas=materialize_sameas,
+                    materialize_haskey_equality=materialize_haskey_equality,
+                    materialize_reflexive_properties=materialize_reflexive_properties,
+                    materialize_target_roles=materialize_target_roles,
+                    augment_property_domain_range=augment_property_domain_range,
+                )
+                dataset_build_elapsed_ms += stable_snapshot.dataset_build_elapsed_ms
+                hierarchy_elapsed_ms += stable_snapshot.hierarchy_elapsed_ms
+                atomic_domain_range_elapsed_ms += stable_snapshot.atomic_domain_range_elapsed_ms
+                horn_safe_domain_range_elapsed_ms += stable_snapshot.horn_safe_domain_range_elapsed_ms
+                sameas_elapsed_ms += stable_snapshot.sameas_elapsed_ms
+                reflexive_elapsed_ms += stable_snapshot.reflexive_elapsed_ms
+                target_role_elapsed_ms += stable_snapshot.target_role_elapsed_ms
+                kgraph_build_elapsed_ms += stable_snapshot.kgraph_build_elapsed_ms
+                mapping_vocab_collect_elapsed_ms += stable_snapshot.mapping_vocab_collect_elapsed_ms
+                mapping_graph_scan_elapsed_ms += stable_snapshot.mapping_graph_scan_elapsed_ms
+                mapping_sort_elapsed_ms += stable_snapshot.mapping_sort_elapsed_ms
+                mapping_index_elapsed_ms += stable_snapshot.mapping_index_elapsed_ms
+                kgraph_edge_bucket_elapsed_ms += stable_snapshot.kgraph_edge_bucket_elapsed_ms
+                kgraph_negative_helper_elapsed_ms += stable_snapshot.kgraph_negative_helper_elapsed_ms
+                kgraph_literal_feature_elapsed_ms += stable_snapshot.kgraph_literal_feature_elapsed_ms
+                kgraph_adjacency_elapsed_ms += stable_snapshot.kgraph_adjacency_elapsed_ms
+                dag_compile_elapsed_ms += stable_snapshot.dag_compile_elapsed_ms
+                dag_eval_elapsed_ms += stable_snapshot.dag_eval_elapsed_ms
+                if stable_snapshot.dataset.preprocessing_timings is not None:
+                    ontology_merge_elapsed_ms += stable_snapshot.dataset.preprocessing_timings.ontology_merge_elapsed_ms
+                    schema_cache_elapsed_ms += stable_snapshot.dataset.preprocessing_timings.schema_cache_elapsed_ms
+                    preprocessing_plan_elapsed_ms += stable_snapshot.dataset.preprocessing_timings.preprocessing_plan_elapsed_ms
+                    sameas_passes_elapsed_ms.extend(stable_snapshot.dataset.preprocessing_timings.sameas_passes_elapsed_ms)
+
+                next_members_by_target: Dict[URIRef, Set[Identifier]] = {}
+                for target_term in target_classes:
+                    previous_members = current_members_by_target.get(target_term, set())
+                    scores = stable_snapshot.scores_by_target.get(target_term, {})
+                    next_members_by_target[target_term] = {
+                        node_term
+                        for node_term in previous_members
+                        if scores.get(node_term, 0.0) >= threshold
+                    }
+                if next_members_by_target == current_members_by_target:
+                    current_members_by_target = next_members_by_target
+                    break
                 current_members_by_target = next_members_by_target
-                break
-            current_members_by_target = next_members_by_target
 
         necessary_stable_members_by_target = _clone_members_by_target(current_members_by_target)
-        filtered_data_graph = _add_type_assignments(data_graph, necessary_stable_members_by_target)
-        stratified_result = materialize_stratified_class_inferences(
-            schema_graph=schema_graph,
-            data_graph=filtered_data_graph,
-            include_literals=include_literals,
-            include_type_edges=include_type_edges,
-            materialize_hierarchy=(True if materialize_hierarchy is None else materialize_hierarchy),
-            materialize_sameas=materialize_sameas,
-            materialize_haskey_equality=materialize_haskey_equality,
-            materialize_target_roles=False,
-            target_classes=target_classes,
-            threshold=threshold,
-            device=device_to_use,
-            conflict_policy=ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED,
-        )
-
-        closure_blocked_members_by_target: Dict[URIRef, Set[Identifier]] = {
-            target_term: set()
-            for target_term in target_classes
-        }
-        for blocked in stratified_result.negative_result.blocked_assertions:
-            target_term = blocked.target_class
-            if (
-                target_term in closure_blocked_members_by_target
-                and blocked.node_term in necessary_stable_members_by_target.get(target_term, set())
+        if engine_profiler is not None:
+            with engine_profiler.scoped(
+                "seed_closure_verification_input",
+                "seed closure verification input",
+                category="host_runtime",
             ):
-                closure_blocked_members_by_target[target_term].add(blocked.node_term)
-
-        final_members_by_target: Dict[URIRef, Set[Identifier]] = {}
-        for target_term in target_classes:
-            final_members_by_target[target_term] = (
-                necessary_stable_members_by_target.get(target_term, set())
-                - closure_blocked_members_by_target.get(target_term, set())
+                filtered_data_graph = _add_type_assignments(query_input_data_graph, necessary_stable_members_by_target)
+        else:
+            filtered_data_graph = _add_type_assignments(query_input_data_graph, necessary_stable_members_by_target)
+        if engine_profiler is not None:
+            with engine_profiler.scoped(
+                "closure_verification",
+                "closure verification",
+                category="host_runtime",
+            ) as closure_node:
+                stratified_result = materialize_stratified_class_inferences(
+                    schema_graph=schema_graph,
+                    data_graph=filtered_data_graph,
+                    include_literals=include_literals,
+                    include_type_edges=include_type_edges,
+                    materialize_hierarchy=(True if materialize_hierarchy is None else materialize_hierarchy),
+                    materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+                    materialize_sameas=materialize_sameas,
+                    materialize_haskey_equality=materialize_haskey_equality,
+                    materialize_reflexive_properties=materialize_reflexive_properties,
+                    materialize_target_roles=False,
+                    target_classes=target_classes,
+                    threshold=threshold,
+                    device=device_to_use,
+                    conflict_policy=ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED,
+                    enable_negative_verification=(True if enable_negative_verification is None else enable_negative_verification),
+                )
+                if stratified_result.profile_tree is not None:
+                    closure_node.children = [
+                        _clone_profile_node(child)
+                        for child in stratified_result.profile_tree.children
+                    ]
+        else:
+            stratified_result = materialize_stratified_class_inferences(
+                schema_graph=schema_graph,
+                data_graph=filtered_data_graph,
+                include_literals=include_literals,
+                include_type_edges=include_type_edges,
+                materialize_hierarchy=(True if materialize_hierarchy is None else materialize_hierarchy),
+                materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+                materialize_sameas=materialize_sameas,
+                materialize_haskey_equality=materialize_haskey_equality,
+                materialize_reflexive_properties=materialize_reflexive_properties,
+                materialize_target_roles=False,
+                target_classes=target_classes,
+                threshold=threshold,
+                device=device_to_use,
+                conflict_policy=ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED,
+                enable_negative_verification=(True if enable_negative_verification is None else enable_negative_verification),
             )
 
-        filtered_query_result = FilteredQueryResult(
+        if engine_profiler is not None:
+            with engine_profiler.scoped(
+                "filtered_result_assembly",
+                "filtered result assembly",
+                category="host_runtime",
+            ):
+                closure_blocked_members_by_target: Dict[URIRef, Set[Identifier]] = {
+                    target_term: set()
+                    for target_term in target_classes
+                }
+                for blocked in stratified_result.negative_result.blocked_assertions:
+                    target_term = blocked.target_class
+                    if (
+                        target_term in closure_blocked_members_by_target
+                        and blocked.node_term in necessary_stable_members_by_target.get(target_term, set())
+                    ):
+                        closure_blocked_members_by_target[target_term].add(blocked.node_term)
+
+                final_members_by_target: Dict[URIRef, Set[Identifier]] = {}
+                for target_term in target_classes:
+                    final_members_by_target[target_term] = (
+                        necessary_stable_members_by_target.get(target_term, set())
+                        - closure_blocked_members_by_target.get(target_term, set())
+                    )
+        else:
+            closure_blocked_members_by_target = {
+                target_term: set()
+                for target_term in target_classes
+            }
+            for blocked in stratified_result.negative_result.blocked_assertions:
+                target_term = blocked.target_class
+                if (
+                    target_term in closure_blocked_members_by_target
+                    and blocked.node_term in necessary_stable_members_by_target.get(target_term, set())
+                ):
+                    closure_blocked_members_by_target[target_term].add(blocked.node_term)
+
+            final_members_by_target = {}
+            for target_term in target_classes:
+                final_members_by_target[target_term] = (
+                    necessary_stable_members_by_target.get(target_term, set())
+                    - closure_blocked_members_by_target.get(target_term, set())
+                )
+
+        filtered_admissibility_result = FilteredAdmissibilityResult(
             raw_members_by_target=raw_members_by_target,
             necessary_stable_members_by_target=necessary_stable_members_by_target,
             closure_blocked_members_by_target=closure_blocked_members_by_target,
@@ -1367,14 +2578,27 @@ def run_engine_queries(
             final_emitted_count=_count_members_by_target(final_members_by_target),
             necessary_fixpoint_iterations=necessary_fixpoint_iterations,
             stratified_result=stratified_result,
+            profile_tree=None,
         )
         dataset = stable_snapshot.dataset
         members_by_target = final_members_by_target
-        scores_by_target = _build_binary_scores(
-            dataset.mapping.node_terms,
-            target_classes,
-            final_members_by_target,
-        )
+        if engine_profiler is not None:
+            with engine_profiler.scoped(
+                "filtered_score_projection",
+                "filtered score projection",
+                category="host_runtime",
+            ):
+                scores_by_target = _build_binary_scores(
+                    dataset.mapping.node_terms,
+                    target_classes,
+                    final_members_by_target,
+                )
+        else:
+            scores_by_target = _build_binary_scores(
+                dataset.mapping.node_terms,
+                target_classes,
+                final_members_by_target,
+            )
         iterations = necessary_fixpoint_iterations
     elif materialize_supported_types:
         materialized = materialize_supported_class_inferences(
@@ -1383,8 +2607,10 @@ def run_engine_queries(
             include_literals=include_literals,
             include_type_edges=include_type_edges,
             materialize_hierarchy=materialize_hierarchy,
+            materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
             materialize_sameas=materialize_sameas,
             materialize_haskey_equality=materialize_haskey_equality,
+            materialize_reflexive_properties=materialize_reflexive_properties,
             target_classes=target_classes,
             threshold=threshold,
             device=device_to_use,
@@ -1393,6 +2619,7 @@ def run_engine_queries(
         iterations = materialized.iterations
         if dataset.preprocessing_timings is not None:
             dataset_build_elapsed_ms = dataset.preprocessing_timings.dataset_build_elapsed_ms
+            data_copy_elapsed_ms = dataset.preprocessing_timings.data_copy_elapsed_ms
             ontology_merge_elapsed_ms = dataset.preprocessing_timings.ontology_merge_elapsed_ms
             schema_cache_elapsed_ms = dataset.preprocessing_timings.schema_cache_elapsed_ms
             preprocessing_plan_elapsed_ms = dataset.preprocessing_timings.preprocessing_plan_elapsed_ms
@@ -1405,58 +2632,88 @@ def run_engine_queries(
             kgraph_build_elapsed_ms = dataset.preprocessing_timings.kgraph_build_elapsed_ms
             sameas_passes_elapsed_ms.extend(dataset.preprocessing_timings.sameas_passes_elapsed_ms)
     else:
-        snapshot = _evaluate_query_snapshot(
-            schema_graph=schema_graph,
-            data_graph=data_graph,
-            target_classes=target_classes,
-            device=device_to_use,
-            threshold=threshold,
-            include_literals=include_literals,
-            include_type_edges=include_type_edges,
-            materialize_hierarchy=materialize_hierarchy,
-            materialize_sameas=materialize_sameas,
-            materialize_haskey_equality=materialize_haskey_equality,
-            materialize_target_roles=materialize_target_roles,
-            augment_property_domain_range=augment_property_domain_range,
-        )
+        if engine_profiler is not None:
+            with engine_profiler.scoped(
+                "admissibility_evaluation",
+                "admissibility evaluation",
+                category="host_runtime",
+            ) as admissibility_node:
+                snapshot = _evaluate_query_snapshot(
+                    schema_graph=schema_graph,
+                    data_graph=query_input_data_graph,
+                    target_classes=target_classes,
+                    device=device_to_use,
+                    threshold=threshold,
+                    include_literals=include_literals,
+                    include_type_edges=include_type_edges,
+                    materialize_hierarchy=materialize_hierarchy,
+                    materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+                    materialize_sameas=materialize_sameas,
+                    materialize_haskey_equality=materialize_haskey_equality,
+                    materialize_reflexive_properties=materialize_reflexive_properties,
+                    materialize_target_roles=materialize_target_roles,
+                    augment_property_domain_range=augment_property_domain_range,
+                )
+                if snapshot.profile_tree is not None:
+                    admissibility_node.children = [
+                        _clone_profile_node(child)
+                        for child in snapshot.profile_tree.children
+                    ]
+        else:
+            snapshot = _evaluate_query_snapshot(
+                schema_graph=schema_graph,
+                data_graph=query_input_data_graph,
+                target_classes=target_classes,
+                device=device_to_use,
+                threshold=threshold,
+                include_literals=include_literals,
+                include_type_edges=include_type_edges,
+                materialize_hierarchy=materialize_hierarchy,
+                materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+                materialize_sameas=materialize_sameas,
+                materialize_haskey_equality=materialize_haskey_equality,
+                materialize_reflexive_properties=materialize_reflexive_properties,
+                materialize_target_roles=materialize_target_roles,
+                augment_property_domain_range=augment_property_domain_range,
+            )
         dataset = snapshot.dataset
         members_by_target = snapshot.members_by_target
         scores_by_target = snapshot.scores_by_target
-        dataset_build_elapsed_ms = snapshot.dataset_build_elapsed_ms
-        ontology_merge_elapsed_ms = (
+        dataset_build_elapsed_ms += snapshot.dataset_build_elapsed_ms
+        ontology_merge_elapsed_ms += (
             snapshot.dataset.preprocessing_timings.ontology_merge_elapsed_ms
             if snapshot.dataset.preprocessing_timings is not None
             else 0.0
         )
-        schema_cache_elapsed_ms = (
+        schema_cache_elapsed_ms += (
             snapshot.dataset.preprocessing_timings.schema_cache_elapsed_ms
             if snapshot.dataset.preprocessing_timings is not None
             else 0.0
         )
-        preprocessing_plan_elapsed_ms = (
+        preprocessing_plan_elapsed_ms += (
             snapshot.dataset.preprocessing_timings.preprocessing_plan_elapsed_ms
             if snapshot.dataset.preprocessing_timings is not None
             else 0.0
         )
-        hierarchy_elapsed_ms = snapshot.hierarchy_elapsed_ms
-        atomic_domain_range_elapsed_ms = snapshot.atomic_domain_range_elapsed_ms
-        horn_safe_domain_range_elapsed_ms = snapshot.horn_safe_domain_range_elapsed_ms
-        sameas_elapsed_ms = snapshot.sameas_elapsed_ms
-        reflexive_elapsed_ms = snapshot.reflexive_elapsed_ms
-        target_role_elapsed_ms = snapshot.target_role_elapsed_ms
-        kgraph_build_elapsed_ms = snapshot.kgraph_build_elapsed_ms
-        mapping_vocab_collect_elapsed_ms = snapshot.mapping_vocab_collect_elapsed_ms
-        mapping_graph_scan_elapsed_ms = snapshot.mapping_graph_scan_elapsed_ms
-        mapping_sort_elapsed_ms = snapshot.mapping_sort_elapsed_ms
-        mapping_index_elapsed_ms = snapshot.mapping_index_elapsed_ms
-        kgraph_edge_bucket_elapsed_ms = snapshot.kgraph_edge_bucket_elapsed_ms
-        kgraph_negative_helper_elapsed_ms = snapshot.kgraph_negative_helper_elapsed_ms
-        kgraph_literal_feature_elapsed_ms = snapshot.kgraph_literal_feature_elapsed_ms
-        kgraph_adjacency_elapsed_ms = snapshot.kgraph_adjacency_elapsed_ms
+        hierarchy_elapsed_ms += snapshot.hierarchy_elapsed_ms
+        atomic_domain_range_elapsed_ms += snapshot.atomic_domain_range_elapsed_ms
+        horn_safe_domain_range_elapsed_ms += snapshot.horn_safe_domain_range_elapsed_ms
+        sameas_elapsed_ms += snapshot.sameas_elapsed_ms
+        reflexive_elapsed_ms += snapshot.reflexive_elapsed_ms
+        target_role_elapsed_ms += snapshot.target_role_elapsed_ms
+        kgraph_build_elapsed_ms += snapshot.kgraph_build_elapsed_ms
+        mapping_vocab_collect_elapsed_ms += snapshot.mapping_vocab_collect_elapsed_ms
+        mapping_graph_scan_elapsed_ms += snapshot.mapping_graph_scan_elapsed_ms
+        mapping_sort_elapsed_ms += snapshot.mapping_sort_elapsed_ms
+        mapping_index_elapsed_ms += snapshot.mapping_index_elapsed_ms
+        kgraph_edge_bucket_elapsed_ms += snapshot.kgraph_edge_bucket_elapsed_ms
+        kgraph_negative_helper_elapsed_ms += snapshot.kgraph_negative_helper_elapsed_ms
+        kgraph_literal_feature_elapsed_ms += snapshot.kgraph_literal_feature_elapsed_ms
+        kgraph_adjacency_elapsed_ms += snapshot.kgraph_adjacency_elapsed_ms
         if snapshot.dataset.preprocessing_timings is not None:
             sameas_passes_elapsed_ms.extend(snapshot.dataset.preprocessing_timings.sameas_passes_elapsed_ms)
-        dag_compile_elapsed_ms = snapshot.dag_compile_elapsed_ms
-        dag_eval_elapsed_ms = snapshot.dag_eval_elapsed_ms
+        dag_compile_elapsed_ms += snapshot.dag_compile_elapsed_ms
+        dag_eval_elapsed_ms += snapshot.dag_eval_elapsed_ms
 
     if engine_mode == "stratified":
         stratified_positive_total_elapsed_ms = 0.0
@@ -1479,6 +2736,7 @@ def run_engine_queries(
             sufficient_rule_index_elapsed_ms = positive_timings.rule_index_elapsed_ms
             dependency_closure_elapsed_ms = positive_timings.dependency_closure_elapsed_ms
             sameas_state_init_elapsed_ms = positive_timings.sameas_state_init_elapsed_ms
+            data_copy_elapsed_ms = positive_timings.data_copy_elapsed_ms
             hierarchy_elapsed_ms = positive_timings.hierarchy_elapsed_ms
             atomic_domain_range_elapsed_ms = positive_timings.atomic_domain_range_elapsed_ms
             horn_safe_domain_range_elapsed_ms = positive_timings.horn_safe_domain_range_elapsed_ms
@@ -1511,31 +2769,167 @@ def run_engine_queries(
             stratified_conflict_policy_elapsed_ms = stratified_result.timings.conflict_policy_elapsed_ms
         members_by_target = {}
         scores_by_target = {}
-        compile_t0 = perf_counter()
-        for target_term in target_classes:
-            compile_sufficient_condition_dag(
-                dataset.ontology_graph,
-                dataset.mapping,
-                target_term,
-            )
-        stratified_reporting_compile_elapsed_ms = (perf_counter() - compile_t0) * 1000.0
-        dag_compile_elapsed_ms += stratified_reporting_compile_elapsed_ms
 
-        emitted_members_by_target: Dict[URIRef, Set[Identifier]] = {target: set() for target in target_classes}
-        if stratified_result is not None:
-            for status in stratified_result.policy_result.emitted_assignments:
-                if status.target_class in emitted_members_by_target:
-                    emitted_members_by_target[status.target_class].add(status.node_term)
+        if engine_profiler is not None:
+            with engine_profiler.scoped(
+                "result_projection",
+                "result projection",
+                category="host_runtime",
+            ):
+                projection_t0 = perf_counter()
+                emitted_members_by_target: Dict[URIRef, Set[Identifier]] = {target: set() for target in target_classes}
+                if stratified_result is not None:
+                    for status in stratified_result.policy_result.emitted_assignments:
+                        if status.target_class in emitted_members_by_target:
+                            emitted_members_by_target[status.target_class].add(status.node_term)
 
-        for target_term in target_classes:
-            members = emitted_members_by_target.get(target_term, set())
-            scores: Dict[Identifier, float] = {}
-            for node_term in dataset.mapping.node_terms:
-                score = 1.0 if node_term in members else 0.0
-                scores[node_term] = score
-            members_by_target[target_term] = set(members)
-            scores_by_target[target_term] = scores
+                for target_term in target_classes:
+                    members = emitted_members_by_target.get(target_term, set())
+                    scores: Dict[Identifier, float] = {}
+                    for node_term in dataset.mapping.node_terms:
+                        score = 1.0 if node_term in members else 0.0
+                        scores[node_term] = score
+                    members_by_target[target_term] = set(members)
+                    scores_by_target[target_term] = scores
+                result_projection_elapsed_ms = (perf_counter() - projection_t0) * 1000.0
+        else:
+            projection_t0 = perf_counter()
+            emitted_members_by_target = {target: set() for target in target_classes}
+            if stratified_result is not None:
+                for status in stratified_result.policy_result.emitted_assignments:
+                    if status.target_class in emitted_members_by_target:
+                        emitted_members_by_target[status.target_class].add(status.node_term)
+
+            for target_term in target_classes:
+                members = emitted_members_by_target.get(target_term, set())
+                scores = {}
+                for node_term in dataset.mapping.node_terms:
+                    score = 1.0 if node_term in members else 0.0
+                    scores[node_term] = score
+                members_by_target[target_term] = set(members)
+                scores_by_target[target_term] = scores
+            result_projection_elapsed_ms = (perf_counter() - projection_t0) * 1000.0
+        if engine_profiler is not None:
+            engine_profiler.pop()
+    if engine_profiler is not None:
+        with engine_profiler.scoped(
+            "engine_postprocess",
+            "engine postprocess",
+            category="host_runtime",
+        ):
+            dag_stats_by_target: Dict[URIRef, DAGStats] = {}
+            compiled_target_dags: Optional[Dict[URIRef, ConstraintDAG]] = None
+            if stratified_result is not None and stratified_result.positive_result.compiled_target_dags is not None:
+                compiled_target_dags = stratified_result.positive_result.compiled_target_dags
+            if compiled_target_dags:
+                with engine_profiler.scoped("dag_stats", "dag stats", category="host_runtime"):
+                    dag_stats_by_target = {
+                        target_term: _compute_dag_stats(dag)
+                        for target_term, dag in compiled_target_dags.items()
+                        if target_term in target_classes
+                    }
+    else:
+        dag_stats_by_target = {}
+        compiled_target_dags = None
+        if stratified_result is not None and stratified_result.positive_result.compiled_target_dags is not None:
+            compiled_target_dags = stratified_result.positive_result.compiled_target_dags
+        if compiled_target_dags:
+            dag_stats_by_target = {
+                target_term: _compute_dag_stats(dag)
+                for target_term, dag in compiled_target_dags.items()
+                if target_term in target_classes
+            }
+
     elapsed_ms = (perf_counter() - t0) * 1000.0
+    profile_tree: Optional[ProfileNode] = None
+    profile_summary: Optional[ProfileSummary] = None
+    if engine_profiler is not None:
+        profile_tree = engine_profiler.build_tree()
+        if profile_tree is not None:
+            if filtered_admissibility_result is not None:
+                filtered_admissibility_result.profile_tree = _clone_profile_node(profile_tree)
+            warnings = validate_profile_tree(profile_tree)
+            disjoint_top_level_elapsed_ms = sum(child.elapsed_ms_inclusive for child in profile_tree.children)
+            residual = profile_tree.elapsed_ms_inclusive - disjoint_top_level_elapsed_ms
+            root_tol = profile_tolerance_ms(profile_tree.elapsed_ms_inclusive)
+            if abs(residual) > root_tol:
+                warnings.append(
+                    ProfileValidationWarning(
+                        path=profile_tree.name,
+                        issue="top-level children do not reconcile to engine total",
+                        elapsed_ms=abs(residual),
+                        tolerance_ms=root_tol,
+                    )
+                )
+            profile_summary = ProfileSummary(
+                root_elapsed_ms=profile_tree.elapsed_ms_inclusive,
+                category_totals_ms=aggregate_by_category(profile_tree),
+                warnings=warnings,
+                reconciliation_residual_ms=residual,
+            )
+    if profile_tree is None or profile_summary is None:
+        profile_tree, profile_summary = _build_engine_profile_tree(
+            EngineQueryResult(
+            backend="engine",
+            elapsed_ms=elapsed_ms,
+            members_by_target=members_by_target,
+            dataset=dataset,
+            scores_by_target=scores_by_target,
+            materialization_iterations=iterations,
+            engine_mode=engine_mode,
+            conflict_policy=(conflict_policy if engine_mode in {"stratified", "filtered_admissibility"} else None),
+            stratified_result=stratified_result,
+            filtered_admissibility_result=filtered_admissibility_result,
+            consistent=None,
+            ontology_merge_elapsed_ms=ontology_merge_elapsed_ms,
+            stratified_initial_data_copy_elapsed_ms=stratified_initial_data_copy_elapsed_ms,
+            stratified_initial_ontology_merge_elapsed_ms=stratified_initial_ontology_merge_elapsed_ms,
+            schema_cache_elapsed_ms=schema_cache_elapsed_ms,
+            preprocessing_plan_elapsed_ms=preprocessing_plan_elapsed_ms,
+            sufficient_rule_extraction_elapsed_ms=sufficient_rule_extraction_elapsed_ms,
+            sufficient_rule_index_elapsed_ms=sufficient_rule_index_elapsed_ms,
+            dependency_closure_elapsed_ms=dependency_closure_elapsed_ms,
+            sameas_state_init_elapsed_ms=sameas_state_init_elapsed_ms,
+            dataset_build_elapsed_ms=dataset_build_elapsed_ms,
+            data_copy_elapsed_ms=data_copy_elapsed_ms,
+            hierarchy_elapsed_ms=hierarchy_elapsed_ms,
+            atomic_domain_range_elapsed_ms=atomic_domain_range_elapsed_ms,
+            horn_safe_domain_range_elapsed_ms=horn_safe_domain_range_elapsed_ms,
+            sameas_elapsed_ms=sameas_elapsed_ms,
+            reflexive_elapsed_ms=reflexive_elapsed_ms,
+            target_role_elapsed_ms=target_role_elapsed_ms,
+            kgraph_build_elapsed_ms=kgraph_build_elapsed_ms,
+            mapping_vocab_collect_elapsed_ms=mapping_vocab_collect_elapsed_ms,
+            mapping_graph_scan_elapsed_ms=mapping_graph_scan_elapsed_ms,
+            mapping_sort_elapsed_ms=mapping_sort_elapsed_ms,
+            mapping_index_elapsed_ms=mapping_index_elapsed_ms,
+            kgraph_edge_bucket_elapsed_ms=kgraph_edge_bucket_elapsed_ms,
+            kgraph_negative_helper_elapsed_ms=kgraph_negative_helper_elapsed_ms,
+            kgraph_literal_feature_elapsed_ms=kgraph_literal_feature_elapsed_ms,
+            kgraph_adjacency_elapsed_ms=kgraph_adjacency_elapsed_ms,
+            sameas_passes_elapsed_ms=sameas_passes_elapsed_ms,
+            stratified_positive_reasoner_setup_elapsed_ms=stratified_positive_reasoner_setup_elapsed_ms,
+            dag_compile_elapsed_ms=dag_compile_elapsed_ms,
+            dag_eval_elapsed_ms=dag_eval_elapsed_ms,
+            stratified_positive_assertion_update_elapsed_ms=stratified_positive_assertion_update_elapsed_ms,
+            stratified_positive_total_elapsed_ms=stratified_positive_total_elapsed_ms,
+            stratified_positive_iterations=stratified_positive_iterations,
+            stratified_positive_avg_dataset_build_elapsed_ms=stratified_positive_avg_dataset_build_elapsed_ms,
+            stratified_positive_avg_dag_compile_elapsed_ms=stratified_positive_avg_dag_compile_elapsed_ms,
+            stratified_positive_avg_dag_eval_elapsed_ms=stratified_positive_avg_dag_eval_elapsed_ms,
+            stratified_negative_blocker_elapsed_ms=stratified_negative_blocker_elapsed_ms,
+            stratified_assignment_status_elapsed_ms=stratified_assignment_status_elapsed_ms,
+            stratified_conflict_policy_elapsed_ms=stratified_conflict_policy_elapsed_ms,
+            stratified_reporting_compile_elapsed_ms=stratified_reporting_compile_elapsed_ms,
+            result_projection_elapsed_ms=result_projection_elapsed_ms,
+            stratified_iteration_timings=stratified_iteration_timings,
+            stratified_final_dataset_timing=stratified_final_dataset_timing,
+            dag_requested_device=dag_requested_device,
+            dag_effective_device=dag_effective_device,
+            torch_cuda_available=torch_cuda_available,
+            dag_stats_by_target=(dag_stats_by_target or None),
+        )
+        )
 
     return EngineQueryResult(
         backend="engine",
@@ -1545,9 +2939,9 @@ def run_engine_queries(
         scores_by_target=scores_by_target,
         materialization_iterations=iterations,
         engine_mode=engine_mode,
-        conflict_policy=(conflict_policy if engine_mode in {"stratified", "filtered_query"} else None),
+        conflict_policy=(conflict_policy if engine_mode in {"stratified", "filtered_admissibility"} else None),
         stratified_result=stratified_result,
-        filtered_query_result=filtered_query_result,
+        filtered_admissibility_result=filtered_admissibility_result,
         consistent=None,
         ontology_merge_elapsed_ms=ontology_merge_elapsed_ms,
         stratified_initial_data_copy_elapsed_ms=stratified_initial_data_copy_elapsed_ms,
@@ -1559,6 +2953,7 @@ def run_engine_queries(
         dependency_closure_elapsed_ms=dependency_closure_elapsed_ms,
         sameas_state_init_elapsed_ms=sameas_state_init_elapsed_ms,
         dataset_build_elapsed_ms=dataset_build_elapsed_ms,
+        data_copy_elapsed_ms=data_copy_elapsed_ms,
         hierarchy_elapsed_ms=hierarchy_elapsed_ms,
         atomic_domain_range_elapsed_ms=atomic_domain_range_elapsed_ms,
         horn_safe_domain_range_elapsed_ms=horn_safe_domain_range_elapsed_ms,
@@ -1588,8 +2983,15 @@ def run_engine_queries(
         stratified_assignment_status_elapsed_ms=stratified_assignment_status_elapsed_ms,
         stratified_conflict_policy_elapsed_ms=stratified_conflict_policy_elapsed_ms,
         stratified_reporting_compile_elapsed_ms=stratified_reporting_compile_elapsed_ms,
+        result_projection_elapsed_ms=result_projection_elapsed_ms,
         stratified_iteration_timings=stratified_iteration_timings,
         stratified_final_dataset_timing=stratified_final_dataset_timing,
+        dag_requested_device=dag_requested_device,
+        dag_effective_device=dag_effective_device,
+        torch_cuda_available=torch_cuda_available,
+        dag_stats_by_target=(dag_stats_by_target or None),
+        profile_tree=profile_tree,
+        profile_summary=profile_summary,
     )
 
 
@@ -1760,6 +3162,34 @@ def _compile_elk_helper(
     source_path = Path(__file__).resolve().parent / "java" / "ElkOracleRunner.java"
     build_dir = Path(tempfile.gettempdir()) / "dag_elk_oracle_helper"
     class_file = build_dir / "ElkOracleRunner.class"
+
+    needs_compile = not class_file.exists() or source_path.stat().st_mtime > class_file.stat().st_mtime
+    if not needs_compile:
+        return build_dir
+
+    build_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        javac_command,
+        "--release",
+        "11",
+        "-cp",
+        classpath,
+        "-d",
+        str(build_dir),
+        str(source_path),
+    ]
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    return build_dir
+
+
+def _compile_owlapi_helper(
+    *,
+    classpath: str,
+    javac_command: str = "javac",
+) -> Path:
+    source_path = Path(__file__).resolve().parent / "java" / "OwlapiOracleRunner.java"
+    build_dir = Path(tempfile.gettempdir()) / "dag_owlapi_oracle_helper"
+    class_file = build_dir / "OwlapiOracleRunner.class"
 
     needs_compile = not class_file.exists() or source_path.stat().st_mtime > class_file.stat().st_mtime
     if not needs_compile:
@@ -1952,6 +3382,167 @@ def run_elk_queries(
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def validate_owlapi_reasoner_backend(
+    *,
+    reasoner_name: str,
+    owlapi_home: Optional[str] = None,
+    java_command: str = "java",
+    javac_command: str = "javac",
+    java_options: Optional[Sequence[str]] = None,
+) -> Tuple[bool, str, Optional[str]]:
+    classpath = _resolve_elk_classpath(
+        elk_classpath=None,
+        elk_jar=None,
+        owlapi_home=owlapi_home,
+    )
+    if not classpath:
+        return False, "No OWLAPI classpath could be resolved.", None
+    try:
+        helper_dir = _compile_owlapi_helper(classpath=classpath, javac_command=javac_command)
+        run_classpath = os.pathsep.join([str(helper_dir), classpath])
+        cmd = [java_command]
+        if java_options:
+            cmd.extend(java_options)
+        cmd.extend(["-cp", run_classpath, "OwlapiOracleRunner", "--probe", reasoner_name])
+        completed = subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        if "PROBE_OK" not in completed.stdout:
+            return False, f"{reasoner_name} probe did not return PROBE_OK.", classpath
+        return True, "", classpath
+    except subprocess.CalledProcessError as exc:
+        error_text = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+        return False, error_text, classpath
+    except Exception as exc:
+        return False, str(exc), classpath
+
+
+def run_owlapi_reasoner_queries(
+    query_graph: Graph,
+    query_class_by_target: Dict[URIRef, URIRef],
+    candidate_terms: Set[Identifier],
+    *,
+    backend_name: str,
+    reasoner_name: str,
+    owlapi_home: Optional[str] = None,
+    java_command: str = "java",
+    javac_command: str = "javac",
+    java_options: Optional[Sequence[str]] = None,
+) -> BackendQueryResult:
+    classpath = _resolve_elk_classpath(
+        elk_classpath=None,
+        elk_jar=None,
+        owlapi_home=owlapi_home,
+    )
+    if not classpath:
+        return BackendQueryResult(
+            backend=backend_name,
+            elapsed_ms=0.0,
+            members_by_target={target: set() for target in query_class_by_target},
+            status="error",
+            error="No OWLAPI classpath could be resolved.",
+        )
+
+    workspace_temp_root = Path.cwd() / ".tmp" / "owlapi-oracle"
+    workspace_temp_root.mkdir(parents=True, exist_ok=True)
+    temp_root = workspace_temp_root / f"dag-owlapi-oracle-{uuid.uuid4().hex}"
+    temp_root.mkdir(parents=True, exist_ok=False)
+    try:
+        helper_dir = _compile_owlapi_helper(classpath=classpath, javac_command=javac_command)
+        ontology_path = temp_root / "query.owl"
+        targets_path = temp_root / "targets.tsv"
+        candidates_path = temp_root / "candidates.txt"
+
+        ontology_xml = query_graph.serialize(format="xml")
+        if isinstance(ontology_xml, bytes):
+            ontology_path.write_bytes(ontology_xml)
+        else:
+            ontology_path.write_text(ontology_xml, encoding="utf-8")
+        targets_path.write_text(
+            "".join(
+                f"{str(target_term)}\t{str(query_class)}\n"
+                for target_term, query_class in query_class_by_target.items()
+            ),
+            encoding="utf-8",
+        )
+        candidates_path.write_text(
+            "".join(
+                f"{str(term)}\n"
+                for term in _sorted_terms(candidate_terms)
+                if isinstance(term, URIRef)
+            ),
+            encoding="utf-8",
+        )
+
+        run_classpath = os.pathsep.join([str(helper_dir), classpath])
+        cmd = [java_command]
+        if java_options:
+            cmd.extend(java_options)
+        cmd.extend(
+            [
+                "-cp",
+                run_classpath,
+                "OwlapiOracleRunner",
+                reasoner_name,
+                str(ontology_path),
+                str(targets_path),
+                str(candidates_path),
+            ]
+        )
+        completed = subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        elapsed_ms = 0.0
+        members_by_target: Dict[URIRef, Set[Identifier]] = {
+            target: set() for target in query_class_by_target
+        }
+        for raw_line in completed.stdout.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            parts = line.split("\t")
+            if parts[0] == "ELAPSED_MS" and len(parts) == 2:
+                elapsed_ms = float(parts[1])
+            elif parts[0] == "MEMBER" and len(parts) == 3:
+                target_term = URIRef(parts[1])
+                member_term = URIRef(parts[2])
+                members_by_target.setdefault(target_term, set()).add(member_term)
+
+        return BackendQueryResult(
+            backend=backend_name,
+            elapsed_ms=elapsed_ms,
+            members_by_target=members_by_target,
+            status="ok",
+            consistent=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        error_text = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+        return BackendQueryResult(
+            backend=backend_name,
+            elapsed_ms=0.0,
+            members_by_target={target: set() for target in query_class_by_target},
+            status="error",
+            error=error_text,
+        )
+    except Exception as exc:
+        return BackendQueryResult(
+            backend=backend_name,
+            elapsed_ms=0.0,
+            members_by_target={target: set() for target in query_class_by_target},
+            status="error",
+            error=str(exc),
+        )
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def _format_member_rows(
     terms: Iterable[Identifier],
     *,
@@ -1980,12 +3571,13 @@ def print_comparison_report(
     show_engine_scores: bool = False,
     max_diff_items: int = 20,
     show_timing_breakdown: bool = False,
+    verbose: bool = False,
 ) -> None:
     print("=== Oracle Comparison ===")
+    print(f"Engine time: {_format_elapsed_seconds(engine_result.elapsed_ms)}")
     print(f"Engine threshold: {threshold}")
-    print(f"Engine time: {engine_result.elapsed_ms:.3f} ms")
     if show_timing_breakdown:
-        print(format_engine_timing_breakdown(engine_result))
+        print(format_engine_timing_breakdown(engine_result, verbose=verbose))
     if engine_result.materialization_iterations is not None:
         print(f"Engine materialization iterations: {engine_result.materialization_iterations}")
     if engine_result.dataset is not None:
@@ -1998,7 +3590,7 @@ def print_comparison_report(
             status += ", consistent"
         elif backend.consistent is False:
             status += ", inconsistent"
-        print(f"{backend.backend} time: {backend.elapsed_ms:.3f} ms ({status})")
+        print(f"{backend.backend} time: {_format_elapsed_seconds(backend.elapsed_ms)} ({status})")
         if backend.error:
             print(f"  error: {backend.error}")
 
@@ -2047,16 +3639,21 @@ def run_oracle_comparison(
     threshold: float = 0.999,
     include_literals: bool = False,
     include_type_edges: bool = False,
-    materialize_hierarchy: bool = True,
+    profile: Optional[str] = None,
+    materialize_hierarchy: Optional[bool] = None,
+    materialize_horn_safe_domain_range: Optional[bool] = None,
     materialize_sameas: Optional[bool] = None,
     materialize_haskey_equality: Optional[bool] = None,
+    materialize_reflexive_properties: Optional[bool] = None,
     materialize_target_roles: Optional[bool] = None,
+    augment_property_domain_range: Optional[bool] = None,
     materialize_supported_types: bool = False,
     engine_mode: str = "query",
     conflict_policy: str = ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED.value,
+    enable_negative_verification: Optional[bool] = None,
     query_mode: str = "query",
     bridge_supported_definitions: bool = False,
-    oracle_backends: Sequence[str] = ("owlrl", "owlready2"),
+    oracle_backends: Sequence[str] = (),
     owlready2_reasoner: str = "hermit",
     owlapi_home: Optional[str] = None,
     elk_classpath: Optional[str] = None,
@@ -2068,8 +3665,24 @@ def run_oracle_comparison(
     show_engine_scores: bool = False,
     max_diff_items: int = 20,
     show_timing_breakdown: bool = False,
+    timing_json: Optional[str] = None,
+    timing_csv: Optional[str] = None,
+    graph_load_cache: str = "on",
+    graph_load_cache_dir: Optional[str] = None,
     verbose: bool = False,
 ) -> None:
+    engine_mode = normalize_engine_mode_name(engine_mode)
+    profile_options = apply_engine_profile(
+        profile=profile,
+        materialize_hierarchy=materialize_hierarchy,
+        materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
+        materialize_reflexive_properties=materialize_reflexive_properties,
+        materialize_sameas=materialize_sameas,
+        materialize_haskey_equality=materialize_haskey_equality,
+        materialize_target_roles=materialize_target_roles,
+        augment_property_domain_range=augment_property_domain_range,
+        enable_negative_verification=enable_negative_verification,
+    )
     elk_preflight_elapsed_ms = 0.0
     resolved_elk_classpath = elk_classpath
     if "elk" in oracle_backends:
@@ -2085,17 +3698,40 @@ def run_oracle_comparison(
         elk_preflight_elapsed_ms = (perf_counter() - preflight_t0) * 1000.0
         if not ok:
             print("=== Oracle Comparison ===")
-            print(f"ELK preflight time: {elk_preflight_elapsed_ms:.3f} ms")
+            print(f"ELK preflight time: {_format_elapsed_seconds(elk_preflight_elapsed_ms)}")
             print("ELK preflight failed before engine execution.")
             print(error_text)
             return
         resolved_elk_classpath = resolved_classpath
+    if "openllet" in oracle_backends:
+        preflight_t0 = perf_counter()
+        ok, error_text, _resolved_classpath = validate_owlapi_reasoner_backend(
+            reasoner_name="openllet",
+            owlapi_home=owlapi_home,
+            java_command=elk_java_command,
+            javac_command=elk_javac_command,
+        )
+        _openllet_preflight_elapsed_ms = (perf_counter() - preflight_t0) * 1000.0
+        if not ok:
+            print("=== Oracle Comparison ===")
+            print(f"Openllet preflight time: {_format_elapsed_seconds(_openllet_preflight_elapsed_ms)}")
+            print("Openllet preflight failed before engine execution.")
+            print(error_text)
+            return
 
     load_schema_t0 = perf_counter()
-    schema_graph = load_rdflib_graph(schema_paths)
+    schema_graph = load_rdflib_graph(
+        schema_paths,
+        cache_mode=graph_load_cache,
+        cache_dir=graph_load_cache_dir,
+    )
     schema_load_elapsed_ms = (perf_counter() - load_schema_t0) * 1000.0
     load_data_t0 = perf_counter()
-    data_graph = load_rdflib_graph(data_paths)
+    data_graph = load_rdflib_graph(
+        data_paths,
+        cache_mode=graph_load_cache,
+        cache_dir=graph_load_cache_dir,
+    )
     data_load_elapsed_ms = (perf_counter() - load_data_t0) * 1000.0
     resolution_t0 = perf_counter()
     resolution = resolve_target_classes(
@@ -2105,7 +3741,8 @@ def run_oracle_comparison(
         engine_mode=engine_mode,
         include_literals=include_literals,
         include_type_edges=include_type_edges,
-        materialize_hierarchy=materialize_hierarchy,
+        materialize_hierarchy=profile_options.materialize_hierarchy,
+        augment_property_domain_range=profile_options.augment_property_domain_range,
     )
     resolution_elapsed_ms = (perf_counter() - resolution_t0) * 1000.0
     target_terms = resolution.resolved_targets
@@ -2125,14 +3762,25 @@ def run_oracle_comparison(
         threshold=threshold,
         include_literals=include_literals,
         include_type_edges=include_type_edges,
-        materialize_hierarchy=materialize_hierarchy,
-        materialize_sameas=materialize_sameas,
-        materialize_haskey_equality=materialize_haskey_equality,
-        materialize_target_roles=materialize_target_roles,
+        materialize_hierarchy=profile_options.materialize_hierarchy,
+        materialize_horn_safe_domain_range=profile_options.materialize_horn_safe_domain_range,
+        materialize_sameas=profile_options.materialize_sameas,
+        materialize_haskey_equality=profile_options.materialize_haskey_equality,
+        materialize_reflexive_properties=profile_options.materialize_reflexive_properties,
+        materialize_target_roles=profile_options.materialize_target_roles,
         materialize_supported_types=materialize_supported_types,
+        augment_property_domain_range=profile_options.augment_property_domain_range,
         engine_mode=engine_mode,
         conflict_policy=conflict_policy,
+        enable_negative_verification=profile_options.enable_negative_verification,
     )
+    if engine_result.profile_tree is None or engine_result.profile_summary is None:
+        engine_result.profile_tree, engine_result.profile_summary = _build_engine_profile_tree(engine_result)
+    if engine_result.profile_tree is not None and engine_result.profile_summary is not None:
+        if timing_json:
+            write_profile_json(timing_json, engine_result.profile_tree, engine_result.profile_summary)
+        if timing_csv:
+            write_profile_csv(timing_csv, engine_result.profile_tree)
 
     candidate_terms = set(engine_result.dataset.mapping.node_terms) if engine_result.dataset else set()
     ontology_graph = aggregate_rdflib_graphs((schema_graph, data_graph))
@@ -2178,16 +3826,30 @@ def run_oracle_comparison(
                     java_options=elk_java_options,
                 )
             )
+        elif backend == "openllet":
+            oracle_results.append(
+                run_owlapi_reasoner_queries(
+                    query_graph=query_graph,
+                    query_class_by_target=query_class_by_target,
+                    candidate_terms=candidate_terms,
+                    backend_name="openllet",
+                    reasoner_name="openllet",
+                    owlapi_home=owlapi_home,
+                    java_command=elk_java_command,
+                    javac_command=elk_javac_command,
+                    java_options=elk_java_options,
+                )
+            )
         else:
             raise ValueError(f"Unsupported oracle backend: {backend}")
 
-    print(f"Schema load time: {schema_load_elapsed_ms:.3f} ms")
-    print(f"Data load time: {data_load_elapsed_ms:.3f} ms")
+    print(f"Schema load time: {_format_elapsed_seconds(schema_load_elapsed_ms)}")
+    print(f"Data load time: {_format_elapsed_seconds(data_load_elapsed_ms)}")
     if "elk" in oracle_backends:
-        print(f"ELK preflight time: {elk_preflight_elapsed_ms:.3f} ms")
-    print(f"Target resolution time: {resolution_elapsed_ms:.3f} ms")
+        print(f"ELK preflight time: {_format_elapsed_seconds(elk_preflight_elapsed_ms)}")
+    print(f"Target resolution time: {_format_elapsed_seconds(resolution_elapsed_ms)}")
     if show_timing_breakdown:
-        print(f"Oracle query graph build time: {query_graph_elapsed_ms:.3f} ms")
+        print(f"Oracle query graph build time: {_format_elapsed_seconds(query_graph_elapsed_ms)}")
     print_comparison_report(
         engine_result=engine_result,
         oracle_results=oracle_results,
@@ -2198,6 +3860,7 @@ def run_oracle_comparison(
         show_engine_scores=show_engine_scores,
         max_diff_items=max_diff_items,
         show_timing_breakdown=show_timing_breakdown,
+        verbose=verbose,
     )
 
 
@@ -2223,10 +3886,80 @@ def main() -> None:
         ),
     )
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
+    parser.add_argument(
+        "--graph-load-cache",
+        choices=["on", "off", "refresh"],
+        default="on",
+        help=(
+            "Persistent cache mode for rdflib dataset loading. "
+            "'on' reuses cached parsed graphs when source path/mtime/size/format match, "
+            "'refresh' reparses and overwrites the cache, "
+            "'off' disables the cache. Default: on."
+        ),
+    )
+    parser.add_argument(
+        "--graph-load-cache-dir",
+        default=None,
+        help="Optional directory for persistent rdflib graph load cache files. Default: .cache/rdflib_graphs",
+    )
     parser.add_argument("--threshold", type=float, default=0.999)
     parser.add_argument("--include-literals", action="store_true")
     parser.add_argument("--include-type-edges", action="store_true")
-    parser.add_argument("--no-materialize-hierarchy", action="store_true")
+    parser.add_argument(
+        "--profile",
+        choices=sorted(PROFILE_ALIASES),
+        default="default",
+        help=(
+            "Reasoning profile preset. "
+            "default keeps existing behavior; "
+            "gpu-el disables CPU-heavy ABox closure/materialization passes by default, "
+            "while keeping DAG/query-time domain/range augmentation on; "
+            "gpu-el-verify does the same but keeps the negative/blocker verification pass. "
+            "Aliases gpu-e1 and gpu-e1-verify are accepted."
+        ),
+    )
+    hierarchy_group = parser.add_mutually_exclusive_group()
+    hierarchy_group.add_argument(
+        "--materialize-hierarchy",
+        dest="materialize_hierarchy",
+        action="store_true",
+        help="Force hierarchy materialization on, regardless of profile defaults.",
+    )
+    hierarchy_group.add_argument(
+        "--no-materialize-hierarchy",
+        dest="materialize_hierarchy",
+        action="store_false",
+        help="Force hierarchy materialization off, regardless of profile defaults.",
+    )
+    parser.set_defaults(materialize_hierarchy=None)
+    horn_group = parser.add_mutually_exclusive_group()
+    horn_group.add_argument(
+        "--materialize-horn-safe-domain-range",
+        dest="materialize_horn_safe_domain_range",
+        action="store_true",
+        help="Force horn-safe domain/range materialization on.",
+    )
+    horn_group.add_argument(
+        "--no-materialize-horn-safe-domain-range",
+        dest="materialize_horn_safe_domain_range",
+        action="store_false",
+        help="Force horn-safe domain/range materialization off.",
+    )
+    parser.set_defaults(materialize_horn_safe_domain_range=None)
+    augment_domain_range_group = parser.add_mutually_exclusive_group()
+    augment_domain_range_group.add_argument(
+        "--augment-property-domain-range",
+        dest="augment_property_domain_range",
+        action="store_true",
+        help="Enable DAG/query-time property domain/range augmentation.",
+    )
+    augment_domain_range_group.add_argument(
+        "--no-augment-property-domain-range",
+        dest="augment_property_domain_range",
+        action="store_false",
+        help="Disable DAG/query-time property domain/range augmentation.",
+    )
+    parser.set_defaults(augment_property_domain_range=None)
     sameas_group = parser.add_mutually_exclusive_group()
     sameas_group.add_argument(
         "--materialize-sameas",
@@ -2255,20 +3988,48 @@ def main() -> None:
         help="Disable HasKey-driven equality generation.",
     )
     parser.set_defaults(materialize_haskey_equality=None)
+    reflexive_group = parser.add_mutually_exclusive_group()
+    reflexive_group.add_argument(
+        "--materialize-reflexive-properties",
+        dest="materialize_reflexive_properties",
+        action="store_true",
+        help="Force reflexive-property preprocessing on.",
+    )
+    reflexive_group.add_argument(
+        "--no-materialize-reflexive-properties",
+        dest="materialize_reflexive_properties",
+        action="store_false",
+        help="Force reflexive-property preprocessing off.",
+    )
+    parser.set_defaults(materialize_reflexive_properties=None)
     roles_group = parser.add_mutually_exclusive_group()
     roles_group.add_argument(
         "--materialize-target-roles",
         dest="materialize_target_roles",
         action="store_true",
-        help="Force query/filtered-query snapshots to preprocess target-role closure.",
+        help="Force admissibility/filtered-admissibility snapshots to preprocess target-role closure.",
     )
     roles_group.add_argument(
         "--no-materialize-target-roles",
         dest="materialize_target_roles",
         action="store_false",
-        help="Force query/filtered-query snapshots to skip target-role preprocessing.",
+        help="Force admissibility/filtered-admissibility snapshots to skip target-role preprocessing.",
     )
     parser.set_defaults(materialize_target_roles=None)
+    verification_group = parser.add_mutually_exclusive_group()
+    verification_group.add_argument(
+        "--enable-negative-verification",
+        dest="enable_negative_verification",
+        action="store_true",
+        help="Force the negative/blocker verification pass on in stratified-style flows.",
+    )
+    verification_group.add_argument(
+        "--disable-negative-verification",
+        dest="enable_negative_verification",
+        action="store_false",
+        help="Force the negative/blocker verification pass off in stratified-style flows.",
+    )
+    parser.set_defaults(enable_negative_verification=None)
     parser.add_argument(
         "--engine-materialize-supported-types",
         action="store_true",
@@ -2276,11 +4037,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--engine-mode",
-        choices=["query", "filtered_query", "stratified"],
-        default="query",
+        choices=["admissibility", "filtered_admissibility", "stratified", "query", "filtered_query"],
+        default="admissibility",
         help=(
-            "query = necessary-condition admissibility; "
-            "filtered_query = query candidates pruned by synchronous recheck plus stratified blockers; "
+            "admissibility = necessary-condition admissibility; "
+            "filtered_admissibility = admissibility candidates pruned by synchronous recheck plus stratified blockers; "
             "stratified = positive sufficient-condition closure plus negative blocker policy."
         ),
     )
@@ -2288,7 +4049,7 @@ def main() -> None:
         "--conflict-policy",
         choices=[policy.value for policy in ConflictPolicy],
         default=ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED.value,
-        help="Conflict policy for filtered_query/stratified engine modes.",
+        help="Conflict policy for filtered_admissibility/stratified engine modes.",
     )
     parser.add_argument(
         "--query-mode",
@@ -2312,9 +4073,9 @@ def main() -> None:
     parser.add_argument(
         "--oracles",
         nargs="+",
-        choices=["owlrl", "owlready2", "elk"],
-        default=["owlrl", "owlready2"],
-        help="Which oracle backends to run.",
+        choices=["owlrl", "owlready2", "elk", "openllet"],
+        default=[],
+        help="Which oracle backends to run. Default: none (engine-only).",
     )
     parser.add_argument(
         "--owlready2-reasoner",
@@ -2357,6 +4118,14 @@ def main() -> None:
         help="Print a detailed engine timing breakdown.",
     )
     parser.add_argument(
+        "--timing-json",
+        help="Write the engine timing profile tree to a JSON file.",
+    )
+    parser.add_argument(
+        "--timing-csv",
+        help="Write the engine timing profile tree to a CSV file.",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Show all skipped target warnings instead of truncating them.",
@@ -2373,13 +4142,18 @@ def main() -> None:
         threshold=args.threshold,
         include_literals=args.include_literals,
         include_type_edges=args.include_type_edges,
-        materialize_hierarchy=not args.no_materialize_hierarchy,
+        profile=args.profile,
+        materialize_hierarchy=args.materialize_hierarchy,
+        materialize_horn_safe_domain_range=args.materialize_horn_safe_domain_range,
+        augment_property_domain_range=args.augment_property_domain_range,
         materialize_sameas=args.materialize_sameas,
         materialize_haskey_equality=args.materialize_haskey_equality,
+        materialize_reflexive_properties=args.materialize_reflexive_properties,
         materialize_target_roles=args.materialize_target_roles,
         materialize_supported_types=args.engine_materialize_supported_types,
         engine_mode=args.engine_mode,
         conflict_policy=args.conflict_policy,
+        enable_negative_verification=args.enable_negative_verification,
         query_mode=args.query_mode,
         bridge_supported_definitions=(
             args.oracle_bridge_supported_definitions or args.engine_materialize_supported_types
@@ -2394,6 +4168,10 @@ def main() -> None:
         show_matches=args.show_matches,
         show_engine_scores=args.show_engine_scores,
         show_timing_breakdown=args.show_timing_breakdown,
+        timing_json=args.timing_json,
+        timing_csv=args.timing_csv,
+        graph_load_cache=args.graph_load_cache,
+        graph_load_cache_dir=args.graph_load_cache_dir,
         verbose=args.verbose,
         max_diff_items=args.max_diff_items,
     )

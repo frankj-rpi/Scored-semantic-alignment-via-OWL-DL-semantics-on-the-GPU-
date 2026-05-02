@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Tuple
 
 import torch
 
-from .graph import KGraph
+from .graph import KGraph, prepare_kgraph_for_device
 from .constraints import ConstraintDAG
 from .dag_eval import eval_dag_scores
 
@@ -37,6 +37,7 @@ class DAGReasoner:
         self.graph = graph
         self.device = device
         self.sim_class = sim_class
+        self.eval_graph = prepare_kgraph_for_device(graph, device)
 
         self._concepts: List[ConceptSpec] = []
         self._last_scores: Optional[torch.Tensor] = None  # [num_nodes, num_concepts]
@@ -49,6 +50,15 @@ class DAGReasoner:
         """Register a new concept with its constraint DAG."""
         self._concepts.append(ConceptSpec(name=name, dag=dag))
         # Invalidate cached scores
+        self._last_scores = None
+
+    def clear_concepts(self) -> None:
+        self._concepts.clear()
+        self._last_scores = None
+
+    def update_node_types(self, node_types: torch.Tensor) -> None:
+        self.graph.node_types = node_types
+        self.eval_graph.node_types = node_types.to(self.device)
         self._last_scores = None
 
     def evaluate_all(self) -> torch.Tensor:
@@ -69,7 +79,7 @@ class DAGReasoner:
 
         for i, spec in enumerate(self._concepts):
             s = eval_dag_scores(
-                self.graph,
+                self.eval_graph,
                 spec.dag,
                 device=self.device,
                 sim_class=self.sim_class,

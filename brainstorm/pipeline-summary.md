@@ -3,7 +3,7 @@
 This repository does not implement just one execution path. It implements a shared loading/preprocessing foundation and then three closely related engine modes:
 
 - `query`: evaluate necessary-condition DAGs for target classes over the current graph.
-- `filtered_query`: run `query`, then repeatedly recheck provisional assignments until they are self-stable, then prune them with the negative/blocker pass.
+- `filtered_admissibility`: run `admissibility`, then repeatedly recheck provisional assignments until they are self-stable, then prune them with the negative/blocker pass.
 - `stratified`: run a positive sufficient-condition fixpoint first, then apply a negative blocker stratum plus a conflict policy.
 
 The code for almost all of this lives in [`src/ontology_parse.py`](./src/ontology_parse.py), with the mode orchestration in [`src/oracle_compare.py`](./src/oracle_compare.py) and the GPU evaluator in [`src/dag_eval.py`](./src/dag_eval.py).
@@ -28,7 +28,7 @@ Several stages are hybrid. When that happens, the report calls out both the curr
 7. Evaluate DAGs on the `KGraph`.
 8. Depending on mode:
    - return direct query scores,
-   - iterate a synchronous recheck loop (`filtered_query`),
+   - iterate a synchronous recheck loop (`filtered_admissibility`),
    - or iterate a positive sufficient-condition materialization loop (`stratified`).
 9. Optionally apply the negative blocker stratum and a conflict/emission policy.
 
@@ -248,7 +248,7 @@ Performance / stage interaction:
 
 - Mostly CPU graph analysis over the schema.
 - Positive effect on nearly every downstream stage because it shrinks the set of classes/properties that need helper work.
-- Also determines when special cycle-handling loops are needed in `query` and `filtered_query` modes.
+- Also determines when special cycle-handling loops are needed in `admissibility` and `filtered_admissibility` modes.
 
 Category assignment:
 
@@ -407,7 +407,7 @@ Category assignment:
 
 Purpose: start from raw necessary-condition matches, then keep only candidates that remain valid after their own provisional type assignments are fed back into the graph.
 
-Implementation: `run_engine_queries(..., engine_mode="filtered_query")` does:
+Implementation: `run_engine_queries(..., engine_mode="filtered_admissibility")` does:
 
 1. one raw query snapshot,
 2. repeatedly augment the original data graph with current provisional target assignments,

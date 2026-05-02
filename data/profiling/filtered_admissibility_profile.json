@@ -1,0 +1,1295 @@
+{
+  "tree": {
+    "name": "engine_total",
+    "label": "engine_total",
+    "inclusive_ms": 34993.95370000093,
+    "self_ms": 1.392500002111774,
+    "percent_of_parent": 100.0,
+    "percent_of_root": 100.0,
+    "meta": {
+      "device": "cpu"
+    },
+    "children": [
+      {
+        "name": "positive_reasoning",
+        "label": "initial forward Task M pass",
+        "inclusive_ms": 7421.428099998593,
+        "self_ms": 1.4245000002119923,
+        "percent_of_parent": 21.207743953774493,
+        "percent_of_root": 21.207743953774493,
+        "meta": {
+          "category": "host_runtime"
+        },
+        "children": [
+          {
+            "name": "schema_setup",
+            "label": "schema_setup",
+            "inclusive_ms": 59.87239999922167,
+            "self_ms": -0.4341000003478257,
+            "percent_of_parent": 0.8067503880989297,
+            "percent_of_root": 0.17109355665410303,
+            "meta": {
+              "category": "tbox_cacheable"
+            },
+            "children": [
+              {
+                "name": "rule_extraction",
+                "label": "rule extraction",
+                "inclusive_ms": 17.393299998730072,
+                "self_ms": 17.393299998730072,
+                "percent_of_parent": 29.050614304681595,
+                "percent_of_root": 0.04970372924374536,
+                "meta": {
+                  "category": "tbox_cacheable"
+                },
+                "children": []
+              },
+              {
+                "name": "rule_index",
+                "label": "rule index",
+                "inclusive_ms": 0.09789999967324547,
+                "self_ms": 0.09789999967324547,
+                "percent_of_parent": 0.16351440676257867,
+                "percent_of_root": 0.000279762614171953,
+                "meta": {
+                  "category": "tbox_cacheable"
+                },
+                "children": []
+              },
+              {
+                "name": "schema_cache",
+                "label": "schema cache / compile context",
+                "inclusive_ms": 42.218900000079884,
+                "self_ms": 42.218900000079884,
+                "percent_of_parent": 70.51479479798492,
+                "percent_of_root": 0.12064627038721482,
+                "meta": {
+                  "category": "tbox_cacheable"
+                },
+                "children": []
+              },
+              {
+                "name": "initial_ontology_merge",
+                "label": "initial ontology merge",
+                "inclusive_ms": 0.05419999979494605,
+                "self_ms": 0.05419999979494605,
+                "percent_of_parent": 0.09052585130318919,
+                "percent_of_root": 0.00015488389868603106,
+                "meta": {
+                  "category": "abox_once"
+                },
+                "children": []
+              },
+              {
+                "name": "preprocessing_plan",
+                "label": "preprocessing plan",
+                "inclusive_ms": 0.08400000115216244,
+                "self_ms": 0.08400000115216244,
+                "percent_of_parent": 0.1402983697885076,
+                "percent_of_root": 0.00024004147079888322,
+                "meta": {
+                  "category": "abox_once"
+                },
+                "children": []
+              },
+              {
+                "name": "dependency_closure",
+                "label": "dependency closure",
+                "inclusive_ms": 0.45820000013918616,
+                "self_ms": 0.45820000013918616,
+                "percent_of_parent": 0.765294192558078,
+                "percent_of_root": 0.0013093690529149154,
+                "meta": {
+                  "category": "tbox_cacheable"
+                },
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "initial_data_copy",
+            "label": "initial data copy",
+            "inclusive_ms": 843.6560000009194,
+            "self_ms": 843.6560000009194,
+            "percent_of_parent": 11.367839028192963,
+            "percent_of_root": 2.41086219417641,
+            "meta": {
+              "category": "abox_once"
+            },
+            "children": []
+          },
+          {
+            "name": "iteration_1",
+            "label": "iteration_1",
+            "inclusive_ms": 6315.9070999990945,
+            "self_ms": 0.26030000117316376,
+            "percent_of_parent": 85.1036621913819,
+            "percent_of_root": 18.048566772833464,
+            "meta": {
+              "category": "host_runtime",
+              "iteration": 1
+            },
+            "children": [
+              {
+                "name": "dataset_refresh",
+                "label": "dataset_refresh",
+                "inclusive_ms": 6153.154399999039,
+                "self_ms": 5497.877800000424,
+                "percent_of_parent": 97.4231302420506,
+                "percent_of_root": 17.583478713921018,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": [
+                  {
+                    "name": "scan_cache_index_prep",
+                    "label": "scan cache/index prep",
+                    "inclusive_ms": 655.276599998615,
+                    "self_ms": 0.0,
+                    "percent_of_parent": 10.649441853737935,
+                    "percent_of_root": 1.8725423415034053,
+                    "meta": {
+                      "category": "abox_once"
+                    },
+                    "children": [
+                      {
+                        "name": "mapping_vocab_collect",
+                        "label": "vocab collect",
+                        "inclusive_ms": 0.009999999747378752,
+                        "self_ms": 0.009999999747378752,
+                        "percent_of_parent": 0.0015260730731724418,
+                        "percent_of_root": 2.8576364457436214e-05,
+                        "meta": {
+                          "category": "abox_once"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "mapping_graph_scan",
+                        "label": "graph scan",
+                        "inclusive_ms": 655.2665999988676,
+                        "self_ms": 655.2665999988676,
+                        "percent_of_parent": 99.99847392692682,
+                        "percent_of_root": 1.872513765138948,
+                        "meta": {
+                          "category": "abox_once"
+                        },
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "name": "reasoner_setup",
+                "label": "reasoner setup",
+                "inclusive_ms": 19.794699999692966,
+                "self_ms": 19.794699999692966,
+                "percent_of_parent": 0.31341024632385434,
+                "percent_of_root": 0.05656605758066268,
+                "meta": {
+                  "category": "host_runtime",
+                  "device": "cpu"
+                },
+                "children": []
+              },
+              {
+                "name": "dag_compile",
+                "label": "dag compile",
+                "inclusive_ms": 8.357200000318699,
+                "self_ms": 8.357200000318699,
+                "percent_of_parent": 0.13231986899110496,
+                "percent_of_root": 0.02388183990858534,
+                "meta": {
+                  "category": "host_runtime",
+                  "device": "cpu"
+                },
+                "children": []
+              },
+              {
+                "name": "dag_eval",
+                "label": "dag eval",
+                "inclusive_ms": 82.92949999849952,
+                "self_ms": 82.92949999849952,
+                "percent_of_parent": 1.3130259626287317,
+                "percent_of_root": 0.236982367609686,
+                "meta": {
+                  "category": "device_runtime",
+                  "device": "cpu"
+                },
+                "children": []
+              },
+              {
+                "name": "assertion_update",
+                "label": "assertion update",
+                "inclusive_ms": 51.41100000037113,
+                "self_ms": 51.41100000037113,
+                "percent_of_parent": 0.8139923400769861,
+                "percent_of_root": 0.14691395102454446,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "iteration_2",
+            "label": "iteration_2",
+            "inclusive_ms": 200.5680999991455,
+            "self_ms": 0.11970000014116522,
+            "percent_of_parent": 2.702553973394737,
+            "percent_of_root": 0.5731507268901146,
+            "meta": {
+              "category": "host_runtime",
+              "iteration": 2
+            },
+            "children": [
+              {
+                "name": "dataset_refresh",
+                "label": "dataset_refresh",
+                "inclusive_ms": 101.9691999990755,
+                "self_ms": 101.9691999990755,
+                "percent_of_parent": 50.84018844447843,
+                "percent_of_root": 0.2913909096218322,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": []
+              },
+              {
+                "name": "reasoner_setup",
+                "label": "reasoner setup",
+                "inclusive_ms": 18.994699999893783,
+                "self_ms": 18.994699999893783,
+                "percent_of_parent": 9.470449189065814,
+                "percent_of_root": 0.05427994836688968,
+                "meta": {
+                  "category": "host_runtime",
+                  "device": "cpu"
+                },
+                "children": []
+              },
+              {
+                "name": "dag_compile",
+                "label": "dag compile",
+                "inclusive_ms": 0.06880000000819564,
+                "self_ms": 0.06880000000819564,
+                "percent_of_parent": 0.03430256357241693,
+                "percent_of_root": 0.00019660539245725127,
+                "meta": {
+                  "category": "host_runtime",
+                  "device": "cpu"
+                },
+                "children": []
+              },
+              {
+                "name": "dag_eval",
+                "label": "dag eval",
+                "inclusive_ms": 78.68480000070122,
+                "self_ms": 78.68480000070122,
+                "percent_of_parent": 39.23096444600934,
+                "percent_of_root": 0.22485255788830494,
+                "meta": {
+                  "category": "device_runtime",
+                  "device": "cpu"
+                },
+                "children": []
+              },
+              {
+                "name": "assertion_update",
+                "label": "assertion update",
+                "inclusive_ms": 0.7308999993256293,
+                "self_ms": 0.7308999993256293,
+                "percent_of_parent": 0.36441487920000404,
+                "percent_of_root": 0.0020886465290305563,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "seed_admissibility_input",
+        "label": "seed admissibility input",
+        "inclusive_ms": 725.2998000003572,
+        "self_ms": 725.2998000003572,
+        "percent_of_parent": 2.0726431949309516,
+        "percent_of_root": 2.0726431949309516,
+        "meta": {
+          "category": "host_runtime"
+        },
+        "children": []
+      },
+      {
+        "name": "raw_admissibility",
+        "label": "raw admissibility snapshot",
+        "inclusive_ms": 7001.504699999714,
+        "self_ms": 91.54919999855338,
+        "percent_of_parent": 20.007755511202863,
+        "percent_of_root": 20.007755511202863,
+        "meta": {
+          "category": "host_runtime"
+        },
+        "children": [
+          {
+            "name": "input_lowering",
+            "label": "input_lowering",
+            "inclusive_ms": 6888.977900001919,
+            "self_ms": 0.0,
+            "percent_of_parent": 98.39281976061804,
+            "percent_of_root": 19.686194818282953,
+            "meta": {
+              "category": "abox_once"
+            },
+            "children": [
+              {
+                "name": "scan_cache_index_prep",
+                "label": "scan cache/index prep",
+                "inclusive_ms": 371.3189999998576,
+                "self_ms": 0.0,
+                "percent_of_parent": 5.390044871529551,
+                "percent_of_root": 1.0610947342021766,
+                "meta": {
+                  "category": "abox_once"
+                },
+                "children": [
+                  {
+                    "name": "mapping_vocab_collect",
+                    "label": "vocab collect",
+                    "inclusive_ms": 0.02479999966453761,
+                    "self_ms": 0.02479999966453761,
+                    "percent_of_parent": 0.006678893260120574,
+                    "percent_of_root": 7.08693846861235e-05,
+                    "meta": {
+                      "category": "abox_once"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "mapping_graph_scan",
+                    "label": "graph scan",
+                    "inclusive_ms": 371.2942000001931,
+                    "self_ms": 371.2942000001931,
+                    "percent_of_parent": 99.99332110673987,
+                    "percent_of_root": 1.0610238648174906,
+                    "meta": {
+                      "category": "abox_once"
+                    },
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "name": "dataset_native_assembly",
+                "label": "dataset build/native assembly",
+                "inclusive_ms": 6517.658900002061,
+                "self_ms": 28.2333999984985,
+                "percent_of_parent": 94.60995512847045,
+                "percent_of_root": 18.625100084080774,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": [
+                  {
+                    "name": "data_copy",
+                    "label": "data copy",
+                    "inclusive_ms": 981.7180999998527,
+                    "self_ms": 981.7180999998527,
+                    "percent_of_parent": 15.062434457862503,
+                    "percent_of_root": 2.805393492875961,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "ontology_merge",
+                    "label": "ontology merge",
+                    "inclusive_ms": 0.050099999498343095,
+                    "self_ms": 0.050099999498343095,
+                    "percent_of_parent": 0.0007686809062426886,
+                    "percent_of_root": 0.0001431675881149199,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "hierarchy",
+                    "label": "hierarchy",
+                    "inclusive_ms": 990.2514000004885,
+                    "self_ms": 990.2514000004885,
+                    "percent_of_parent": 15.193360303040334,
+                    "percent_of_root": 2.829778562576261,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "horn_safe_domain_range",
+                    "label": "horn-safe domain/range",
+                    "inclusive_ms": 829.8106000002008,
+                    "self_ms": 829.8106000002008,
+                    "percent_of_parent": 12.731727952193669,
+                    "percent_of_root": 2.3712970735289587,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "sameas",
+                    "label": "sameAs",
+                    "inclusive_ms": 1587.7165000019886,
+                    "self_ms": 1587.7165000019886,
+                    "percent_of_parent": 24.360226952065357,
+                    "percent_of_root": 4.5371166505313925,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "reflexive",
+                    "label": "reflexive",
+                    "inclusive_ms": 229.57160000078147,
+                    "self_ms": 229.57160000078147,
+                    "percent_of_parent": 3.5223015429774773,
+                    "percent_of_root": 0.6560321876426767,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "target_roles",
+                    "label": "target roles",
+                    "inclusive_ms": 1382.4559999993653,
+                    "self_ms": 1382.4559999993653,
+                    "percent_of_parent": 21.210928973268732,
+                    "percent_of_root": 3.950556750034588,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "kgraph_build",
+                    "label": "kgraph build",
+                    "inclusive_ms": 487.85120000138704,
+                    "self_ms": 447.5927000003139,
+                    "percent_of_parent": 7.485067989692324,
+                    "percent_of_root": 1.3941014044416882,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": [
+                      {
+                        "name": "mapping_finalize",
+                        "label": "mapping finalize",
+                        "inclusive_ms": 5.266899997877772,
+                        "self_ms": 0.0,
+                        "percent_of_parent": 1.07961197960829,
+                        "percent_of_root": 0.01505088577023988,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": [
+                          {
+                            "name": "mapping_sort",
+                            "label": "mapping sort",
+                            "inclusive_ms": 4.796399998667766,
+                            "self_ms": 4.796399998667766,
+                            "percent_of_parent": 91.06685148000555,
+                            "percent_of_root": 0.013706367790809642,
+                            "meta": {
+                              "category": "host_runtime"
+                            },
+                            "children": []
+                          },
+                          {
+                            "name": "mapping_index",
+                            "label": "mapping index",
+                            "inclusive_ms": 0.4704999992100056,
+                            "self_ms": 0.4704999992100056,
+                            "percent_of_parent": 8.933148519994445,
+                            "percent_of_root": 0.0013445179794302385,
+                            "meta": {
+                              "category": "host_runtime"
+                            },
+                            "children": []
+                          }
+                        ]
+                      },
+                      {
+                        "name": "kgraph_internals",
+                        "label": "kgraph internals",
+                        "inclusive_ms": 34.991600003195344,
+                        "self_ms": 0.0,
+                        "percent_of_parent": 7.172596890833898,
+                        "percent_of_root": 0.09999327399005621,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": [
+                          {
+                            "name": "edge_buckets",
+                            "label": "edge buckets",
+                            "inclusive_ms": 13.609700001325109,
+                            "self_ms": 13.609700001325109,
+                            "percent_of_parent": 38.89419174911209,
+                            "percent_of_root": 0.03889157572190749,
+                            "meta": {
+                              "category": "host_runtime"
+                            },
+                            "children": []
+                          },
+                          {
+                            "name": "negative_helpers",
+                            "label": "negative helpers",
+                            "inclusive_ms": 0.21360000027925707,
+                            "self_ms": 0.21360000027925707,
+                            "percent_of_parent": 0.6104322187603645,
+                            "percent_of_root": 0.0006103911610286305,
+                            "meta": {
+                              "category": "host_runtime"
+                            },
+                            "children": []
+                          },
+                          {
+                            "name": "literal_features",
+                            "label": "literal features",
+                            "inclusive_ms": 1.8233000009786338,
+                            "self_ms": 1.8233000009786338,
+                            "percent_of_parent": 5.210679136741774,
+                            "percent_of_root": 0.005210328665944898,
+                            "meta": {
+                              "category": "host_runtime"
+                            },
+                            "children": []
+                          },
+                          {
+                            "name": "adjacency",
+                            "label": "adjacency",
+                            "inclusive_ms": 19.345000000612345,
+                            "self_ms": 19.345000000612345,
+                            "percent_of_parent": 55.28469689538578,
+                            "percent_of_root": 0.055280978441175195,
+                            "meta": {
+                              "category": "host_runtime"
+                            },
+                            "children": []
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "dag_compile",
+            "label": "dag compile",
+            "inclusive_ms": 3.0339999993884703,
+            "self_ms": 3.0339999993884703,
+            "percent_of_parent": 0.04333354227968445,
+            "percent_of_root": 0.00867006919366299,
+            "meta": {
+              "category": "host_runtime"
+            },
+            "children": []
+          },
+          {
+            "name": "dag_eval",
+            "label": "dag eval",
+            "inclusive_ms": 17.943599999853177,
+            "self_ms": 17.943599999853177,
+            "percent_of_parent": 0.25628205319713504,
+            "percent_of_root": 0.05127628662277364,
+            "meta": {
+              "category": "device_runtime",
+              "device": "cpu"
+            },
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "necessary_fixpoint",
+        "label": "filtered admissibility stabilization",
+        "inclusive_ms": 10800.365000000966,
+        "self_ms": 0.8065000001806766,
+        "percent_of_parent": 30.863517431014603,
+        "percent_of_root": 30.863517431014603,
+        "meta": {
+          "category": "host_runtime"
+        },
+        "children": [
+          {
+            "name": "necessary_iteration_1",
+            "label": "necessary iteration 1",
+            "inclusive_ms": 10799.558500000785,
+            "self_ms": 1764.200699999492,
+            "percent_of_parent": 99.99253265977418,
+            "percent_of_root": 30.86121274716237,
+            "meta": {
+              "category": "host_runtime",
+              "iteration": 1
+            },
+            "children": [
+              {
+                "name": "input_lowering",
+                "label": "input_lowering",
+                "inclusive_ms": 9014.566899999409,
+                "self_ms": 0.0,
+                "percent_of_parent": 83.47162432611253,
+                "percent_of_root": 25.760355566793724,
+                "meta": {
+                  "category": "abox_once"
+                },
+                "children": [
+                  {
+                    "name": "scan_cache_index_prep",
+                    "label": "scan cache/index prep",
+                    "inclusive_ms": 307.7504000011686,
+                    "self_ms": 0.0,
+                    "percent_of_parent": 3.413923302307389,
+                    "percent_of_root": 0.8794387814520096,
+                    "meta": {
+                      "category": "abox_once"
+                    },
+                    "children": [
+                      {
+                        "name": "mapping_vocab_collect",
+                        "label": "vocab collect",
+                        "inclusive_ms": 0.021300000298651867,
+                        "self_ms": 0.021300000298651867,
+                        "percent_of_parent": 0.006921193375726233,
+                        "percent_of_root": 6.086765868542399e-05,
+                        "meta": {
+                          "category": "abox_once"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "mapping_graph_scan",
+                        "label": "graph scan",
+                        "inclusive_ms": 307.72910000086995,
+                        "self_ms": 307.72910000086995,
+                        "percent_of_parent": 99.99307880662427,
+                        "percent_of_root": 0.8793779137933241,
+                        "meta": {
+                          "category": "abox_once"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "dataset_native_assembly",
+                    "label": "dataset build/native assembly",
+                    "inclusive_ms": 8706.81649999824,
+                    "self_ms": 35.94359999988228,
+                    "percent_of_parent": 96.58607669769262,
+                    "percent_of_root": 24.880916785341718,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": [
+                      {
+                        "name": "data_copy",
+                        "label": "data copy",
+                        "inclusive_ms": 1325.850300001548,
+                        "self_ms": 1325.850300001548,
+                        "percent_of_parent": 15.227727608613502,
+                        "percent_of_root": 3.7887982345976323,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "ontology_merge",
+                        "label": "ontology merge",
+                        "inclusive_ms": 0.06179999945743475,
+                        "self_ms": 0.06179999945743475,
+                        "percent_of_parent": 0.0007097886978259762,
+                        "percent_of_root": 0.0001766019352578417,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "hierarchy",
+                        "label": "hierarchy",
+                        "inclusive_ms": 816.9197999977769,
+                        "self_ms": 816.9197999977769,
+                        "percent_of_parent": 9.382531491251045,
+                        "percent_of_root": 2.3344598526966536,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "horn_safe_domain_range",
+                        "label": "horn-safe domain/range",
+                        "inclusive_ms": 1139.6404000006441,
+                        "self_ms": 1139.6404000006441,
+                        "percent_of_parent": 13.089059589126226,
+                        "percent_of_root": 3.256678024354287,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "sameas",
+                        "label": "sameAs",
+                        "inclusive_ms": 3014.5295999991504,
+                        "self_ms": 3014.5295999991504,
+                        "percent_of_parent": 34.62263848100807,
+                        "percent_of_root": 8.614429869349316,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "reflexive",
+                        "label": "reflexive",
+                        "inclusive_ms": 307.9579000004742,
+                        "self_ms": 307.9579000004742,
+                        "percent_of_parent": 3.5369747369837925,
+                        "percent_of_root": 0.8800317410274964,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "target_roles",
+                        "label": "target roles",
+                        "inclusive_ms": 1664.5685999992565,
+                        "self_ms": 1664.5685999992565,
+                        "percent_of_parent": 19.11799335612038,
+                        "percent_of_root": 4.75673201796347,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "kgraph_build",
+                        "label": "kgraph build",
+                        "inclusive_ms": 401.3445000000502,
+                        "self_ms": 375.96600000142644,
+                        "percent_of_parent": 4.609543568537723,
+                        "percent_of_root": 1.146896699471942,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": [
+                          {
+                            "name": "mapping_finalize",
+                            "label": "mapping finalize",
+                            "inclusive_ms": 5.266899997877772,
+                            "self_ms": 0.0,
+                            "percent_of_parent": 1.312313984090255,
+                            "percent_of_root": 0.01505088577023988,
+                            "meta": {
+                              "category": "host_runtime"
+                            },
+                            "children": [
+                              {
+                                "name": "mapping_sort",
+                                "label": "mapping sort",
+                                "inclusive_ms": 4.2734999988169875,
+                                "self_ms": 4.2734999988169875,
+                                "percent_of_parent": 81.13881031610507,
+                                "percent_of_root": 0.012212109656008587,
+                                "meta": {
+                                  "category": "host_runtime"
+                                },
+                                "children": []
+                              },
+                              {
+                                "name": "mapping_index",
+                                "label": "mapping index",
+                                "inclusive_ms": 0.9933999990607845,
+                                "self_ms": 0.9933999990607845,
+                                "percent_of_parent": 18.861189683894928,
+                                "percent_of_root": 0.002838776114231294,
+                                "meta": {
+                                  "category": "host_runtime"
+                                },
+                                "children": []
+                              }
+                            ]
+                          },
+                          {
+                            "name": "kgraph_internals",
+                            "label": "kgraph internals",
+                            "inclusive_ms": 20.111600000745966,
+                            "self_ms": 0.0,
+                            "percent_of_parent": 5.011056586235379,
+                            "percent_of_root": 0.057471642596204936,
+                            "meta": {
+                              "category": "host_runtime"
+                            },
+                            "children": [
+                              {
+                                "name": "edge_buckets",
+                                "label": "edge buckets",
+                                "inclusive_ms": 6.043400000635302,
+                                "self_ms": 6.043400000635302,
+                                "percent_of_parent": 30.049324769840013,
+                                "percent_of_root": 0.017269840534295332,
+                                "meta": {
+                                  "category": "host_runtime"
+                                },
+                                "children": []
+                              },
+                              {
+                                "name": "negative_helpers",
+                                "label": "negative helpers",
+                                "inclusive_ms": 0.2626999994390644,
+                                "self_ms": 0.2626999994390644,
+                                "percent_of_parent": 1.3062113378812255,
+                                "percent_of_root": 0.0007507011116582047,
+                                "meta": {
+                                  "category": "host_runtime"
+                                },
+                                "children": []
+                              },
+                              {
+                                "name": "literal_features",
+                                "label": "literal features",
+                                "inclusive_ms": 1.2418000005709473,
+                                "self_ms": 1.2418000005709473,
+                                "percent_of_parent": 6.17454603574498,
+                                "percent_of_root": 0.0035486130296014944,
+                                "meta": {
+                                  "category": "host_runtime"
+                                },
+                                "children": []
+                              },
+                              {
+                                "name": "adjacency",
+                                "label": "adjacency",
+                                "inclusive_ms": 12.563700000100653,
+                                "self_ms": 12.563700000100653,
+                                "percent_of_parent": 62.46991785653378,
+                                "percent_of_root": 0.0359024879206499,
+                                "meta": {
+                                  "category": "host_runtime"
+                                },
+                                "children": []
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "name": "dag_compile",
+                "label": "dag compile",
+                "inclusive_ms": 2.497500001481967,
+                "self_ms": 2.497500001481967,
+                "percent_of_parent": 0.02312594539380277,
+                "percent_of_root": 0.00713694720777407,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": []
+              },
+              {
+                "name": "dag_eval",
+                "label": "dag eval",
+                "inclusive_ms": 18.29340000040247,
+                "self_ms": 18.29340000040247,
+                "percent_of_parent": 0.1693902579480554,
+                "percent_of_root": 0.052275887878316496,
+                "meta": {
+                  "category": "device_runtime",
+                  "device": "cpu"
+                },
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "seed_closure_verification_input",
+        "label": "seed closure verification input",
+        "inclusive_ms": 1437.8433000001678,
+        "self_ms": 1437.8433000001678,
+        "percent_of_parent": 4.108833521146625,
+        "percent_of_root": 4.108833521146625,
+        "meta": {
+          "category": "host_runtime"
+        },
+        "children": []
+      },
+      {
+        "name": "closure_verification",
+        "label": "closure verification",
+        "inclusive_ms": 6884.321199999249,
+        "self_ms": 0.5215999990468845,
+        "percent_of_parent": 19.672887662302262,
+        "percent_of_root": 19.672887662302262,
+        "meta": {
+          "category": "host_runtime"
+        },
+        "children": [
+          {
+            "name": "positive_reasoning",
+            "label": "positive_reasoning",
+            "inclusive_ms": 6440.798800000266,
+            "self_ms": 0.5696999996871455,
+            "percent_of_parent": 93.55749990283674,
+            "percent_of_root": 18.40546185554362,
+            "meta": {
+              "category": "host_runtime",
+              "device": "cpu"
+            },
+            "children": [
+              {
+                "name": "schema_setup",
+                "label": "schema_setup",
+                "inclusive_ms": 58.015700000396464,
+                "self_ms": -0.42549999852781184,
+                "percent_of_parent": 0.900753179875671,
+                "percent_of_root": 0.16578778293461285,
+                "meta": {
+                  "category": "tbox_cacheable"
+                },
+                "children": [
+                  {
+                    "name": "rule_extraction",
+                    "label": "rule extraction",
+                    "inclusive_ms": 17.435600000681006,
+                    "self_ms": 17.435600000681006,
+                    "percent_of_parent": 30.0532442090018,
+                    "percent_of_root": 0.04982460727402901,
+                    "meta": {
+                      "category": "tbox_cacheable"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "rule_index",
+                    "label": "rule index",
+                    "inclusive_ms": 0.08119999984046444,
+                    "self_ms": 0.08119999984046444,
+                    "percent_of_parent": 0.139962113427761,
+                    "percent_of_root": 0.00023204008480031305,
+                    "meta": {
+                      "category": "tbox_cacheable"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "schema_cache",
+                    "label": "schema cache / compile context",
+                    "inclusive_ms": 40.355900000577094,
+                    "self_ms": 40.355900000577094,
+                    "percent_of_parent": 69.5603086755849,
+                    "percent_of_root": 0.11532249355572538,
+                    "meta": {
+                      "category": "tbox_cacheable"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "initial_ontology_merge",
+                    "label": "initial ontology merge",
+                    "inclusive_ms": 0.043399999412940815,
+                    "self_ms": 0.043399999412940815,
+                    "percent_of_parent": 0.07480733562233022,
+                    "percent_of_root": 0.00012402142320071615,
+                    "meta": {
+                      "category": "abox_once"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "preprocessing_plan",
+                    "label": "preprocessing plan",
+                    "inclusive_ms": 0.07879999975557439,
+                    "self_ms": 0.07879999975557439,
+                    "percent_of_parent": 0.1358253020389927,
+                    "percent_of_root": 0.0002251817569146875,
+                    "meta": {
+                      "category": "abox_once"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "dependency_closure",
+                    "label": "dependency closure",
+                    "inclusive_ms": 0.44629999865719583,
+                    "self_ms": 0.44629999865719583,
+                    "percent_of_parent": 0.7692745216452546,
+                    "percent_of_root": 0.001275363174116516,
+                    "meta": {
+                      "category": "tbox_cacheable"
+                    },
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "name": "initial_data_copy",
+                "label": "initial data copy",
+                "inclusive_ms": 619.1017000001011,
+                "self_ms": 619.1017000001011,
+                "percent_of_parent": 9.6121881652331,
+                "percent_of_root": 1.7691676262350564,
+                "meta": {
+                  "category": "abox_once"
+                },
+                "children": []
+              },
+              {
+                "name": "iteration_1",
+                "label": "iteration_1",
+                "inclusive_ms": 5763.111700000081,
+                "self_ms": 0.09239999963028822,
+                "percent_of_parent": 89.47821347873564,
+                "percent_of_root": 16.46887845085058,
+                "meta": {
+                  "category": "host_runtime",
+                  "iteration": 1
+                },
+                "children": [
+                  {
+                    "name": "dataset_refresh",
+                    "label": "dataset_refresh",
+                    "inclusive_ms": 5693.921099998988,
+                    "self_ms": 5313.666699999885,
+                    "percent_of_parent": 98.79942288814058,
+                    "percent_of_root": 16.271156865589717,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": [
+                      {
+                        "name": "scan_cache_index_prep",
+                        "label": "scan cache/index prep",
+                        "inclusive_ms": 380.25439999910304,
+                        "self_ms": 0.0,
+                        "percent_of_parent": 6.678252004566248,
+                        "percent_of_root": 1.086628859542364,
+                        "meta": {
+                          "category": "abox_once"
+                        },
+                        "children": [
+                          {
+                            "name": "mapping_vocab_collect",
+                            "label": "vocab collect",
+                            "inclusive_ms": 0.011199999789823778,
+                            "self_ms": 0.011199999789823778,
+                            "percent_of_parent": 0.002945396500303533,
+                            "percent_of_root": 3.200552840024899e-05,
+                            "meta": {
+                              "category": "abox_once"
+                            },
+                            "children": []
+                          },
+                          {
+                            "name": "mapping_graph_scan",
+                            "label": "graph scan",
+                            "inclusive_ms": 380.2431999993132,
+                            "self_ms": 380.2431999993132,
+                            "percent_of_parent": 99.99705460349969,
+                            "percent_of_root": 1.0865968540139639,
+                            "meta": {
+                              "category": "abox_once"
+                            },
+                            "children": []
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "name": "reasoner_setup",
+                    "label": "reasoner setup",
+                    "inclusive_ms": 12.858500000220374,
+                    "self_ms": 12.858500000220374,
+                    "percent_of_parent": 0.22311731352040587,
+                    "percent_of_root": 0.036744919166478845,
+                    "meta": {
+                      "category": "host_runtime",
+                      "device": "cpu"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "dag_compile",
+                    "label": "dag compile",
+                    "inclusive_ms": 4.10330000158865,
+                    "self_ms": 4.10330000158865,
+                    "percent_of_parent": 0.0711993835133994,
+                    "percent_of_root": 0.011725739928576694,
+                    "meta": {
+                      "category": "host_runtime",
+                      "device": "cpu"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "dag_eval",
+                    "label": "dag eval",
+                    "inclusive_ms": 51.519099999495666,
+                    "self_ms": 51.519099999495666,
+                    "percent_of_parent": 0.8939458868981308,
+                    "percent_of_root": 0.14722286152963132,
+                    "meta": {
+                      "category": "device_runtime",
+                      "device": "cpu"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "assertion_update",
+                    "label": "assertion update",
+                    "inclusive_ms": 0.6173000001581386,
+                    "self_ms": 0.6173000001581386,
+                    "percent_of_parent": 0.010711227411367541,
+                    "percent_of_root": 0.001764019022972309,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "negative_reasoning",
+            "label": "negative_reasoning",
+            "inclusive_ms": 399.80389999982435,
+            "self_ms": 0.02769999991869554,
+            "percent_of_parent": 5.807455642828925,
+            "percent_of_root": 1.1424942246517682,
+            "meta": {
+              "category": "host_runtime"
+            },
+            "children": [
+              {
+                "name": "negative_blocker",
+                "label": "negative/blocker",
+                "inclusive_ms": 399.77619999990566,
+                "self_ms": 399.77619999990566,
+                "percent_of_parent": 99.99307160337388,
+                "percent_of_root": 1.1424150681204537,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "assignment_reporting",
+            "label": "assignment_reporting",
+            "inclusive_ms": 43.19690000011178,
+            "self_ms": 0.04720000288216397,
+            "percent_of_parent": 0.6274678177438393,
+            "percent_of_root": 0.12344103890184503,
+            "meta": {
+              "category": "host_runtime"
+            },
+            "children": [
+              {
+                "name": "assignment_status",
+                "label": "assignment status",
+                "inclusive_ms": 41.38259999854199,
+                "self_ms": 41.38259999854199,
+                "percent_of_parent": 95.79993008395256,
+                "percent_of_root": 0.11825642896287221,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": []
+              },
+              {
+                "name": "conflict_policy",
+                "label": "conflict policy",
+                "inclusive_ms": 1.7670999986876268,
+                "self_ms": 1.7670999986876268,
+                "percent_of_parent": 4.090802809190136,
+                "percent_of_root": 0.005049729487090165,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "filtered_result_assembly",
+        "label": "filtered result assembly",
+        "inclusive_ms": 0.07480000022042077,
+        "self_ms": 0.07480000022042077,
+        "percent_of_parent": 0.00021375121217131514,
+        "percent_of_root": 0.00021375121217131514,
+        "meta": {
+          "category": "host_runtime"
+        },
+        "children": []
+      },
+      {
+        "name": "filtered_score_projection",
+        "label": "filtered score projection",
+        "inclusive_ms": 1.1232999986532377,
+        "self_ms": 1.1232999986532377,
+        "percent_of_parent": 0.003209983096746247,
+        "percent_of_root": 0.003209983096746247,
+        "meta": {
+          "category": "host_runtime"
+        },
+        "children": []
+      },
+      {
+        "name": "engine_postprocess",
+        "label": "engine postprocess",
+        "inclusive_ms": 720.6010000008973,
+        "self_ms": 720.6010000008973,
+        "percent_of_parent": 2.0592157324620284,
+        "percent_of_root": 2.0592157324620284,
+        "meta": {
+          "category": "host_runtime"
+        },
+        "children": []
+      }
+    ]
+  },
+  "summary": {
+    "root_elapsed_ms": 34993.95370000093,
+    "category_totals_ms": {
+      "host_runtime": 31447.944600000483,
+      "tbox_cacheable": 118.48729999837815,
+      "abox_once": 3177.6184999998804,
+      "device_runtime": 249.37039999895205
+    },
+    "reconciliation_residual_ms": 1.392500002111774,
+    "warnings": []
+  }
+}

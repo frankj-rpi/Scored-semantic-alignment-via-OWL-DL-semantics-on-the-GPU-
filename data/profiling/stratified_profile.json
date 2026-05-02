@@ -1,0 +1,436 @@
+{
+  "tree": {
+    "name": "engine_total",
+    "label": "engine_total",
+    "inclusive_ms": 7833.39530000012,
+    "self_ms": 985.8795999989525,
+    "percent_of_parent": 100.0,
+    "percent_of_root": 100.0,
+    "meta": {
+      "device": "cpu"
+    },
+    "children": [
+      {
+        "name": "stratified_execution",
+        "label": "stratified execution",
+        "inclusive_ms": 6845.997000000352,
+        "self_ms": 0.5437000017991522,
+        "percent_of_parent": 87.39501503262892,
+        "percent_of_root": 87.39501503262892,
+        "meta": {
+          "category": "host_runtime"
+        },
+        "children": [
+          {
+            "name": "positive_reasoning",
+            "label": "positive_reasoning",
+            "inclusive_ms": 6460.590199998478,
+            "self_ms": 0.5170999975234736,
+            "percent_of_parent": 94.37033349559087,
+            "percent_of_root": 82.47496714481369,
+            "meta": {
+              "category": "host_runtime",
+              "device": "cpu"
+            },
+            "children": [
+              {
+                "name": "schema_setup",
+                "label": "schema_setup",
+                "inclusive_ms": 57.51880000025267,
+                "self_ms": -0.4051000014442252,
+                "percent_of_parent": 0.8903025609063739,
+                "percent_of_root": 0.7342767445969666,
+                "meta": {
+                  "category": "tbox_cacheable"
+                },
+                "children": [
+                  {
+                    "name": "rule_extraction",
+                    "label": "rule extraction",
+                    "inclusive_ms": 16.70890000059444,
+                    "self_ms": 16.70890000059444,
+                    "percent_of_parent": 29.049458612698874,
+                    "percent_of_root": 0.21330341902436845,
+                    "meta": {
+                      "category": "tbox_cacheable"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "rule_index",
+                    "label": "rule index",
+                    "inclusive_ms": 0.07870000081311446,
+                    "self_ms": 0.07870000081311446,
+                    "percent_of_parent": 0.1368248308601166,
+                    "percent_of_root": 0.00100467291383997,
+                    "meta": {
+                      "category": "tbox_cacheable"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "schema_cache",
+                    "label": "schema cache / compile context",
+                    "inclusive_ms": 40.5534000001353,
+                    "self_ms": 40.5534000001353,
+                    "percent_of_parent": 70.5046002349791,
+                    "percent_of_root": 0.5176988833965098,
+                    "meta": {
+                      "category": "tbox_cacheable"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "initial_ontology_merge",
+                    "label": "initial ontology merge",
+                    "inclusive_ms": 0.050099999498343095,
+                    "self_ms": 0.050099999498343095,
+                    "percent_of_parent": 0.08710195535741883,
+                    "percent_of_root": 0.000639569402278758,
+                    "meta": {
+                      "category": "abox_once"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "preprocessing_plan",
+                    "label": "preprocessing plan",
+                    "inclusive_ms": 0.10560000009718351,
+                    "self_ms": 0.10560000009718351,
+                    "percent_of_parent": 0.18359214743130878,
+                    "percent_of_root": 0.0013480744434942774,
+                    "meta": {
+                      "category": "abox_once"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "dependency_closure",
+                    "label": "dependency closure",
+                    "inclusive_ms": 0.42720000055851415,
+                    "self_ms": 0.42720000055851415,
+                    "percent_of_parent": 0.7427136876232424,
+                    "percent_of_root": 0.005453573887156028,
+                    "meta": {
+                      "category": "tbox_cacheable"
+                    },
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "name": "initial_data_copy",
+                "label": "initial data copy",
+                "inclusive_ms": 733.1335999988369,
+                "self_ms": 733.1335999988369,
+                "percent_of_parent": 11.347780578916916,
+                "percent_of_root": 9.359078304127275,
+                "meta": {
+                  "category": "abox_once"
+                },
+                "children": []
+              },
+              {
+                "name": "iteration_1",
+                "label": "iteration_1",
+                "inclusive_ms": 5558.940000000803,
+                "self_ms": 0.21430000015243422,
+                "percent_of_parent": 86.04384162923864,
+                "percent_of_root": 70.96463011385009,
+                "meta": {
+                  "category": "host_runtime",
+                  "iteration": 1
+                },
+                "children": [
+                  {
+                    "name": "dataset_refresh",
+                    "label": "dataset_refresh",
+                    "inclusive_ms": 5467.039400000431,
+                    "self_ms": 4958.327200001804,
+                    "percent_of_parent": 98.3467963316683,
+                    "percent_of_root": 69.79144024558988,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": [
+                      {
+                        "name": "scan_cache_index_prep",
+                        "label": "scan cache/index prep",
+                        "inclusive_ms": 508.7121999986266,
+                        "self_ms": 0.0,
+                        "percent_of_parent": 9.305076528231835,
+                        "percent_of_root": 6.494146925007331,
+                        "meta": {
+                          "category": "abox_once"
+                        },
+                        "children": [
+                          {
+                            "name": "mapping_vocab_collect",
+                            "label": "vocab collect",
+                            "inclusive_ms": 0.013299999409355223,
+                            "self_ms": 0.013299999409355223,
+                            "percent_of_parent": 0.002614444750763031,
+                            "percent_of_root": 0.00016978588338769293,
+                            "meta": {
+                              "category": "abox_once"
+                            },
+                            "children": []
+                          },
+                          {
+                            "name": "mapping_graph_scan",
+                            "label": "graph scan",
+                            "inclusive_ms": 508.69889999921725,
+                            "self_ms": 508.69889999921725,
+                            "percent_of_parent": 99.99738555524924,
+                            "percent_of_root": 6.493977139123944,
+                            "meta": {
+                              "category": "abox_once"
+                            },
+                            "children": []
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "name": "reasoner_setup",
+                    "label": "reasoner setup",
+                    "inclusive_ms": 10.367299999415991,
+                    "self_ms": 10.367299999415991,
+                    "percent_of_parent": 0.18649778553851082,
+                    "percent_of_root": 0.1323474636779256,
+                    "meta": {
+                      "category": "host_runtime",
+                      "device": "cpu"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "dag_compile",
+                    "label": "dag compile",
+                    "inclusive_ms": 5.0253999997948995,
+                    "self_ms": 5.0253999997948995,
+                    "percent_of_parent": 0.09040212702051423,
+                    "percent_of_root": 0.06415353505516085,
+                    "meta": {
+                      "category": "host_runtime",
+                      "device": "cpu"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "dag_eval",
+                    "label": "dag eval",
+                    "inclusive_ms": 48.91479999969306,
+                    "self_ms": 48.91479999969306,
+                    "percent_of_parent": 0.8799303464273045,
+                    "percent_of_root": 0.6244393156016562,
+                    "meta": {
+                      "category": "device_runtime",
+                      "device": "cpu"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "assertion_update",
+                    "label": "assertion update",
+                    "inclusive_ms": 27.37880000131554,
+                    "self_ms": 27.37880000131554,
+                    "percent_of_parent": 0.4925183578400124,
+                    "percent_of_root": 0.34951383088397336,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "name": "iteration_2",
+                "label": "iteration_2",
+                "inclusive_ms": 110.48070000106236,
+                "self_ms": 0.09380000119563192,
+                "percent_of_parent": 1.7100713182688538,
+                "percent_of_root": 1.4103807578951193,
+                "meta": {
+                  "category": "host_runtime",
+                  "iteration": 2
+                },
+                "children": [
+                  {
+                    "name": "dataset_refresh",
+                    "label": "dataset_refresh",
+                    "inclusive_ms": 49.82930000005581,
+                    "self_ms": 49.82930000005581,
+                    "percent_of_parent": 45.10226673036708,
+                    "percent_of_root": 0.6361136913396295,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "reasoner_setup",
+                    "label": "reasoner setup",
+                    "inclusive_ms": 11.989300001005176,
+                    "self_ms": 11.989300001005176,
+                    "percent_of_parent": 10.851940656503706,
+                    "percent_of_root": 0.15305368287752558,
+                    "meta": {
+                      "category": "host_runtime",
+                      "device": "cpu"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "dag_compile",
+                    "label": "dag compile",
+                    "inclusive_ms": 0.03319999996165279,
+                    "self_ms": 0.03319999996165279,
+                    "percent_of_parent": 0.030050497472711116,
+                    "percent_of_root": 0.00042382643400687675,
+                    "meta": {
+                      "category": "host_runtime",
+                      "device": "cpu"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "dag_eval",
+                    "label": "dag eval",
+                    "inclusive_ms": 47.75289999997767,
+                    "self_ms": 47.75289999997767,
+                    "percent_of_parent": 43.22284344642864,
+                    "percent_of_root": 0.6096066669835613,
+                    "meta": {
+                      "category": "device_runtime",
+                      "device": "cpu"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "assertion_update",
+                    "label": "assertion update",
+                    "inclusive_ms": 0.7821999988664174,
+                    "self_ms": 0.7821999988664174,
+                    "percent_of_parent": 0.7079969613325187,
+                    "percent_of_root": 0.009985452909115993,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "negative_reasoning",
+            "label": "negative_reasoning",
+            "inclusive_ms": 359.53739999968093,
+            "self_ms": 0.0123999980132794,
+            "percent_of_parent": 5.251790206739244,
+            "percent_of_root": 4.589802840661895,
+            "meta": {
+              "category": "host_runtime"
+            },
+            "children": [
+              {
+                "name": "negative_blocker",
+                "label": "negative/blocker",
+                "inclusive_ms": 359.52500000166765,
+                "self_ms": 359.52500000166765,
+                "percent_of_parent": 99.99655112430214,
+                "percent_of_root": 4.589644544067144,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "assignment_reporting",
+            "label": "assignment_reporting",
+            "inclusive_ms": 25.325700000394136,
+            "self_ms": 0.015600000551785342,
+            "percent_of_parent": 0.36993443030128165,
+            "percent_of_root": 0.32330425097267523,
+            "meta": {
+              "category": "host_runtime"
+            },
+            "children": [
+              {
+                "name": "assignment_status",
+                "label": "assignment status",
+                "inclusive_ms": 23.35739999944053,
+                "self_ms": 23.35739999944053,
+                "percent_of_parent": 92.22805292282949,
+                "percent_of_root": 0.2981772156888364,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": []
+              },
+              {
+                "name": "conflict_policy",
+                "label": "conflict policy",
+                "inclusive_ms": 1.9527000004018191,
+                "self_ms": 1.9527000004018191,
+                "percent_of_parent": 7.71034956732264,
+                "percent_of_root": 0.02492788791600737,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "stratified_result_marshalling",
+        "label": "stratified result marshalling",
+        "inclusive_ms": 1.5187000008154428,
+        "self_ms": 0.03020000076503493,
+        "percent_of_parent": 0.01938750621732851,
+        "percent_of_root": 0.01938750621732851,
+        "meta": {
+          "category": "host_runtime"
+        },
+        "children": [
+          {
+            "name": "result_projection",
+            "label": "result projection",
+            "inclusive_ms": 1.4885000000504078,
+            "self_ms": 1.4885000000504078,
+            "percent_of_parent": 98.01145711800754,
+            "percent_of_root": 0.01900197734244798,
+            "meta": {
+              "category": "host_runtime"
+            },
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "summary": {
+    "root_elapsed_ms": 7833.39530000012,
+    "category_totals_ms": {
+      "host_runtime": 5451.483400003781,
+      "tbox_cacheable": 57.768200002101366,
+      "abox_once": 1242.001499997059,
+      "device_runtime": 96.66769999967073
+    },
+    "reconciliation_residual_ms": 985.8795999989525,
+    "warnings": [
+      {
+        "path": "engine_total",
+        "issue": "top-level children do not reconcile to engine total",
+        "elapsed_ms": 985.8795999989525,
+        "tolerance_ms": 78.3339530000012
+      }
+    ]
+  }
+}
