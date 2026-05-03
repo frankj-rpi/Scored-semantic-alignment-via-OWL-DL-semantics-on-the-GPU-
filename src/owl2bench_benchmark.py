@@ -16,6 +16,7 @@ from .oracle_compare import (
     format_engine_timing_breakdown,
     format_skipped_target_warnings,
     resolve_target_classes,
+    resolve_super_dag_mode,
     run_elk_queries,
     run_engine_queries,
     run_owlready2_queries,
@@ -87,6 +88,7 @@ def run_owl2bench_benchmark(
     show_timing_breakdown: bool = False,
     graph_load_cache: str = "on",
     graph_load_cache_dir: Optional[str] = None,
+    super_dag: str = "auto",
     verbose: bool = False,
 ) -> None:
     profile_options = apply_engine_profile(
@@ -100,6 +102,7 @@ def run_owl2bench_benchmark(
         augment_property_domain_range=augment_property_domain_range,
         enable_negative_verification=enable_negative_verification,
     )
+    super_dag = resolve_super_dag_mode(super_dag, profile)
     schema_graph = load_rdflib_graph(
         schema_paths,
         cache_mode=graph_load_cache,
@@ -194,8 +197,9 @@ def run_owl2bench_benchmark(
             augment_property_domain_range=profile_options.augment_property_domain_range,
             engine_mode=engine_mode,
             conflict_policy=conflict_policy,
-            enable_negative_verification=profile_options.enable_negative_verification,
-        )
+                enable_negative_verification=profile_options.enable_negative_verification,
+                enable_super_dag=(super_dag == "on"),
+            )
 
         effective_query_mode = query_mode if engine_mode != "stratified" else stratified_query_mode
         query_graph, query_class_by_target = build_oracle_query_graph(
@@ -329,6 +333,16 @@ def main() -> None:
         "--graph-load-cache-dir",
         default=None,
         help="Optional directory for persistent rdflib graph load cache files. Default: .cache/rdflib_graphs",
+    )
+    parser.add_argument(
+        "--super-dag",
+        choices=["on", "off", "auto"],
+        default="auto",
+        help=(
+            "Opt-in merged super-DAG evaluation for multi-target positive Task M runs. "
+            "'auto' enables it by default for gpu-el profiles. "
+            "Currently only used when the selected target set is acyclic under the cached sufficient-rule dependency analysis."
+        ),
     )
     parser.add_argument("--threshold", type=float, default=0.999)
     parser.add_argument(
@@ -541,6 +555,7 @@ def main() -> None:
         show_timing_breakdown=args.show_timing_breakdown,
         graph_load_cache=args.graph_load_cache,
         graph_load_cache_dir=args.graph_load_cache_dir,
+        super_dag=args.super_dag,
         verbose=args.verbose,
     )
 

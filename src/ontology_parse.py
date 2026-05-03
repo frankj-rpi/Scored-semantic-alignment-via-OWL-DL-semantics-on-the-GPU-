@@ -27,6 +27,7 @@ from .constraints import (
     IntersectionAgg,
     TraversalDirection,
 )
+from .dag_eval import eval_dag_scores
 from .graph import KGraph
 from .profiling import ProfileNode, ProfileRecorder
 
@@ -156,6 +157,27 @@ class OntologyCompileContext:
     expression_support_cache: Dict[Identifier, bool] = field(default_factory=dict)
     target_support_cache: Dict[Tuple[URIRef, bool], bool] = field(default_factory=dict)
     entailment_cache: Dict[Tuple[str, str], bool] = field(default_factory=dict)
+    super_dag_cache: Dict[Tuple[Tuple[URIRef, ...], Tuple[Identifier, ...], Tuple[URIRef, ...]], "MergedConstraintDAG"] = field(default_factory=dict)
+    super_dag_acyclic_cache: Dict[Tuple[URIRef, ...], bool] = field(default_factory=dict)
+    super_dag_plan_cache: Dict[Tuple[URIRef, ...], "SuperDAGExecutionPlan"] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class MergedConstraintDAG:
+    dag: ConstraintDAG
+    target_order: Tuple[URIRef, ...]
+    root_indices: Tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class SuperDAGExecutionGroup:
+    target_order: Tuple[URIRef, ...]
+    is_cyclic: bool = False
+
+
+@dataclass(frozen=True)
+class SuperDAGExecutionPlan:
+    groups: Tuple[SuperDAGExecutionGroup, ...]
 
 
 @dataclass
@@ -166,6 +188,7 @@ class ClassMaterializationResult:
     timings: Optional["PositiveMaterializationTimings"] = None
     compiled_target_dags: Optional[Dict[URIRef, ConstraintDAG]] = None
     profile_tree: Optional[ProfileNode] = None
+    super_dag_plan: Optional["SuperDAGExecutionPlan"] = None
 
 
 @dataclass
@@ -1587,15 +1610,37 @@ def _collect_schema_individual_index(
     for subj, _pred, _obj in schema_graph.triples((None, RDF.type, OWL.NamedIndividual)):
         schema_individual_terms.add(subj)
 
+    union_find = _UnionFind()
+    for term in schema_individual_terms:
+        union_find.add(term)
+    for subj, _pred, obj in schema_graph.triples((None, OWL.sameAs, None)):
+        if subj in schema_individual_terms and obj in schema_individual_terms:
+            union_find.union(subj, obj)
+    alias_groups = union_find.groups()
+    alias_members_by_term: Dict[Identifier, Tuple[Identifier, ...]] = {}
+    for _root, members in alias_groups.items():
+        frozen_members = tuple(members)
+        for member in members:
+            alias_members_by_term[member] = frozen_members
+
     triples_by_subject: Dict[Identifier, List[Tuple[Identifier, Identifier, Identifier]]] = defaultdict(list)
     for subj, pred, obj in schema_graph:
         if subj in schema_individual_terms:
             triples_by_subject[subj].append((subj, pred, obj))
 
-    frozen_triples = {
-        subj: tuple(triples)
-        for subj, triples in triples_by_subject.items()
-    }
+    frozen_triples: Dict[Identifier, Tuple[Tuple[Identifier, Identifier, Identifier], ...]] = {}
+    for subj in sorted(schema_individual_terms, key=_term_sort_key):
+        expanded: List[Tuple[Identifier, Identifier, Identifier]] = []
+        seen: set[Tuple[Identifier, Identifier, Identifier]] = set()
+        for alias_member in alias_members_by_term.get(subj, (subj,)):
+            for _alias_subj, pred, obj in triples_by_subject.get(alias_member, ()):
+                rewritten = (subj, pred, obj)
+                if rewritten in seen:
+                    continue
+                seen.add(rewritten)
+                expanded.append(rewritten)
+        if expanded:
+            frozen_triples[subj] = tuple(expanded)
     return frozenset(schema_individual_terms), frozen_triples
 
 
@@ -6325,6 +6370,176 @@ def compute_sufficient_rule_dependency_closure(
     )
 
 
+def sufficient_rule_targets_are_acyclic(
+    target_classes: Sequence[URIRef],
+    antecedents_by_consequent: Dict[URIRef, List[NormalizedSufficientCondition]],
+    dependency_analysis: NamedClassDependencyAnalysis,
+) -> bool:
+    if len(target_classes) <= 1:
+        return True
+
+    canonical_map = dependency_analysis.canonical_map
+    canonical_targets = tuple(
+        sorted({canonical_map.get(class_term, class_term) for class_term in target_classes}, key=str)
+    )
+    target_set = set(canonical_targets)
+    adjacency: Dict[URIRef, List[URIRef]] = {}
+    stack = list(canonical_targets)
+    visited: Set[URIRef] = set()
+
+    while stack:
+        class_term = stack.pop()
+        if class_term in visited:
+            continue
+        visited.add(class_term)
+        deps: Set[URIRef] = set()
+        for antecedent in antecedents_by_consequent.get(class_term, ()):
+            for dep in _collect_condition_named_classes(antecedent):
+                canonical_dep = canonical_map.get(dep, dep)
+                if canonical_dep == class_term:
+                    continue
+                if canonical_dep in antecedents_by_consequent:
+                    deps.add(canonical_dep)
+        sorted_deps = sorted(deps, key=str)
+        adjacency[class_term] = sorted_deps
+        for dep in sorted_deps:
+            if dep not in visited:
+                stack.append(dep)
+
+    state: Dict[URIRef, int] = {}
+
+    def visit(node: URIRef) -> bool:
+        node_state = state.get(node, 0)
+        if node_state == 1:
+            return False
+        if node_state == 2:
+            return True
+        state[node] = 1
+        for dep in adjacency.get(node, ()):
+            if not visit(dep):
+                return False
+        state[node] = 2
+        return True
+
+    for node in canonical_targets:
+        if node in target_set and not visit(node):
+            return False
+    return True
+
+
+def build_super_dag_execution_plan(
+    target_classes: Sequence[URIRef],
+    antecedents_by_consequent: Dict[URIRef, List[NormalizedSufficientCondition]],
+    dependency_analysis: NamedClassDependencyAnalysis,
+) -> SuperDAGExecutionPlan:
+    canonical_map = dependency_analysis.canonical_map
+    selected = tuple(
+        sorted({canonical_map.get(class_term, class_term) for class_term in target_classes}, key=str)
+    )
+    if not selected:
+        return SuperDAGExecutionPlan(groups=())
+
+    selected_set = set(selected)
+    adjacency: Dict[URIRef, List[URIRef]] = {}
+    self_loop: Set[URIRef] = set()
+    for class_term in selected:
+        deps: Set[URIRef] = set()
+        for antecedent in antecedents_by_consequent.get(class_term, ()):
+            for dep in _collect_condition_named_classes(antecedent):
+                canonical_dep = canonical_map.get(dep, dep)
+                if canonical_dep == class_term:
+                    self_loop.add(class_term)
+                    continue
+                if canonical_dep in selected_set and canonical_dep in antecedents_by_consequent:
+                    deps.add(canonical_dep)
+        adjacency[class_term] = sorted(deps, key=str)
+
+    index = 0
+    stack: List[URIRef] = []
+    on_stack: Set[URIRef] = set()
+    indices: Dict[URIRef, int] = {}
+    lowlink: Dict[URIRef, int] = {}
+    components: List[List[URIRef]] = []
+
+    def strongconnect(node: URIRef) -> None:
+        nonlocal index
+        indices[node] = index
+        lowlink[node] = index
+        index += 1
+        stack.append(node)
+        on_stack.add(node)
+
+        for dep in adjacency.get(node, ()):
+            if dep not in indices:
+                strongconnect(dep)
+                lowlink[node] = min(lowlink[node], lowlink[dep])
+            elif dep in on_stack:
+                lowlink[node] = min(lowlink[node], indices[dep])
+
+        if lowlink[node] == indices[node]:
+            component: List[URIRef] = []
+            while True:
+                member = stack.pop()
+                on_stack.remove(member)
+                component.append(member)
+                if member == node:
+                    break
+            components.append(sorted(component, key=str))
+
+    for class_term in selected:
+        if class_term not in indices:
+            strongconnect(class_term)
+
+    component_index: Dict[URIRef, int] = {}
+    cyclic_components: Set[int] = set()
+    for idx, component in enumerate(components):
+        for class_term in component:
+            component_index[class_term] = idx
+        if len(component) > 1 or any(class_term in self_loop for class_term in component):
+            cyclic_components.add(idx)
+
+    forward_edges: Dict[int, Set[int]] = {idx: set() for idx in range(len(components))}
+    indegree: Dict[int, int] = {idx: 0 for idx in range(len(components))}
+    for class_term, deps in adjacency.items():
+        src_component = component_index[class_term]
+        for dep in deps:
+            dep_component = component_index[dep]
+            if dep_component == src_component:
+                continue
+            if src_component not in forward_edges[dep_component]:
+                forward_edges[dep_component].add(src_component)
+                indegree[src_component] += 1
+
+    ready = sorted([idx for idx, deg in indegree.items() if deg == 0], key=lambda idx: [str(t) for t in components[idx]])
+    groups: List[SuperDAGExecutionGroup] = []
+    while ready:
+        current_layer = ready
+        ready = []
+        layer_singletons: List[URIRef] = []
+        for component_idx in current_layer:
+            component = tuple(components[component_idx])
+            is_cyclic = component_idx in cyclic_components
+            if is_cyclic:
+                groups.append(SuperDAGExecutionGroup(target_order=component, is_cyclic=True))
+            else:
+                layer_singletons.extend(component)
+        if layer_singletons:
+            groups.append(
+                SuperDAGExecutionGroup(
+                    target_order=tuple(sorted(layer_singletons, key=str)),
+                    is_cyclic=False,
+                )
+            )
+        for component_idx in current_layer:
+            for dependent_component in sorted(forward_edges[component_idx], key=lambda idx: [str(t) for t in components[idx]]):
+                indegree[dependent_component] -= 1
+                if indegree[dependent_component] == 0:
+                    ready.append(dependent_component)
+        ready.sort(key=lambda idx: [str(t) for t in components[idx]])
+
+    return SuperDAGExecutionPlan(groups=tuple(groups))
+
+
 def _extract_negative_named_blockers_from_expr(
     ontology_graph: Graph,
     expr: Identifier,
@@ -7347,6 +7562,92 @@ def _compute_layers(nodes: List[ConstraintNode]) -> List[List[int]]:
     for idx in range(len(nodes)):
         layers[depth(idx)].append(idx)
     return layers
+
+
+def _constraint_node_merge_key(
+    node: ConstraintNode,
+    merged_child_indices: Tuple[int, ...],
+) -> Tuple[object, ...]:
+    normalized_children = merged_child_indices
+    if node.ctype in {ConstraintType.INTERSECTION, ConstraintType.UNION}:
+        normalized_children = tuple(sorted(normalized_children))
+    return (
+        node.ctype,
+        node.class_idx,
+        node.node_idx,
+        node.datatype_idx,
+        node.numeric_min,
+        node.numeric_max,
+        node.min_inclusive,
+        node.max_inclusive,
+        node.prop_idx,
+        node.prop_direction.value,
+        node.cardinality_target,
+        node.cardinality_delta,
+        node.cardinality_agg.value if node.cardinality_agg is not None else None,
+        normalized_children,
+        node.intersection_agg.value if node.intersection_agg is not None else None,
+        node.scale_factor,
+    )
+
+
+def merge_constraint_dags(
+    dags_by_target: Dict[URIRef, ConstraintDAG],
+) -> MergedConstraintDAG:
+    if not dags_by_target:
+        raise ValueError("merge_constraint_dags requires at least one DAG.")
+
+    merged_nodes: List[ConstraintNode] = []
+    key_to_merged_idx: Dict[Tuple[object, ...], int] = {}
+
+    def merge_node(dag: ConstraintDAG, node_idx: int) -> int:
+        node = dag.nodes[node_idx]
+        merged_child_indices = tuple(
+            merge_node(dag, child_idx)
+            for child_idx in (node.child_indices or [])
+        )
+        key = _constraint_node_merge_key(node, merged_child_indices)
+        existing_idx = key_to_merged_idx.get(key)
+        if existing_idx is not None:
+            return existing_idx
+
+        new_idx = len(merged_nodes)
+        merged_nodes.append(
+            ConstraintNode(
+                idx=new_idx,
+                ctype=node.ctype,
+                class_idx=node.class_idx,
+                node_idx=node.node_idx,
+                datatype_idx=node.datatype_idx,
+                numeric_min=node.numeric_min,
+                numeric_max=node.numeric_max,
+                min_inclusive=node.min_inclusive,
+                max_inclusive=node.max_inclusive,
+                prop_idx=node.prop_idx,
+                prop_direction=node.prop_direction,
+                cardinality_target=node.cardinality_target,
+                cardinality_delta=node.cardinality_delta,
+                cardinality_agg=node.cardinality_agg,
+                child_indices=list(merged_child_indices) if merged_child_indices else None,
+                intersection_agg=node.intersection_agg,
+                scale_factor=node.scale_factor,
+            )
+        )
+        key_to_merged_idx[key] = new_idx
+        return new_idx
+
+    target_order = tuple(sorted(dags_by_target.keys(), key=str))
+    root_indices = tuple(merge_node(dags_by_target[target], dags_by_target[target].root_idx) for target in target_order)
+    merged_dag = ConstraintDAG(
+        nodes=merged_nodes,
+        root_idx=root_indices[0],
+        layers=_compute_layers(merged_nodes),
+    )
+    return MergedConstraintDAG(
+        dag=merged_dag,
+        target_order=target_order,
+        root_indices=root_indices,
+    )
 
 
 def describe_constraint_dag(dag: ConstraintDAG, mapping: Optional[RDFKGraphMapping] = None) -> str:
@@ -8404,6 +8705,7 @@ def materialize_positive_sufficient_class_inferences(
     threshold: float = 0.999,
     max_iterations: int = 10,
     device: str = "cpu",
+    enable_super_dag: bool = False,
 ) -> ClassMaterializationResult:
     """
     Materialize positive OWA-style class assertions from normalized sufficient
@@ -8534,6 +8836,8 @@ def materialize_positive_sufficient_class_inferences(
         else sorted(antecedents_by_consequent.keys(), key=str)
     )
     compiled_dags: Dict[URIRef, ConstraintDAG] = {}
+    merged_super_dag: Optional[MergedConstraintDAG] = None
+    super_dag_plan: Optional[SuperDAGExecutionPlan] = None
     native_fast_reasoner = None
     native_fast_sim_class: Optional[torch.Tensor] = None
     use_incremental_rebuild = False
@@ -8568,6 +8872,26 @@ def materialize_positive_sufficient_class_inferences(
             )
         )
     native_fast_dataset: Optional[ReasoningDataset] = None
+    can_use_super_dag = False
+    if enable_super_dag and use_native_gpu_el_loop and len(target_classes_to_materialize) > 1:
+        plan_key = tuple(
+            sorted(
+                {
+                    sufficient_compile_context.dependency_analysis.canonical_map.get(class_term, class_term)
+                    for class_term in target_classes_to_materialize
+                },
+                key=str,
+            )
+        )
+        super_dag_plan = sufficient_compile_context.super_dag_plan_cache.get(plan_key)
+        if super_dag_plan is None:
+            super_dag_plan = build_super_dag_execution_plan(
+                target_classes_to_materialize,
+                antecedents_by_consequent,
+                sufficient_compile_context.dependency_analysis,
+            )
+            sufficient_compile_context.super_dag_plan_cache[plan_key] = super_dag_plan
+        can_use_super_dag = any(len(group.target_order) > 1 or group.is_cyclic for group in super_dag_plan.groups)
 
     def _attach_dataset_refresh_breakdown(
         dataset_node: ProfileNode,
@@ -8848,11 +9172,196 @@ def materialize_positive_sufficient_class_inferences(
                             compile_context=sufficient_compile_context,
                         )
                         compiled_dags[class_term] = dag
-                    reasoner.add_concept(str(class_term), dag)
+                    if not can_use_super_dag:
+                        reasoner.add_concept(str(class_term), dag)
+                if can_use_super_dag and super_dag_plan is not None:
+                    for group in super_dag_plan.groups:
+                        if len(group.target_order) <= 1:
+                            continue
+                        cache_key = (
+                            tuple(group.target_order),
+                            tuple(dataset.mapping.class_terms),
+                            tuple(dataset.mapping.prop_terms),
+                        )
+                        merged_super_dag = sufficient_compile_context.super_dag_cache.get(cache_key)
+                        if merged_super_dag is None:
+                            merged_super_dag = merge_constraint_dags(
+                                {class_term: compiled_dags[class_term] for class_term in group.target_order}
+                            )
+                            sufficient_compile_context.super_dag_cache[cache_key] = merged_super_dag
+                elif can_use_super_dag:
+                    cache_key = (
+                        tuple(target_classes_to_materialize),
+                        tuple(dataset.mapping.class_terms),
+                        tuple(dataset.mapping.prop_terms),
+                    )
+                    merged_super_dag = sufficient_compile_context.super_dag_cache.get(cache_key)
+                    if merged_super_dag is None:
+                        merged_super_dag = merge_constraint_dags(
+                            {class_term: compiled_dags[class_term] for class_term in target_classes_to_materialize}
+                        )
+                        sufficient_compile_context.super_dag_cache[cache_key] = merged_super_dag
                 compile_elapsed_ms = (perf_counter() - compile_t0) * 1000.0
                 timings.dag_compile_elapsed_ms += compile_elapsed_ms
                 iteration_timing.dag_compile_elapsed_ms += compile_elapsed_ms
 
+            if can_use_super_dag and super_dag_plan is not None:
+                node_terms = dataset.mapping.node_terms
+                current_node_types = reasoner.eval_graph.node_types
+                additions_this_iteration: List[Tuple[Identifier, URIRef]] = []
+                any_additions_this_iteration = False
+                added_node_index_chunks: List[torch.Tensor] = []
+                added_class_index_chunks: List[torch.Tensor] = []
+                for group_idx, group in enumerate(super_dag_plan.groups, start=1):
+                    group_targets = list(group.target_order)
+                    if not group_targets:
+                        continue
+                    group_kind = "cyclic scc" if group.is_cyclic else "acyclic batch"
+                    group_label = f"super-DAG group {group_idx} ({group_kind}, {len(group_targets)} targets)"
+                    with profiler.scoped(
+                        f"super_dag_group_{group_idx}",
+                        group_label,
+                        category="host_runtime",
+                        notes="super_dag_group",
+                    ) as group_node:
+                        group_eval_elapsed_ms = 0.0
+                        group_update_elapsed_ms = 0.0
+                        group_eval_count = 0
+                        group_update_count = 0
+                        cuda_eval_events: List[Tuple[torch.cuda.Event, torch.cuda.Event]] = []
+                        while True:
+                            if device.startswith("cuda"):
+                                start_event = torch.cuda.Event(enable_timing=True)
+                                end_event = torch.cuda.Event(enable_timing=True)
+                                start_event.record()
+                                if len(group_targets) == 1:
+                                    group_class = group_targets[0]
+                                    group_scores = eval_dag_scores(
+                                        reasoner.eval_graph,
+                                        compiled_dags[group_class],
+                                        device=device,
+                                        sim_class=reasoner.sim_class,
+                                    ).detach().unsqueeze(1)
+                                else:
+                                    cache_key = (
+                                        tuple(group.target_order),
+                                        tuple(dataset.mapping.class_terms),
+                                        tuple(dataset.mapping.prop_terms),
+                                    )
+                                    group_merged_dag = sufficient_compile_context.super_dag_cache[cache_key]
+                                    group_scores = reasoner.evaluate_merged_roots(
+                                        group_merged_dag.dag,
+                                        group_merged_dag.root_indices,
+                                    ).detach()
+                                end_event.record()
+                                cuda_eval_events.append((start_event, end_event))
+                            else:
+                                eval_t0 = perf_counter()
+                                if len(group_targets) == 1:
+                                    group_class = group_targets[0]
+                                    group_scores = eval_dag_scores(
+                                        reasoner.eval_graph,
+                                        compiled_dags[group_class],
+                                        device=device,
+                                        sim_class=reasoner.sim_class,
+                                    ).detach().unsqueeze(1)
+                                else:
+                                    cache_key = (
+                                        tuple(group.target_order),
+                                        tuple(dataset.mapping.class_terms),
+                                        tuple(dataset.mapping.prop_terms),
+                                    )
+                                    group_merged_dag = sufficient_compile_context.super_dag_cache[cache_key]
+                                    group_scores = reasoner.evaluate_merged_roots(
+                                        group_merged_dag.dag,
+                                        group_merged_dag.root_indices,
+                                    ).detach()
+                                group_eval_elapsed_ms += (perf_counter() - eval_t0) * 1000.0
+                            group_eval_count += 1
+
+                            class_indices_for_cols = torch.tensor(
+                                [dataset.mapping.class_to_idx[class_term] for class_term in group_targets],
+                                device=group_scores.device,
+                                dtype=torch.long,
+                            )
+                            candidate_matrix = group_scores >= threshold
+                            existing_type_matrix = current_node_types[:, class_indices_for_cols] >= threshold
+                            positive_pairs = torch.nonzero(candidate_matrix & (~existing_type_matrix), as_tuple=False)
+                            if positive_pairs.numel() == 0:
+                                break
+
+                            update_t0 = perf_counter()
+                            added_node_indices = positive_pairs[:, 0]
+                            added_class_col_indices = positive_pairs[:, 1]
+                            added_class_indices = class_indices_for_cols[added_class_col_indices]
+                            added_node_indices_cpu = added_node_indices.detach().cpu().tolist()
+                            added_class_col_indices_cpu = added_class_col_indices.detach().cpu().tolist()
+                            additions_this_round = [
+                                (node_terms[node_idx], group_targets[class_col_idx])
+                                for node_idx, class_col_idx in zip(added_node_indices_cpu, added_class_col_indices_cpu)
+                            ]
+                            inferred_assertions.extend(additions_this_round)
+                            additions_this_iteration.extend(additions_this_round)
+                            any_additions_this_iteration = True
+                            added_node_index_chunks.append(added_node_indices.detach().clone())
+                            added_class_index_chunks.append(added_class_indices.detach().clone())
+                            reasoner.apply_type_updates(
+                                added_node_indices,
+                                added_class_indices,
+                            )
+                            current_node_types = reasoner.eval_graph.node_types
+                            group_update_elapsed_ms += (perf_counter() - update_t0) * 1000.0
+                            group_update_count += 1
+
+                            if not group.is_cyclic:
+                                break
+
+                        if cuda_eval_events:
+                            torch.cuda.synchronize()
+                            group_eval_elapsed_ms += sum(
+                                start_event.elapsed_time(end_event)
+                                for start_event, end_event in cuda_eval_events
+                            )
+                        timings.dag_eval_elapsed_ms += group_eval_elapsed_ms
+                        iteration_timing.dag_eval_elapsed_ms += group_eval_elapsed_ms
+                        timings.assertion_update_elapsed_ms += group_update_elapsed_ms
+                        iteration_timing.assertion_update_elapsed_ms += group_update_elapsed_ms
+                        if group_eval_count:
+                            group_node.add_child(
+                                ProfileNode(
+                                    name="dag_eval_total",
+                                    label=f"dag eval total ({group_eval_count} passes)",
+                                    elapsed_ms_inclusive=group_eval_elapsed_ms,
+                                    meta={"category": "device_runtime", "device": device},
+                                )
+                            )
+                        if group_update_count:
+                            group_node.add_child(
+                                ProfileNode(
+                                    name="assertion_update_total",
+                                    label=f"assertion update total ({group_update_count} passes)",
+                                    elapsed_ms_inclusive=group_update_elapsed_ms,
+                                    meta={"category": "host_runtime"},
+                                )
+                            )
+
+                if not any_additions_this_iteration:
+                    timings.iteration_timings.append(iteration_timing)
+                    final_dataset = dataset
+                    terminated_early = True
+                    break
+
+                if added_node_index_chunks and added_class_index_chunks:
+                    dataset = _dataset_with_updated_native_type_indices(
+                        dataset,
+                        torch.cat(added_node_index_chunks, dim=0),
+                        torch.cat(added_class_index_chunks, dim=0),
+                    )
+                current_data_graph = dataset.data_graph
+                pending_type_assertions = additions_this_iteration
+                native_fast_dataset = dataset
+                timings.iteration_timings.append(iteration_timing)
+                continue
             with profiler.scoped(
                 "dag_eval",
                 "dag eval",
@@ -8861,7 +9370,13 @@ def materialize_positive_sufficient_class_inferences(
                 sync_cuda=device.startswith("cuda"),
             ):
                 eval_t0 = perf_counter()
-                scores = reasoner.evaluate_all().detach()
+                if can_use_super_dag and merged_super_dag is not None:
+                    scores = reasoner.evaluate_merged_roots(
+                        merged_super_dag.dag,
+                        merged_super_dag.root_indices,
+                    ).detach()
+                else:
+                    scores = reasoner.evaluate_all().detach()
                 eval_elapsed_ms = (perf_counter() - eval_t0) * 1000.0
                 timings.dag_eval_elapsed_ms += eval_elapsed_ms
                 iteration_timing.dag_eval_elapsed_ms += eval_elapsed_ms
@@ -9003,6 +9518,7 @@ def materialize_positive_sufficient_class_inferences(
         timings=timings,
         compiled_target_dags=dict(compiled_dags),
         profile_tree=timings.profile_tree,
+        super_dag_plan=super_dag_plan if can_use_super_dag else None,
     )
 
 
@@ -9339,6 +9855,7 @@ def materialize_stratified_class_inferences(
     threshold: float = 0.999,
     max_iterations: int = 10,
     device: str = "cpu",
+    enable_super_dag: bool = False,
     conflict_policy: ConflictPolicy = ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED,
     enable_negative_verification: bool = True,
 ) -> StratifiedMaterializationResult:
@@ -9365,6 +9882,7 @@ def materialize_stratified_class_inferences(
         threshold=threshold,
         max_iterations=max_iterations,
         device=device,
+        enable_super_dag=enable_super_dag,
     )
     positive_profile = positive_result.profile_tree
     if positive_profile is not None:

@@ -7,7 +7,7 @@ import torch
 
 from .graph import KGraph, prepare_kgraph_for_device
 from .constraints import ConstraintDAG
-from .dag_eval import eval_dag_scores
+from .dag_eval import eval_dag_score_matrix, eval_dag_scores
 
 
 @dataclass
@@ -61,6 +61,19 @@ class DAGReasoner:
         self.eval_graph.node_types = node_types.to(self.device)
         self._last_scores = None
 
+    def apply_type_updates(
+        self,
+        added_node_indices: torch.Tensor,
+        added_class_indices: torch.Tensor,
+    ) -> None:
+        if added_node_indices.numel() == 0 or added_class_indices.numel() == 0:
+            return
+        cpu_node_indices = added_node_indices.detach().to("cpu")
+        cpu_class_indices = added_class_indices.detach().to("cpu")
+        self.graph.node_types[cpu_node_indices, cpu_class_indices] = 1.0
+        self.eval_graph.node_types[added_node_indices, added_class_indices] = 1.0
+        self._last_scores = None
+
     def evaluate_all(self) -> torch.Tensor:
         """
         Evaluate all registered concepts over all nodes.
@@ -88,6 +101,20 @@ class DAGReasoner:
 
         self._last_scores = scores
         return scores
+
+    def evaluate_merged_roots(
+        self,
+        dag: ConstraintDAG,
+        root_indices: List[int] | Tuple[int, ...],
+    ) -> torch.Tensor:
+        score_matrix = eval_dag_score_matrix(
+            self.eval_graph,
+            dag,
+            device=self.device,
+            sim_class=self.sim_class,
+        )
+        roots = torch.as_tensor(list(root_indices), device=score_matrix.device, dtype=torch.long)
+        return score_matrix[:, roots]
 
     def _ensure_scores(self) -> torch.Tensor:
         if self._last_scores is None:

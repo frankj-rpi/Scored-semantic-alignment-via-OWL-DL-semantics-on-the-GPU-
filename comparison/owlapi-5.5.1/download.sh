@@ -1,0 +1,1 @@
+ mvn dependency:build-classpath   -Dmdep.outputFile=classpath.txt   -Dmaven.repo.local=./maven-repo

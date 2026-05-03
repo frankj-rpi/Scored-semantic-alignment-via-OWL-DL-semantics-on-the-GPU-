@@ -27,6 +27,7 @@ from .ontology_parse import (
     NamedClassDependencyAnalysis,
     OntologyCompileContext,
     PreprocessingTimings,
+    SuperDAGExecutionPlan,
     aggregate_rdflib_graphs,
     analyze_named_class_dependencies,
     build_ontology_compile_context,
@@ -135,6 +136,7 @@ class EngineQueryResult(BackendQueryResult):
     dag_effective_device: str = "cpu"
     torch_cuda_available: Optional[bool] = None
     dag_stats_by_target: Optional[Dict[URIRef, "DAGStats"]] = None
+    super_dag_plan: Optional[SuperDAGExecutionPlan] = None
     profile_tree: Optional[ProfileNode] = None
     profile_summary: Optional[ProfileSummary] = None
 
@@ -270,6 +272,7 @@ def _compute_dag_stats(dag: ConstraintDAG) -> DAGStats:
 def _format_dag_stats(
     dag_stats_by_target: Optional[Dict[URIRef, DAGStats]],
     *,
+    super_dag_plan: Optional[SuperDAGExecutionPlan] = None,
     verbose: bool = False,
     max_items: int = 10,
 ) -> List[str]:
@@ -295,6 +298,28 @@ def _format_dag_stats(
         f"max fan-in={max_fan_in}, max fan-out={max_fan_out}, "
         f"avg nodes/target={avg_nodes:.2f}, avg edges/target={avg_edges:.2f}"
     )
+    if super_dag_plan is not None and super_dag_plan.groups:
+        total_groups = len(super_dag_plan.groups)
+        cyclic_groups = sum(1 for group in super_dag_plan.groups if group.is_cyclic)
+        acyclic_groups = total_groups - cyclic_groups
+        max_targets_per_group = max(len(group.target_order) for group in super_dag_plan.groups)
+        lines.append(
+            "  - super-DAG execution plan: "
+            f"groups={total_groups}, cyclic groups={cyclic_groups}, acyclic groups={acyclic_groups}, "
+            f"max targets/group={max_targets_per_group}"
+        )
+        display_groups = super_dag_plan.groups if verbose else super_dag_plan.groups[:max_items]
+        for idx, group in enumerate(display_groups, start=1):
+            group_kind = "cyclic scc" if group.is_cyclic else "acyclic batch"
+            preview = ", ".join(_render_term(term) for term in group.target_order[:3])
+            if len(group.target_order) > 3:
+                preview += f", ... ({len(group.target_order)} targets)"
+            lines.append(
+                f"      group {idx}: {group_kind}, targets={len(group.target_order)}"
+                + (f", preview={preview}" if preview else "")
+            )
+        if not verbose and total_groups > len(display_groups):
+            lines.append(f"      ... and {total_groups - len(display_groups)} more super-DAG groups omitted")
 
     ordered_items = sorted(
         stat_items,
@@ -351,6 +376,18 @@ def normalize_engine_profile_name(profile: Optional[str]) -> str:
             f"Supported profiles: {', '.join(sorted(PROFILE_ALIASES))}."
         )
     return resolved
+
+
+def resolve_super_dag_mode(super_dag: str, profile: Optional[str]) -> str:
+    normalized = super_dag.strip().lower()
+    if normalized not in {"on", "off", "auto"}:
+        raise ValueError("super_dag must be one of: on, off, auto")
+    if normalized != "auto":
+        return normalized
+    resolved_profile = normalize_engine_profile_name(profile)
+    if resolved_profile.startswith("gpu-el"):
+        return "on"
+    return "off"
 
 
 def normalize_engine_mode_name(engine_mode: str) -> str:
@@ -1030,7 +1067,13 @@ def format_engine_timing_breakdown(
             "  - timing warning: disjoint phase totals do not reconcile with engine time "
             f"within tolerance ({_format_elapsed_seconds(_timing_reconciliation_tolerance_ms(summary.root_elapsed_ms))})"
         )
-    lines.extend(_format_dag_stats(engine_result.dag_stats_by_target, verbose=verbose))
+    lines.extend(
+        _format_dag_stats(
+            engine_result.dag_stats_by_target,
+            super_dag_plan=engine_result.super_dag_plan,
+            verbose=verbose,
+        )
+    )
     return "\n".join(lines)
 
 
@@ -2022,6 +2065,7 @@ def run_engine_queries(
     engine_mode: str = "admissibility",
     conflict_policy: str = ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED.value,
     enable_negative_verification: Optional[bool] = None,
+    enable_super_dag: bool = False,
 ) -> EngineQueryResult:
     engine_mode = normalize_engine_mode_name(engine_mode)
     dag_requested_device = device
@@ -2107,6 +2151,7 @@ def run_engine_queries(
                     target_classes=target_classes,
                     threshold=threshold,
                     device=device_to_use,
+                    enable_super_dag=enable_super_dag,
                 )
                 if positive_result.profile_tree is not None:
                     positive_node.children = [
@@ -2128,6 +2173,7 @@ def run_engine_queries(
                 target_classes=target_classes,
                 threshold=threshold,
                 device=device_to_use,
+                enable_super_dag=enable_super_dag,
             )
         iterations = positive_result.iterations
         positive_timings = positive_result.timings
@@ -2203,6 +2249,7 @@ def run_engine_queries(
                     target_classes=target_classes,
                     threshold=threshold,
                     device=device_to_use,
+                    enable_super_dag=enable_super_dag,
                     conflict_policy=ConflictPolicy(conflict_policy),
                     enable_negative_verification=(True if enable_negative_verification is None else enable_negative_verification),
                 )
@@ -2226,6 +2273,7 @@ def run_engine_queries(
                 target_classes=target_classes,
                 threshold=threshold,
                 device=device_to_use,
+                enable_super_dag=enable_super_dag,
                 conflict_policy=ConflictPolicy(conflict_policy),
                 enable_negative_verification=(True if enable_negative_verification is None else enable_negative_verification),
             )
@@ -2493,6 +2541,7 @@ def run_engine_queries(
                     target_classes=target_classes,
                     threshold=threshold,
                     device=device_to_use,
+                    enable_super_dag=enable_super_dag,
                     conflict_policy=ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED,
                     enable_negative_verification=(True if enable_negative_verification is None else enable_negative_verification),
                 )
@@ -2516,6 +2565,7 @@ def run_engine_queries(
                 target_classes=target_classes,
                 threshold=threshold,
                 device=device_to_use,
+                enable_super_dag=enable_super_dag,
                 conflict_policy=ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED,
                 enable_negative_verification=(True if enable_negative_verification is None else enable_negative_verification),
             )
@@ -2928,6 +2978,11 @@ def run_engine_queries(
             dag_effective_device=dag_effective_device,
             torch_cuda_available=torch_cuda_available,
             dag_stats_by_target=(dag_stats_by_target or None),
+            super_dag_plan=(
+                stratified_result.positive_result.super_dag_plan
+                if stratified_result is not None
+                else None
+            ),
         )
         )
 
@@ -2990,6 +3045,11 @@ def run_engine_queries(
         dag_effective_device=dag_effective_device,
         torch_cuda_available=torch_cuda_available,
         dag_stats_by_target=(dag_stats_by_target or None),
+        super_dag_plan=(
+            stratified_result.positive_result.super_dag_plan
+            if stratified_result is not None
+            else None
+        ),
         profile_tree=profile_tree,
         profile_summary=profile_summary,
     )
@@ -3669,9 +3729,11 @@ def run_oracle_comparison(
     timing_csv: Optional[str] = None,
     graph_load_cache: str = "on",
     graph_load_cache_dir: Optional[str] = None,
+    super_dag: str = "auto",
     verbose: bool = False,
 ) -> None:
     engine_mode = normalize_engine_mode_name(engine_mode)
+    super_dag = resolve_super_dag_mode(super_dag, profile)
     profile_options = apply_engine_profile(
         profile=profile,
         materialize_hierarchy=materialize_hierarchy,
@@ -3773,6 +3835,7 @@ def run_oracle_comparison(
         engine_mode=engine_mode,
         conflict_policy=conflict_policy,
         enable_negative_verification=profile_options.enable_negative_verification,
+        enable_super_dag=(super_dag == "on"),
     )
     if engine_result.profile_tree is None or engine_result.profile_summary is None:
         engine_result.profile_tree, engine_result.profile_summary = _build_engine_profile_tree(engine_result)
@@ -3901,6 +3964,16 @@ def main() -> None:
         "--graph-load-cache-dir",
         default=None,
         help="Optional directory for persistent rdflib graph load cache files. Default: .cache/rdflib_graphs",
+    )
+    parser.add_argument(
+        "--super-dag",
+        choices=["on", "off", "auto"],
+        default="auto",
+        help=(
+            "Opt-in merged super-DAG evaluation for multi-target positive Task M runs. "
+            "'auto' enables it by default for gpu-el profiles. "
+            "Currently only used when the selected target set is acyclic under the cached sufficient-rule dependency analysis."
+        ),
     )
     parser.add_argument("--threshold", type=float, default=0.999)
     parser.add_argument("--include-literals", action="store_true")
@@ -4172,6 +4245,7 @@ def main() -> None:
         timing_csv=args.timing_csv,
         graph_load_cache=args.graph_load_cache,
         graph_load_cache_dir=args.graph_load_cache_dir,
+        super_dag=args.super_dag,
         verbose=args.verbose,
         max_diff_items=args.max_diff_items,
     )
