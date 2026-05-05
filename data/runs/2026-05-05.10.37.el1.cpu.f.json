@@ -1,0 +1,1117 @@
+{
+  "tree": {
+    "name": "engine_total",
+    "label": "engine_total",
+    "inclusive_ms": 708.4788999927696,
+    "self_ms": 2.733100001933053,
+    "percent_of_parent": 100.0,
+    "percent_of_root": 100.0,
+    "meta": {
+      "device": "cpu"
+    },
+    "children": [
+      {
+        "name": "stratified_execution",
+        "label": "stratified execution",
+        "inclusive_ms": 690.1612999936333,
+        "self_ms": 0.8813999884296209,
+        "percent_of_parent": 97.41451721436965,
+        "percent_of_root": 97.41451721436965,
+        "meta": {
+          "category": "host_runtime"
+        },
+        "children": [
+          {
+            "name": "positive_reasoning",
+            "label": "positive_reasoning",
+            "inclusive_ms": 515.9879999991972,
+            "self_ms": 0.8456999930785969,
+            "percent_of_parent": 74.76339226843886,
+            "percent_of_root": 72.8303976313851,
+            "meta": {
+              "category": "host_runtime",
+              "device": "cpu"
+            },
+            "children": [
+              {
+                "name": "schema_setup",
+                "label": "schema_setup",
+                "inclusive_ms": 55.6399000051897,
+                "self_ms": -0.39489998016506433,
+                "percent_of_parent": 10.783177129172824,
+                "percent_of_root": 7.853430780473143,
+                "meta": {
+                  "category": "tbox_cacheable"
+                },
+                "children": [
+                  {
+                    "name": "rule_extraction",
+                    "label": "rule extraction",
+                    "inclusive_ms": 15.417300004628487,
+                    "self_ms": 15.417300004628487,
+                    "percent_of_parent": 27.709072092492022,
+                    "percent_of_root": 2.176112796695262,
+                    "meta": {
+                      "category": "tbox_cacheable"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "rule_index",
+                    "label": "rule index",
+                    "inclusive_ms": 0.0737999944249168,
+                    "self_ms": 0.0737999944249168,
+                    "percent_of_parent": 0.1326386180026083,
+                    "percent_of_root": 0.010416682053011031,
+                    "meta": {
+                      "category": "tbox_cacheable"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "schema_cache",
+                    "label": "schema cache / compile context",
+                    "inclusive_ms": 39.97860000526998,
+                    "self_ms": 39.97860000526998,
+                    "percent_of_parent": 71.8523936986606,
+                    "percent_of_root": 5.642878003237356,
+                    "meta": {
+                      "category": "tbox_cacheable"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "initial_ontology_merge",
+                    "label": "initial ontology merge",
+                    "inclusive_ms": 0.06859999848529696,
+                    "self_ms": 0.06859999848529696,
+                    "percent_of_parent": 0.1232928141116329,
+                    "percent_of_root": 0.009682715813554513,
+                    "meta": {
+                      "category": "abox_once"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "preprocessing_plan",
+                    "label": "preprocessing plan",
+                    "inclusive_ms": 0.08289999095723033,
+                    "self_ms": 0.08289999095723033,
+                    "percent_of_parent": 0.14899378135025046,
+                    "percent_of_root": 0.011701123485551421,
+                    "meta": {
+                      "category": "abox_once"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "dependency_closure",
+                    "label": "dependency closure",
+                    "inclusive_ms": 0.4135999915888533,
+                    "self_ms": 0.4135999915888533,
+                    "percent_of_parent": 0.7433514286515173,
+                    "percent_of_root": 0.058378589904805114,
+                    "meta": {
+                      "category": "tbox_cacheable"
+                    },
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "name": "iteration_1",
+                "label": "iteration_1",
+                "inclusive_ms": 415.6288999947719,
+                "self_ms": 3.870799977448769,
+                "percent_of_parent": 80.55010969158558,
+                "percent_of_root": 58.66496518089863,
+                "meta": {
+                  "category": "host_runtime",
+                  "iteration": 1
+                },
+                "children": [
+                  {
+                    "name": "dataset_refresh",
+                    "label": "dataset_refresh",
+                    "inclusive_ms": 278.0848000111291,
+                    "self_ms": -55.39999998291023,
+                    "percent_of_parent": 66.90699323714666,
+                    "percent_of_root": 39.25096428615829,
+                    "meta": {
+                      "category": "host_runtime"
+                    },
+                    "children": [
+                      {
+                        "name": "scan_cache_index_prep",
+                        "label": "scan cache/index prep",
+                        "inclusive_ms": 113.95309999352321,
+                        "self_ms": 0.0,
+                        "percent_of_parent": 40.97782402668637,
+                        "percent_of_root": 16.08419107395946,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": [
+                          {
+                            "name": "mapping_vocab_collect",
+                            "label": "vocab collect",
+                            "inclusive_ms": 0.004399989848025143,
+                            "self_ms": 0.004399989848025143,
+                            "percent_of_parent": 0.0038612287408374387,
+                            "percent_of_root": 0.0006210474084789324,
+                            "meta": {
+                              "category": "host_runtime"
+                            },
+                            "children": []
+                          },
+                          {
+                            "name": "mapping_graph_scan",
+                            "label": "graph scan",
+                            "inclusive_ms": 113.94870000367519,
+                            "self_ms": 113.94870000367519,
+                            "percent_of_parent": 99.99613877125915,
+                            "percent_of_root": 16.08357002655098,
+                            "meta": {
+                              "category": "host_runtime"
+                            },
+                            "children": []
+                          }
+                        ]
+                      },
+                      {
+                        "name": "dataset_native_assembly",
+                        "label": "dataset build/native assembly",
+                        "inclusive_ms": 219.53170000051614,
+                        "self_ms": 0.0,
+                        "percent_of_parent": 78.9441565996165,
+                        "percent_of_root": 30.986342712924348,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": [
+                          {
+                            "name": "ontology_merge",
+                            "label": "ontology merge",
+                            "inclusive_ms": 0.03169999399688095,
+                            "self_ms": 0.03169999399688095,
+                            "percent_of_parent": 0.014439825317622203,
+                            "percent_of_root": 0.004474373760066032,
+                            "meta": {
+                              "category": "host_runtime"
+                            },
+                            "children": []
+                          },
+                          {
+                            "name": "sameas",
+                            "label": "sameAs",
+                            "inclusive_ms": 102.85850000218488,
+                            "self_ms": 102.85850000218488,
+                            "percent_of_parent": 46.853597909524254,
+                            "percent_of_root": 14.518216421580743,
+                            "meta": {
+                              "category": "host_runtime"
+                            },
+                            "children": []
+                          },
+                          {
+                            "name": "schema_individual_import",
+                            "label": "schema individual import",
+                            "inclusive_ms": 4.426200001034886,
+                            "self_ms": 4.426200001034886,
+                            "percent_of_parent": 2.0162008498200845,
+                            "percent_of_root": 0.6247469051061446,
+                            "meta": {
+                              "category": "host_runtime"
+                            },
+                            "children": []
+                          },
+                          {
+                            "name": "kgraph_build",
+                            "label": "kgraph build",
+                            "inclusive_ms": 112.21530000329949,
+                            "self_ms": 99.165500010713,
+                            "percent_of_parent": 51.11576141533804,
+                            "percent_of_root": 15.838905012477394,
+                            "meta": {
+                              "category": "host_runtime"
+                            },
+                            "children": [
+                              {
+                                "name": "mapping_finalize",
+                                "label": "mapping finalize",
+                                "inclusive_ms": 5.394599997089244,
+                                "self_ms": 0.0,
+                                "percent_of_parent": 4.807365837751738,
+                                "percent_of_root": 0.7614341086437859,
+                                "meta": {
+                                  "category": "host_runtime"
+                                },
+                                "children": [
+                                  {
+                                    "name": "mapping_sort",
+                                    "label": "mapping sort",
+                                    "inclusive_ms": 4.86109999474138,
+                                    "self_ms": 4.86109999474138,
+                                    "percent_of_parent": 90.11048080236304,
+                                    "percent_of_root": 0.6861319362921028,
+                                    "meta": {
+                                      "category": "host_runtime"
+                                    },
+                                    "children": []
+                                  },
+                                  {
+                                    "name": "mapping_index",
+                                    "label": "mapping index",
+                                    "inclusive_ms": 0.5335000023478642,
+                                    "self_ms": 0.5335000023478642,
+                                    "percent_of_parent": 9.889519197636968,
+                                    "percent_of_root": 0.07530217235168314,
+                                    "meta": {
+                                      "category": "host_runtime"
+                                    },
+                                    "children": []
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "kgraph_internals",
+                                "label": "kgraph internals",
+                                "inclusive_ms": 7.655199995497242,
+                                "self_ms": 0.0,
+                                "percent_of_parent": 6.821886137872603,
+                                "percent_of_root": 1.0805120654370042,
+                                "meta": {
+                                  "category": "host_runtime"
+                                },
+                                "children": [
+                                  {
+                                    "name": "edge_buckets",
+                                    "label": "edge buckets",
+                                    "inclusive_ms": 0.30759999935980886,
+                                    "self_ms": 0.30759999935980886,
+                                    "percent_of_parent": 4.018183712257524,
+                                    "percent_of_root": 0.043416959822367054,
+                                    "meta": {
+                                      "category": "host_runtime"
+                                    },
+                                    "children": []
+                                  },
+                                  {
+                                    "name": "negative_helpers",
+                                    "label": "negative helpers",
+                                    "inclusive_ms": 0.0012999953469261527,
+                                    "self_ms": 0.0012999953469261527,
+                                    "percent_of_parent": 0.01698186001268164,
+                                    "percent_of_root": 0.00018349104637264708,
+                                    "meta": {
+                                      "category": "host_runtime"
+                                    },
+                                    "children": []
+                                  },
+                                  {
+                                    "name": "literal_features",
+                                    "label": "literal features",
+                                    "inclusive_ms": 1.0094000026583672,
+                                    "self_ms": 1.0094000026583672,
+                                    "percent_of_parent": 13.18580838191154,
+                                    "percent_of_root": 0.142474250491958,
+                                    "meta": {
+                                      "category": "host_runtime"
+                                    },
+                                    "children": []
+                                  },
+                                  {
+                                    "name": "adjacency",
+                                    "label": "adjacency",
+                                    "inclusive_ms": 6.3368999981321394,
+                                    "self_ms": 6.3368999981321394,
+                                    "percent_of_parent": 82.77902604581826,
+                                    "percent_of_root": 0.8944373640763065,
+                                    "meta": {
+                                      "category": "host_runtime"
+                                    },
+                                    "children": []
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "name": "reasoner_setup",
+                    "label": "reasoner setup",
+                    "inclusive_ms": 18.023299999185838,
+                    "self_ms": 18.023299999185838,
+                    "percent_of_parent": 4.336392392206737,
+                    "percent_of_root": 2.5439430869952195,
+                    "meta": {
+                      "category": "host_runtime",
+                      "device": "cpu"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "dag_compile",
+                    "label": "dag compile",
+                    "inclusive_ms": 9.517099999357015,
+                    "self_ms": 9.517099999357015,
+                    "percent_of_parent": 2.2898070849925807,
+                    "percent_of_root": 1.3433145291206474,
+                    "meta": {
+                      "category": "host_runtime",
+                      "device": "cpu"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "super_dag_group_1",
+                    "label": "super-DAG group 1 (cyclic scc, 1 targets)",
+                    "inclusive_ms": 4.973900009645149,
+                    "self_ms": 0.3226000117138028,
+                    "percent_of_parent": 1.196716592543905,
+                    "percent_of_root": 0.7020533723299184,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 4.651299997931346,
+                        "self_ms": 4.651299997931346,
+                        "percent_of_parent": 93.51414360786843,
+                        "percent_of_root": 0.6565191988044832,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_2",
+                    "label": "super-DAG group 2 (cyclic scc, 1 targets)",
+                    "inclusive_ms": 3.076699998928234,
+                    "self_ms": 0.327600006130524,
+                    "percent_of_parent": 0.740251700246767,
+                    "percent_of_root": 0.43426840220077595,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (2 passes)",
+                        "inclusive_ms": 2.3612999939359725,
+                        "self_ms": 2.3612999939359725,
+                        "percent_of_parent": 76.74781404617056,
+                        "percent_of_root": 0.3332915057823276,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "assertion_update_total",
+                        "label": "assertion update total (1 passes)",
+                        "inclusive_ms": 0.38779999886173755,
+                        "self_ms": 0.38779999886173755,
+                        "percent_of_parent": 12.604413787396476,
+                        "percent_of_root": 0.05473698636130099,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_3",
+                    "label": "super-DAG group 3 (acyclic batch, 10 targets)",
+                    "inclusive_ms": 5.710400000680238,
+                    "self_ms": 0.491300001158379,
+                    "percent_of_parent": 1.3739179351464894,
+                    "percent_of_root": 0.8060084782678094,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 5.045099998824298,
+                        "self_ms": 5.045099998824298,
+                        "percent_of_parent": 88.34932751161587,
+                        "percent_of_root": 0.7121030702362183,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "assertion_update_total",
+                        "label": "assertion update total (1 passes)",
+                        "inclusive_ms": 0.1740000006975606,
+                        "self_ms": 0.1740000006975606,
+                        "percent_of_parent": 3.047072020818739,
+                        "percent_of_root": 0.02455965882672531,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_4",
+                    "label": "super-DAG group 4 (acyclic batch, 5 targets)",
+                    "inclusive_ms": 13.462999995681457,
+                    "self_ms": 0.35659999412018806,
+                    "percent_of_parent": 3.2391876493311234,
+                    "percent_of_root": 1.9002683066240724,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 12.933199992403388,
+                        "self_ms": 12.933199992403388,
+                        "percent_of_parent": 96.06477008506266,
+                        "percent_of_root": 1.8254883797577286,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "assertion_update_total",
+                        "label": "assertion update total (1 passes)",
+                        "inclusive_ms": 0.17320000915788114,
+                        "self_ms": 0.17320000915788114,
+                        "percent_of_parent": 1.2864889639266042,
+                        "percent_of_root": 0.02444674204971365,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_5",
+                    "label": "super-DAG group 5 (acyclic batch, 1 targets)",
+                    "inclusive_ms": 0.5177999992156401,
+                    "self_ms": 0.14519999967887998,
+                    "percent_of_parent": 0.12458228944670435,
+                    "percent_of_root": 0.07308615672547547,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 0.37259999953676015,
+                        "self_ms": 0.37259999953676015,
+                        "percent_of_parent": 71.95828507168251,
+                        "percent_of_root": 0.052591545004454295,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_6",
+                    "label": "super-DAG group 6 (acyclic batch, 1 targets)",
+                    "inclusive_ms": 0.6690000009257346,
+                    "self_ms": 0.15240001084748656,
+                    "percent_of_parent": 0.16096089586988532,
+                    "percent_of_root": 0.09442765351693072,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 0.3985999937867746,
+                        "self_ms": 0.3985999937867746,
+                        "percent_of_parent": 59.58146386176507,
+                        "percent_of_root": 0.05626137825570282,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "assertion_update_total",
+                        "label": "assertion update total (1 passes)",
+                        "inclusive_ms": 0.11799999629147351,
+                        "self_ms": 0.11799999629147351,
+                        "percent_of_parent": 17.63826549001345,
+                        "percent_of_root": 0.016655400223306263,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_7",
+                    "label": "super-DAG group 7 (acyclic batch, 1 targets)",
+                    "inclusive_ms": 0.9568000095896423,
+                    "self_ms": 0.14280001050792634,
+                    "percent_of_parent": 0.23020536098468553,
+                    "percent_of_root": 0.1350498948662278,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 0.7070999999996275,
+                        "self_ms": 0.7070999999996275,
+                        "percent_of_parent": 73.90259123250766,
+                        "percent_of_root": 0.09980537176291966,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "assertion_update_total",
+                        "label": "assertion update total (1 passes)",
+                        "inclusive_ms": 0.10689999908208847,
+                        "self_ms": 0.10689999908208847,
+                        "percent_of_parent": 11.17265865496138,
+                        "percent_of_root": 0.01508866376728784,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_8",
+                    "label": "super-DAG group 8 (cyclic scc, 11 targets)",
+                    "inclusive_ms": 74.27789999928791,
+                    "self_ms": 1.49789999704808,
+                    "percent_of_parent": 17.871206742414262,
+                    "percent_of_root": 10.484137212843736,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (3 passes)",
+                        "inclusive_ms": 69.36249999853317,
+                        "self_ms": 69.36249999853317,
+                        "percent_of_parent": 93.38241926494709,
+                        "percent_of_root": 9.790340968410076,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "assertion_update_total",
+                        "label": "assertion update total (2 passes)",
+                        "inclusive_ms": 3.417500003706664,
+                        "self_ms": 3.417500003706664,
+                        "percent_of_parent": 4.6009647603653665,
+                        "percent_of_root": 0.48237145859129205,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_9",
+                    "label": "super-DAG group 9 (acyclic batch, 1 targets)",
+                    "inclusive_ms": 2.4873999936971813,
+                    "self_ms": 0.2562000008765608,
+                    "percent_of_parent": 0.5984665632559405,
+                    "percent_of_root": 0.3510902009534182,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 0.9057999996002764,
+                        "self_ms": 0.9057999996002764,
+                        "percent_of_parent": 36.415534369039214,
+                        "percent_of_root": 0.12785137279452086,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      },
+                      {
+                        "name": "assertion_update_total",
+                        "label": "assertion update total (1 passes)",
+                        "inclusive_ms": 1.3253999932203442,
+                        "self_ms": 1.3253999932203442,
+                        "percent_of_parent": 53.28455401538847,
+                        "percent_of_root": 0.18707684776976005,
+                        "meta": {
+                          "category": "host_runtime"
+                        },
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "name": "iteration_2",
+                "label": "iteration_2",
+                "inclusive_ms": 43.87350000615697,
+                "self_ms": 0.16560005315113813,
+                "percent_of_parent": 8.502814020137142,
+                "percent_of_root": 6.192633260723039,
+                "meta": {
+                  "category": "host_runtime",
+                  "iteration": 2
+                },
+                "children": [
+                  {
+                    "name": "reasoner_setup",
+                    "label": "reasoner setup",
+                    "inclusive_ms": 0.012199991033412516,
+                    "self_ms": 0.012199991033412516,
+                    "percent_of_parent": 0.02780719803913623,
+                    "percent_of_root": 0.0017219977946466754,
+                    "meta": {
+                      "category": "host_runtime",
+                      "device": "cpu"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "dag_compile",
+                    "label": "dag compile",
+                    "inclusive_ms": 0.029300004825927317,
+                    "self_ms": 0.029300004825927317,
+                    "percent_of_parent": 0.0667829209473042,
+                    "percent_of_root": 0.004135621375065134,
+                    "meta": {
+                      "category": "host_runtime",
+                      "device": "cpu"
+                    },
+                    "children": []
+                  },
+                  {
+                    "name": "super_dag_group_1",
+                    "label": "super-DAG group 1 (cyclic scc, 1 targets)",
+                    "inclusive_ms": 0.9159000037470832,
+                    "self_ms": 0.1579000090714544,
+                    "percent_of_parent": 2.087592746460963,
+                    "percent_of_root": 0.1292769627657832,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 0.7579999946756288,
+                        "self_ms": 0.7579999946756288,
+                        "percent_of_parent": 82.76012573147047,
+                        "percent_of_root": 0.10698977692678846,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_2",
+                    "label": "super-DAG group 2 (cyclic scc, 1 targets)",
+                    "inclusive_ms": 1.2759999954141676,
+                    "self_ms": 0.17469999147579074,
+                    "percent_of_parent": 2.9083615285653086,
+                    "percent_of_root": 0.1801041633600083,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 1.101300003938377,
+                        "self_ms": 1.101300003938377,
+                        "percent_of_parent": 86.30877804830351,
+                        "percent_of_root": 0.15544570261014354,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_3",
+                    "label": "super-DAG group 3 (acyclic batch, 10 targets)",
+                    "inclusive_ms": 6.150399989564903,
+                    "self_ms": 0.35969998862128705,
+                    "percent_of_parent": 14.018484936697071,
+                    "percent_of_root": 0.8681133608393519,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 5.790700000943616,
+                        "self_ms": 5.790700000943616,
+                        "percent_of_parent": 94.1516000710267,
+                        "percent_of_root": 0.8173426196606156,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_4",
+                    "label": "super-DAG group 4 (acyclic batch, 5 targets)",
+                    "inclusive_ms": 11.664499994367361,
+                    "self_ms": 0.2652999828569591,
+                    "percent_of_parent": 26.58666391496103,
+                    "percent_of_root": 1.6464145925145273,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 11.399200011510402,
+                        "self_ms": 11.399200011510402,
+                        "percent_of_parent": 97.72557775313928,
+                        "percent_of_root": 1.6089681727468153,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_5",
+                    "label": "super-DAG group 5 (acyclic batch, 1 targets)",
+                    "inclusive_ms": 0.4748999926960096,
+                    "self_ms": 0.13349999790079892,
+                    "percent_of_parent": 1.0824301517530277,
+                    "percent_of_root": 0.06703092960155287,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 0.34139999479521066,
+                        "self_ms": 0.34139999479521066,
+                        "percent_of_parent": 71.88881870835189,
+                        "percent_of_root": 0.04818774345978332,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_6",
+                    "label": "super-DAG group 6 (acyclic batch, 1 targets)",
+                    "inclusive_ms": 0.8087999885901809,
+                    "self_ms": 0.14569998893421143,
+                    "percent_of_parent": 1.8434818021737,
+                    "percent_of_root": 0.11416006723678504,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 0.6630999996559694,
+                        "self_ms": 0.6630999996559694,
+                        "percent_of_parent": 81.98565887863313,
+                        "percent_of_root": 0.09359488330036882,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_7",
+                    "label": "super-DAG group 7 (acyclic batch, 1 targets)",
+                    "inclusive_ms": 0.8129000052576885,
+                    "self_ms": 0.14000000373926014,
+                    "percent_of_parent": 1.8528268889958868,
+                    "percent_of_root": 0.11473877419157924,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 0.6729000015184283,
+                        "self_ms": 0.6729000015184283,
+                        "percent_of_parent": 82.77770908675535,
+                        "percent_of_root": 0.0949781287100146,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_8",
+                    "label": "super-DAG group 8 (cyclic scc, 11 targets)",
+                    "inclusive_ms": 20.85209998767823,
+                    "self_ms": 0.43039998854510486,
+                    "percent_of_parent": 47.5277786927233,
+                    "percent_of_root": 2.943221031408421,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 20.421699999133125,
+                        "self_ms": 20.421699999133125,
+                        "percent_of_parent": 97.93593935958759,
+                        "percent_of_root": 2.88247116453878,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "name": "super_dag_group_9",
+                    "label": "super-DAG group 9 (acyclic batch, 1 targets)",
+                    "inclusive_ms": 0.7108999998308718,
+                    "self_ms": 0.1508999994257465,
+                    "percent_of_parent": 1.620340295921474,
+                    "percent_of_root": 0.10034173210213135,
+                    "meta": {
+                      "category": "host_runtime",
+                      "notes": "super_dag_group"
+                    },
+                    "children": [
+                      {
+                        "name": "dag_eval_total",
+                        "label": "dag eval total (1 passes)",
+                        "inclusive_ms": 0.5600000004051253,
+                        "self_ms": 0.5600000004051253,
+                        "percent_of_parent": 78.77338592465232,
+                        "percent_of_root": 0.07904257987229266,
+                        "meta": {
+                          "category": "device_runtime",
+                          "device": "cpu"
+                        },
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "negative_reasoning",
+            "label": "negative_reasoning",
+            "inclusive_ms": 0.008100003469735384,
+            "self_ms": 0.0043000036384910345,
+            "percent_of_parent": 0.0011736391869277669,
+            "percent_of_root": 0.0011432949477843376,
+            "meta": {
+              "category": "host_runtime"
+            },
+            "children": [
+              {
+                "name": "negative_blocker",
+                "label": "negative/blocker",
+                "inclusive_ms": 0.0037999998312443495,
+                "self_ms": 0.0037999998312443495,
+                "percent_of_parent": 46.913558067506486,
+                "percent_of_root": 0.0005363603392116731,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "assignment_reporting",
+            "label": "assignment_reporting",
+            "inclusive_ms": 173.28380000253674,
+            "self_ms": 0.017600003047846258,
+            "percent_of_parent": 25.107724817971576,
+            "percent_of_root": 24.458568914939484,
+            "meta": {
+              "category": "host_runtime"
+            },
+            "children": [
+              {
+                "name": "assignment_status",
+                "label": "assignment status",
+                "inclusive_ms": 161.92269999010023,
+                "self_ms": 161.92269999010023,
+                "percent_of_parent": 93.44364561934226,
+                "percent_of_root": 22.85497846043866,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": []
+              },
+              {
+                "name": "conflict_policy",
+                "label": "conflict policy",
+                "inclusive_ms": 11.343500009388663,
+                "self_ms": 11.343500009388663,
+                "percent_of_parent": 6.546197630258918,
+                "percent_of_root": 1.601106258705013,
+                "meta": {
+                  "category": "host_runtime"
+                },
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "stratified_result_marshalling",
+        "label": "stratified result marshalling",
+        "inclusive_ms": 15.239400003338233,
+        "self_ms": 0.02890000178012997,
+        "percent_of_parent": 2.151002662675453,
+        "percent_of_root": 2.151002662675453,
+        "meta": {
+          "category": "host_runtime"
+        },
+        "children": [
+          {
+            "name": "result_projection",
+            "label": "result projection",
+            "inclusive_ms": 15.210500001558103,
+            "self_ms": 15.210500001558103,
+            "percent_of_parent": 99.81035997628646,
+            "percent_of_root": 2.1469235007158765,
+            "meta": {
+              "category": "host_runtime"
+            },
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "engine_postprocess",
+        "label": "engine postprocess",
+        "inclusive_ms": 0.34509999386500567,
+        "self_ms": 0.008100003469735384,
+        "percent_of_parent": 0.0487099889451228,
+        "percent_of_root": 0.0487099889451228,
+        "meta": {
+          "category": "host_runtime"
+        },
+        "children": [
+          {
+            "name": "dag_stats",
+            "label": "dag stats",
+            "inclusive_ms": 0.3369999903952703,
+            "self_ms": 0.3369999903952703,
+            "percent_of_parent": 97.6528531979911,
+            "percent_of_root": 0.04756669399733846,
+            "meta": {
+              "category": "host_runtime"
+            },
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "summary": {
+    "root_elapsed_ms": 708.4788999927696,
+    "category_totals_ms": {
+      "host_runtime": 567.0600999874296,
+      "tbox_cacheable": 55.88329999591224,
+      "abox_once": 0.1514999894425273,
+      "device_runtime": 138.4457999811275
+    },
+    "reconciliation_residual_ms": 2.733100001933053,
+    "warnings": [
+      {
+        "path": "engine_total/stratified_execution/positive_reasoning/iteration_1/dataset_refresh",
+        "issue": "children exceed parent inclusive time",
+        "elapsed_ms": 55.39999998291023,
+        "tolerance_ms": 50.0
+      }
+    ]
+  }
+}

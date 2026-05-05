@@ -75,6 +75,8 @@ class BackendQueryResult:
     backend: str
     elapsed_ms: float
     members_by_target: Dict[URIRef, Set[Identifier]]
+    preprocess_elapsed_ms: float = 0.0
+    postprocess_elapsed_ms: float = 0.0
     status: str = "ok"
     consistent: Optional[bool] = None
     error: Optional[str] = None
@@ -202,6 +204,7 @@ class EngineProfileOptions:
     materialize_target_roles: Optional[bool]
     augment_property_domain_range: Optional[bool]
     enable_negative_verification: Optional[bool]
+    native_sameas_canonicalization: bool
 
 
 @dataclass
@@ -219,9 +222,13 @@ class DAGStats:
 
 PROFILE_ALIASES = {
     "default": "default",
+    "gpu-el-lite": "gpu-el-lite",
     "gpu-el": "gpu-el",
+    "gpu-el-full": "gpu-el-full",
     "gpu-el-verify": "gpu-el-verify",
-    "gpu-e1": "gpu-el",
+    "gpu-e1-lite": "gpu-el-lite",
+    "gpu-e1": "gpu-el-lite",
+    "gpu-e1-full": "gpu-el-full",
     "gpu-e1-verify": "gpu-el-verify",
 }
 
@@ -365,6 +372,31 @@ def _build_subclass_similarity_matrix(
     return sim_class
 
 
+def _expand_sameas_results_for_reporting(
+    dataset: Optional[ReasoningDataset],
+    members_by_target: Dict[URIRef, Set[Identifier]],
+    scores_by_target: Dict[URIRef, Dict[Identifier, float]],
+) -> tuple[Dict[URIRef, Set[Identifier]], Dict[URIRef, Dict[Identifier, float]]]:
+    if dataset is None or not dataset.sameas_members_by_canonical:
+        return members_by_target, scores_by_target
+
+    expanded_members_by_target: Dict[URIRef, Set[Identifier]] = {}
+    expanded_scores_by_target: Dict[URIRef, Dict[Identifier, float]] = {}
+    for target_term, members in members_by_target.items():
+        expanded_members = set(members)
+        expanded_scores = dict(scores_by_target.get(target_term, {}))
+        for canonical, aliases in dataset.sameas_members_by_canonical.items():
+            canonical_score = expanded_scores.get(canonical)
+            if canonical in expanded_members:
+                expanded_members.update(aliases)
+            if canonical_score is not None:
+                for alias in aliases:
+                    expanded_scores[alias] = canonical_score
+        expanded_members_by_target[target_term] = expanded_members
+        expanded_scores_by_target[target_term] = expanded_scores
+    return expanded_members_by_target, expanded_scores_by_target
+
+
 def normalize_engine_profile_name(profile: Optional[str]) -> str:
     if profile is None:
         return "default"
@@ -424,21 +456,25 @@ def apply_engine_profile(
             materialize_target_roles=materialize_target_roles,
             augment_property_domain_range=augment_property_domain_range,
             enable_negative_verification=enable_negative_verification,
+            native_sameas_canonicalization=False,
         )
 
     def choose(explicit: Optional[bool], profile_default: bool) -> bool:
         return explicit if explicit is not None else profile_default
 
     verification_default = resolved_profile == "gpu-el-verify"
+    sameas_default = resolved_profile in {"gpu-el", "gpu-el-full", "gpu-el-verify"}
+    haskey_default = resolved_profile == "gpu-el-full"
     return EngineProfileOptions(
         materialize_hierarchy=choose(materialize_hierarchy, False),
         materialize_horn_safe_domain_range=choose(materialize_horn_safe_domain_range, False),
         materialize_reflexive_properties=choose(materialize_reflexive_properties, False),
-        materialize_sameas=choose(materialize_sameas, False),
-        materialize_haskey_equality=choose(materialize_haskey_equality, False),
+        materialize_sameas=choose(materialize_sameas, sameas_default),
+        materialize_haskey_equality=choose(materialize_haskey_equality, haskey_default),
         materialize_target_roles=choose(materialize_target_roles, False),
         augment_property_domain_range=choose(augment_property_domain_range, True),
         enable_negative_verification=choose(enable_negative_verification, verification_default),
+        native_sameas_canonicalization=sameas_default,
     )
 
 
@@ -1733,6 +1769,7 @@ def _evaluate_query_snapshot(
     materialize_reflexive_properties: Optional[bool],
     materialize_target_roles: Optional[bool],
     augment_property_domain_range: Optional[bool],
+    native_sameas_canonicalization: bool = False,
 ) -> QueryEvaluationSnapshot:
     dataset_build_elapsed_ms = 0.0
     hierarchy_elapsed_ms = 0.0
@@ -1764,6 +1801,7 @@ def _evaluate_query_snapshot(
         materialize_haskey_equality=materialize_haskey_equality,
         materialize_reflexive_properties=materialize_reflexive_properties,
         materialize_target_roles=materialize_target_roles,
+        native_sameas_canonicalization=native_sameas_canonicalization,
         target_classes=target_classes,
     )
     (
@@ -2062,6 +2100,7 @@ def run_engine_queries(
     materialize_target_roles: Optional[bool] = None,
     materialize_supported_types: bool = False,
     augment_property_domain_range: Optional[bool] = None,
+    native_sameas_canonicalization: bool = False,
     engine_mode: str = "admissibility",
     conflict_policy: str = ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED.value,
     enable_negative_verification: Optional[bool] = None,
@@ -2148,6 +2187,7 @@ def run_engine_queries(
                     materialize_haskey_equality=materialize_haskey_equality,
                     materialize_reflexive_properties=materialize_reflexive_properties,
                     materialize_target_roles=False,
+                    native_sameas_canonicalization=native_sameas_canonicalization,
                     target_classes=target_classes,
                     threshold=threshold,
                     device=device_to_use,
@@ -2170,6 +2210,7 @@ def run_engine_queries(
                 materialize_haskey_equality=materialize_haskey_equality,
                 materialize_reflexive_properties=materialize_reflexive_properties,
                 materialize_target_roles=False,
+                native_sameas_canonicalization=native_sameas_canonicalization,
                 target_classes=target_classes,
                 threshold=threshold,
                 device=device_to_use,
@@ -2246,6 +2287,7 @@ def run_engine_queries(
                     materialize_haskey_equality=materialize_haskey_equality,
                     materialize_reflexive_properties=materialize_reflexive_properties,
                     materialize_target_roles=False,
+                    native_sameas_canonicalization=native_sameas_canonicalization,
                     target_classes=target_classes,
                     threshold=threshold,
                     device=device_to_use,
@@ -2270,6 +2312,7 @@ def run_engine_queries(
                 materialize_haskey_equality=materialize_haskey_equality,
                 materialize_reflexive_properties=materialize_reflexive_properties,
                 materialize_target_roles=False,
+                native_sameas_canonicalization=native_sameas_canonicalization,
                 target_classes=target_classes,
                 threshold=threshold,
                 device=device_to_use,
@@ -2329,6 +2372,7 @@ def run_engine_queries(
                     materialize_reflexive_properties=materialize_reflexive_properties,
                     materialize_target_roles=materialize_target_roles,
                     augment_property_domain_range=augment_property_domain_range,
+                    native_sameas_canonicalization=native_sameas_canonicalization,
                 )
                 if raw_snapshot.profile_tree is not None:
                     raw_node.children = [
@@ -2351,6 +2395,7 @@ def run_engine_queries(
                 materialize_reflexive_properties=materialize_reflexive_properties,
                 materialize_target_roles=materialize_target_roles,
                 augment_property_domain_range=augment_property_domain_range,
+                native_sameas_canonicalization=native_sameas_canonicalization,
             )
         raw_members_by_target = _clone_members_by_target(raw_snapshot.members_by_target)
         current_members_by_target = _clone_members_by_target(raw_members_by_target)
@@ -2410,6 +2455,7 @@ def run_engine_queries(
                             materialize_reflexive_properties=materialize_reflexive_properties,
                             materialize_target_roles=materialize_target_roles,
                             augment_property_domain_range=augment_property_domain_range,
+                            native_sameas_canonicalization=native_sameas_canonicalization,
                         )
                         if stable_snapshot.profile_tree is not None:
                             iteration_node.children = [
@@ -2472,6 +2518,7 @@ def run_engine_queries(
                     materialize_reflexive_properties=materialize_reflexive_properties,
                     materialize_target_roles=materialize_target_roles,
                     augment_property_domain_range=augment_property_domain_range,
+                    native_sameas_canonicalization=native_sameas_canonicalization,
                 )
                 dataset_build_elapsed_ms += stable_snapshot.dataset_build_elapsed_ms
                 hierarchy_elapsed_ms += stable_snapshot.hierarchy_elapsed_ms
@@ -2538,6 +2585,7 @@ def run_engine_queries(
                     materialize_haskey_equality=materialize_haskey_equality,
                     materialize_reflexive_properties=materialize_reflexive_properties,
                     materialize_target_roles=False,
+                    native_sameas_canonicalization=native_sameas_canonicalization,
                     target_classes=target_classes,
                     threshold=threshold,
                     device=device_to_use,
@@ -2562,6 +2610,7 @@ def run_engine_queries(
                 materialize_haskey_equality=materialize_haskey_equality,
                 materialize_reflexive_properties=materialize_reflexive_properties,
                 materialize_target_roles=False,
+                native_sameas_canonicalization=native_sameas_canonicalization,
                 target_classes=target_classes,
                 threshold=threshold,
                 device=device_to_use,
@@ -2661,6 +2710,7 @@ def run_engine_queries(
             materialize_sameas=materialize_sameas,
             materialize_haskey_equality=materialize_haskey_equality,
             materialize_reflexive_properties=materialize_reflexive_properties,
+            native_sameas_canonicalization=native_sameas_canonicalization,
             target_classes=target_classes,
             threshold=threshold,
             device=device_to_use,
@@ -2703,6 +2753,7 @@ def run_engine_queries(
                     materialize_reflexive_properties=materialize_reflexive_properties,
                     materialize_target_roles=materialize_target_roles,
                     augment_property_domain_range=augment_property_domain_range,
+                    native_sameas_canonicalization=native_sameas_canonicalization,
                 )
                 if snapshot.profile_tree is not None:
                     admissibility_node.children = [
@@ -2725,6 +2776,7 @@ def run_engine_queries(
                 materialize_reflexive_properties=materialize_reflexive_properties,
                 materialize_target_roles=materialize_target_roles,
                 augment_property_domain_range=augment_property_domain_range,
+                native_sameas_canonicalization=native_sameas_canonicalization,
             )
         dataset = snapshot.dataset
         members_by_target = snapshot.members_by_target
@@ -2889,6 +2941,12 @@ def run_engine_queries(
                 for target_term, dag in compiled_target_dags.items()
                 if target_term in target_classes
             }
+
+    members_by_target, scores_by_target = _expand_sameas_results_for_reporting(
+        dataset,
+        members_by_target,
+        scores_by_target,
+    )
 
     elapsed_ms = (perf_counter() - t0) * 1000.0
     profile_tree: Optional[ProfileNode] = None
@@ -3400,6 +3458,8 @@ def run_elk_queries(
         )
 
         elapsed_ms = 0.0
+        preprocess_elapsed_ms = 0.0
+        postprocess_elapsed_ms = 0.0
         members_by_target: Dict[URIRef, Set[Identifier]] = {
             target: set() for target in query_class_by_target
         }
@@ -3410,6 +3470,10 @@ def run_elk_queries(
             parts = line.split("\t")
             if parts[0] == "ELAPSED_MS" and len(parts) == 2:
                 elapsed_ms = float(parts[1])
+            elif parts[0] == "PREPROCESS_MS" and len(parts) == 2:
+                preprocess_elapsed_ms = float(parts[1])
+            elif parts[0] == "POSTPROCESS_MS" and len(parts) == 2:
+                postprocess_elapsed_ms = float(parts[1])
             elif parts[0] == "MEMBER" and len(parts) == 3:
                 target_term = URIRef(parts[1])
                 member_term = URIRef(parts[2])
@@ -3419,6 +3483,8 @@ def run_elk_queries(
             backend="elk",
             elapsed_ms=elapsed_ms,
             members_by_target=members_by_target,
+            preprocess_elapsed_ms=preprocess_elapsed_ms,
+            postprocess_elapsed_ms=postprocess_elapsed_ms,
             consistent=True,
         )
     except subprocess.CalledProcessError as exc:
@@ -3570,6 +3636,10 @@ def run_owlapi_reasoner_queries(
             parts = line.split("\t")
             if parts[0] == "ELAPSED_MS" and len(parts) == 2:
                 elapsed_ms = float(parts[1])
+            elif parts[0] == "PREPROCESS_MS" and len(parts) == 2:
+                preprocess_elapsed_ms = float(parts[1])
+            elif parts[0] == "POSTPROCESS_MS" and len(parts) == 2:
+                postprocess_elapsed_ms = float(parts[1])
             elif parts[0] == "MEMBER" and len(parts) == 3:
                 target_term = URIRef(parts[1])
                 member_term = URIRef(parts[2])
@@ -3579,6 +3649,8 @@ def run_owlapi_reasoner_queries(
             backend=backend_name,
             elapsed_ms=elapsed_ms,
             members_by_target=members_by_target,
+            preprocess_elapsed_ms=preprocess_elapsed_ms,
+            postprocess_elapsed_ms=postprocess_elapsed_ms,
             status="ok",
             consistent=True,
         )
@@ -3651,6 +3723,12 @@ def print_comparison_report(
         elif backend.consistent is False:
             status += ", inconsistent"
         print(f"{backend.backend} time: {_format_elapsed_seconds(backend.elapsed_ms)} ({status})")
+        if backend.preprocess_elapsed_ms or backend.postprocess_elapsed_ms:
+            print(
+                "  timing: "
+                f"preprocess={_format_elapsed_seconds(backend.preprocess_elapsed_ms)}, "
+                f"postprocess={_format_elapsed_seconds(backend.postprocess_elapsed_ms)}"
+            )
         if backend.error:
             print(f"  error: {backend.error}")
 
@@ -3832,6 +3910,7 @@ def run_oracle_comparison(
         materialize_target_roles=profile_options.materialize_target_roles,
         materialize_supported_types=materialize_supported_types,
         augment_property_domain_range=profile_options.augment_property_domain_range,
+        native_sameas_canonicalization=profile_options.native_sameas_canonicalization,
         engine_mode=engine_mode,
         conflict_policy=conflict_policy,
         enable_negative_verification=profile_options.enable_negative_verification,
@@ -3846,6 +3925,9 @@ def run_oracle_comparison(
             write_profile_csv(timing_csv, engine_result.profile_tree)
 
     candidate_terms = set(engine_result.dataset.mapping.node_terms) if engine_result.dataset else set()
+    if engine_result.dataset is not None and engine_result.dataset.sameas_members_by_canonical:
+        for aliases in engine_result.dataset.sameas_members_by_canonical.values():
+            candidate_terms.update(aliases)
     ontology_graph = aggregate_rdflib_graphs((schema_graph, data_graph))
     query_graph_t0 = perf_counter()
     query_graph, query_class_by_target = build_oracle_query_graph(
@@ -3985,10 +4067,12 @@ def main() -> None:
         help=(
             "Reasoning profile preset. "
             "default keeps existing behavior; "
-            "gpu-el disables CPU-heavy ABox closure/materialization passes by default, "
-            "while keeping DAG/query-time domain/range augmentation on; "
-            "gpu-el-verify does the same but keeps the negative/blocker verification pass. "
-            "Aliases gpu-e1 and gpu-e1-verify are accepted."
+            "gpu-el-lite disables CPU-heavy ABox closure/materialization passes by default, "
+            "with no ABox sameAs reasoning; "
+            "gpu-el adds native sameAs canonicalization; "
+            "gpu-el-full adds HasKey-driven equality generation on top of that; "
+            "gpu-el-verify matches gpu-el but keeps the negative/blocker verification pass. "
+            "Aliases gpu-e1-lite, gpu-e1, gpu-e1-full, and gpu-e1-verify are accepted."
         ),
     )
     hierarchy_group = parser.add_mutually_exclusive_group()

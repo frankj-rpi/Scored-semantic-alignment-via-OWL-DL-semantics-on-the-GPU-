@@ -30,5 +30,5 @@ Oracle comparison for owl2bench, one class, stratified
 ```
 ./.venv/Scripts/python.exe -m src.oracle_compare --schema data/owl2bench/UNIV-BENCH-OWL2EL.owl --data data/owl2bench/O
 WL2EL-1.owl --target-class http://benchmark/OWL2Bench#Employee --engine-mode stratified --oracles elk --owlapi-home com
-parison/owlapi-5.5.1 --device cpu --show-timing-breakdown
+parison/owlapi-5.5.1 --profile gpu-el --device cpu --show-timing-breakdown
 ```

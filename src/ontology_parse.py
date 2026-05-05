@@ -50,6 +50,8 @@ class RDFKGraphMapping:
     prop_to_idx: Dict[URIRef, int]
     class_to_idx: Dict[Identifier, int]
     datatype_to_idx: Dict[URIRef, int]
+    sameas_canonical_map: Dict[Identifier, Identifier] = field(default_factory=dict)
+    sameas_members_by_canonical: Dict[Identifier, Tuple[Identifier, ...]] = field(default_factory=dict)
 
 
 @dataclass
@@ -128,6 +130,8 @@ class ReasoningDataset:
     native_abox: Optional[NativeABox] = None
     preprocessing_plan: Optional["PreprocessingPlan"] = None
     preprocessing_timings: Optional["PreprocessingTimings"] = None
+    sameas_canonical_map: Dict[Identifier, Identifier] = field(default_factory=dict)
+    sameas_members_by_canonical: Dict[Identifier, Tuple[Identifier, ...]] = field(default_factory=dict)
 
 
 @dataclass
@@ -895,6 +899,8 @@ def _dataset_with_updated_native_types(
         native_abox=_native_abox_with_added_types(dataset.native_abox, additions),
         preprocessing_plan=dataset.preprocessing_plan,
         preprocessing_timings=None,
+        sameas_canonical_map=dataset.sameas_canonical_map,
+        sameas_members_by_canonical=dataset.sameas_members_by_canonical,
     )
 
 
@@ -936,6 +942,8 @@ def _dataset_with_updated_native_type_indices(
         ),
         preprocessing_plan=dataset.preprocessing_plan,
         preprocessing_timings=None,
+        sameas_canonical_map=dataset.sameas_canonical_map,
+        sameas_members_by_canonical=dataset.sameas_members_by_canonical,
     )
 
 
@@ -3374,6 +3382,149 @@ def collect_sameas_equivalence_map(
     return equivalence_map
 
 
+def collect_sameas_canonicalization(
+    graph: Graph,
+) -> Tuple[Dict[Identifier, Identifier], Dict[Identifier, Tuple[Identifier, ...]]]:
+    union_find = _UnionFind()
+    for subj, _pred, obj in graph.triples((None, OWL.sameAs, None)):
+        if isinstance(subj, Literal) or isinstance(obj, Literal):
+            continue
+        union_find.add(subj)
+        union_find.add(obj)
+        union_find.union(subj, obj)
+
+    groups = union_find.groups()
+    canonical_map: Dict[Identifier, Identifier] = {}
+    members_by_canonical: Dict[Identifier, Tuple[Identifier, ...]] = {}
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        canonical = members[0]
+        frozen_members = tuple(members)
+        members_by_canonical[canonical] = frozen_members
+        for member in members:
+            canonical_map[member] = canonical
+    return canonical_map, members_by_canonical
+
+
+def collect_native_identity_canonicalization(
+    *,
+    ontology_graph: Graph,
+    native_abox: NativeABox,
+    explicit_sameas: bool,
+    has_key_axioms: Optional[Dict[URIRef, Tuple[URIRef, ...]]] = None,
+    enable_haskey: bool = False,
+    max_haskey_iterations: int = 4,
+) -> Tuple[Dict[Identifier, Identifier], Dict[Identifier, Tuple[Identifier, ...]]]:
+    mapping = native_abox.mapping
+    union_find = _UnionFind()
+    forbidden_pairs: set[Tuple[Identifier, Identifier]] = set()
+
+    for left, right in _collect_all_different_pairs(ontology_graph):
+        forbidden_pairs.add(tuple(sorted((left, right), key=_term_sort_key)))
+    for left, _pred, right in ontology_graph.triples((None, OWL.differentFrom, None)):
+        if isinstance(left, Literal) or isinstance(right, Literal):
+            continue
+        forbidden_pairs.add(tuple(sorted((left, right), key=_term_sort_key)))
+
+    def _can_union(left: Identifier, right: Identifier) -> bool:
+        if left == right:
+            return True
+        root_left = union_find.find(left)
+        root_right = union_find.find(right)
+        if root_left == root_right:
+            return True
+        ordered = tuple(sorted((root_left, root_right), key=_term_sort_key))
+        return ordered not in forbidden_pairs
+
+    if explicit_sameas:
+        for subj, _pred, obj in ontology_graph.triples((None, OWL.sameAs, None)):
+            if isinstance(subj, Literal) or isinstance(obj, Literal):
+                continue
+            union_find.add(subj)
+            union_find.add(obj)
+            union_find.union(subj, obj)
+
+    if enable_haskey and has_key_axioms:
+        type_src = native_abox.type_src.astype(np.int64, copy=False)
+        type_cls = native_abox.type_cls.astype(np.int64, copy=False)
+        edge_src = native_abox.edge_src.astype(np.int64, copy=False)
+        edge_prop = native_abox.edge_prop.astype(np.int64, copy=False)
+        edge_dst = native_abox.edge_dst.astype(np.int64, copy=False)
+
+        members_by_class_idx: Dict[int, List[int]] = defaultdict(list)
+        for subj_idx, class_idx in zip(type_src.tolist(), type_cls.tolist()):
+            members_by_class_idx[class_idx].append(subj_idx)
+
+        property_values_by_subject_prop_idx: Dict[Tuple[int, int], List[int]] = defaultdict(list)
+        for subj_idx, prop_idx, obj_idx in zip(edge_src.tolist(), edge_prop.tolist(), edge_dst.tolist()):
+            property_values_by_subject_prop_idx[(subj_idx, prop_idx)].append(obj_idx)
+
+        class_key_specs: List[Tuple[int, Tuple[int, ...]]] = []
+        for class_term, key_props in has_key_axioms.items():
+            class_idx = mapping.class_to_idx.get(class_term)
+            if class_idx is None:
+                continue
+            prop_indices = tuple(
+                mapping.prop_to_idx[prop]
+                for prop in key_props
+                if prop in mapping.prop_to_idx
+            )
+            if not prop_indices:
+                continue
+            class_key_specs.append((class_idx, prop_indices))
+
+        def _canonicalize_node_idx(node_idx: int) -> Tuple[str, str]:
+            term = mapping.node_terms[node_idx]
+            if isinstance(term, Literal):
+                return ("L", term.n3())
+            representative = union_find.find(term)
+            return ("I", _render_term(representative))
+
+        for _ in range(max_haskey_iterations):
+            changed = False
+            for class_idx, prop_indices in class_key_specs:
+                members = members_by_class_idx.get(class_idx, [])
+                if len(members) < 2:
+                    continue
+                grouped_subjects: Dict[Tuple[Tuple[int, Tuple[Tuple[str, str], ...]], ...], List[int]] = defaultdict(list)
+                for subj_idx in members:
+                    signature_parts: List[Tuple[int, Tuple[Tuple[str, str], ...]]] = []
+                    complete = True
+                    for prop_idx in prop_indices:
+                        values = property_values_by_subject_prop_idx.get((subj_idx, prop_idx), [])
+                        if not values:
+                            complete = False
+                            break
+                        normalized_values = tuple(sorted({_canonicalize_node_idx(obj_idx) for obj_idx in values}))
+                        signature_parts.append((prop_idx, normalized_values))
+                    if complete:
+                        grouped_subjects[tuple(signature_parts)].append(subj_idx)
+                for grouped in grouped_subjects.values():
+                    if len(grouped) < 2:
+                        continue
+                    representative_term = mapping.node_terms[grouped[0]]
+                    for other_idx in grouped[1:]:
+                        other_term = mapping.node_terms[other_idx]
+                        if _can_union(representative_term, other_term) and union_find.union(representative_term, other_term):
+                            changed = True
+            if not changed:
+                break
+
+    groups = union_find.groups()
+    canonical_map: Dict[Identifier, Identifier] = {}
+    members_by_canonical: Dict[Identifier, Tuple[Identifier, ...]] = {}
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        canonical = members[0]
+        frozen_members = tuple(members)
+        members_by_canonical[canonical] = frozen_members
+        for member in members:
+            canonical_map[member] = canonical
+    return canonical_map, members_by_canonical
+
+
 def _has_differentfrom_pair(
     graph: Graph,
     left: Identifier,
@@ -5109,6 +5260,86 @@ def native_abox_to_kgraph(
     return kg
 
 
+def canonicalize_native_abox_sameas(
+    native_abox: NativeABox,
+    canonical_map: Dict[Identifier, Identifier],
+    members_by_canonical: Dict[Identifier, Tuple[Identifier, ...]],
+) -> NativeABox:
+    if not canonical_map:
+        return native_abox
+
+    old_mapping = native_abox.mapping
+    old_node_terms = old_mapping.node_terms
+    canonical_terms_in_order: List[Identifier] = []
+    seen_terms: set[Identifier] = set()
+    old_to_new = np.empty((len(old_node_terms),), dtype=np.int64)
+    canonical_node_to_idx: Dict[Identifier, int] = {}
+
+    for old_idx, term in enumerate(old_node_terms):
+        canonical_term = canonical_map.get(term, term)
+        new_idx = canonical_node_to_idx.get(canonical_term)
+        if new_idx is None:
+            new_idx = len(canonical_terms_in_order)
+            canonical_node_to_idx[canonical_term] = new_idx
+            if canonical_term not in seen_terms:
+                canonical_terms_in_order.append(canonical_term)
+                seen_terms.add(canonical_term)
+        old_to_new[old_idx] = new_idx
+
+    type_src = old_to_new[native_abox.type_src.astype(np.int64, copy=False)] if native_abox.type_src.size else np.empty((0,), dtype=np.int64)
+    type_cls = native_abox.type_cls.astype(np.int64, copy=False)
+    if type_src.size:
+        type_pairs = np.stack((type_src, type_cls), axis=1)
+        type_pairs = np.unique(type_pairs, axis=0)
+        type_src = type_pairs[:, 0].astype(np.int64, copy=False)
+        type_cls = type_pairs[:, 1].astype(np.int64, copy=False)
+
+    edge_src = old_to_new[native_abox.edge_src.astype(np.int64, copy=False)] if native_abox.edge_src.size else np.empty((0,), dtype=np.int32)
+    edge_prop = native_abox.edge_prop.astype(np.int32, copy=False)
+    edge_dst = old_to_new[native_abox.edge_dst.astype(np.int64, copy=False)] if native_abox.edge_dst.size else np.empty((0,), dtype=np.int32)
+    if edge_src.size:
+        edge_triples = np.stack((edge_src, edge_prop, edge_dst), axis=1)
+        edge_triples = np.unique(edge_triples, axis=0)
+        edge_src = edge_triples[:, 0].astype(np.int32, copy=False)
+        edge_prop = edge_triples[:, 1].astype(np.int32, copy=False)
+        edge_dst = edge_triples[:, 2].astype(np.int32, copy=False)
+
+    num_new_nodes = len(canonical_terms_in_order)
+    literal_datatype_idx = torch.full((num_new_nodes,), -1, dtype=native_abox.literal_datatype_idx.dtype)
+    literal_numeric_value = torch.full((num_new_nodes,), float("nan"), dtype=native_abox.literal_numeric_value.dtype)
+    for old_idx, new_idx in enumerate(old_to_new.tolist()):
+        old_dtype = native_abox.literal_datatype_idx[old_idx]
+        old_numeric = native_abox.literal_numeric_value[old_idx]
+        if int(old_dtype.item()) >= 0 and int(literal_datatype_idx[new_idx].item()) < 0:
+            literal_datatype_idx[new_idx] = old_dtype
+        if not torch.isnan(old_numeric) and torch.isnan(literal_numeric_value[new_idx]):
+            literal_numeric_value[new_idx] = old_numeric
+
+    new_mapping = RDFKGraphMapping(
+        node_terms=canonical_terms_in_order,
+        prop_terms=old_mapping.prop_terms,
+        class_terms=old_mapping.class_terms,
+        datatype_terms=old_mapping.datatype_terms,
+        node_to_idx={term: idx for idx, term in enumerate(canonical_terms_in_order)},
+        prop_to_idx=old_mapping.prop_to_idx,
+        class_to_idx=old_mapping.class_to_idx,
+        datatype_to_idx=old_mapping.datatype_to_idx,
+        sameas_canonical_map=dict(canonical_map),
+        sameas_members_by_canonical=dict(members_by_canonical),
+    )
+
+    return NativeABox(
+        mapping=new_mapping,
+        type_src=type_src,
+        type_cls=type_cls,
+        edge_src=edge_src,
+        edge_prop=edge_prop,
+        edge_dst=edge_dst,
+        literal_datatype_idx=literal_datatype_idx,
+        literal_numeric_value=literal_numeric_value,
+    )
+
+
 def build_rdflib_mapping(
     graph: Graph,
     *,
@@ -5237,6 +5468,7 @@ def load_reasoning_dataset(
     materialize_reflexive_properties_policy: str = "auto",
     materialize_target_roles: Optional[bool] = None,
     materialize_target_roles_policy: str = "auto",
+    native_sameas_canonicalization: bool = False,
     target_classes: Optional[Sequence[str | URIRef]] = None,
     dependency_closure: Optional[TargetDependencyClosure] = None,
 ) -> ReasoningDataset:
@@ -5275,6 +5507,7 @@ def load_reasoning_dataset(
         materialize_reflexive_properties_policy=materialize_reflexive_properties_policy,
         materialize_target_roles=materialize_target_roles,
         materialize_target_roles_policy=materialize_target_roles_policy,
+        native_sameas_canonicalization=native_sameas_canonicalization,
         target_classes=target_classes,
         dependency_closure=dependency_closure,
     )
@@ -5300,6 +5533,7 @@ def build_reasoning_dataset_from_graphs(
     materialize_reflexive_properties_policy: str = "auto",
     materialize_target_roles: Optional[bool] = None,
     materialize_target_roles_policy: str = "auto",
+    native_sameas_canonicalization: bool = False,
     include_negative_helpers: bool = True,
     target_classes: Optional[Sequence[str | URIRef]] = None,
     dependency_closure: Optional[TargetDependencyClosure] = None,
@@ -5354,8 +5588,9 @@ def build_reasoning_dataset_from_graphs(
         if preprocessing_plan.materialize_haskey_equality.enabled
         else {}
     )
+    include_literals = include_literals or bool(active_has_key_axioms)
     can_incrementally_build_scan_cache = (
-        not preprocessing_plan.materialize_sameas.enabled
+        (not preprocessing_plan.materialize_sameas.enabled or native_sameas_canonicalization)
         and not preprocessing_plan.materialize_target_roles.enabled
     )
     needs_edge_triples_by_pred = (
@@ -5381,7 +5616,7 @@ def build_reasoning_dataset_from_graphs(
         preprocessing_plan.materialize_hierarchy.enabled
         or preprocessing_plan.materialize_atomic_domain_range.enabled
         or preprocessing_plan.materialize_horn_safe_domain_range.enabled
-        or preprocessing_plan.materialize_sameas.enabled
+        or (preprocessing_plan.materialize_sameas.enabled and not native_sameas_canonicalization)
         or preprocessing_plan.materialize_reflexive_properties.enabled
         or (
             preprocessing_plan.materialize_target_roles.enabled
@@ -5527,7 +5762,7 @@ def build_reasoning_dataset_from_graphs(
         ),
     )
 
-    if preprocessing_plan.materialize_sameas.enabled:
+    if preprocessing_plan.materialize_sameas.enabled and not native_sameas_canonicalization:
         max_sameas_iterations = 4
         for _ in range(max_sameas_iterations):
             before_len = len(effective_data_graph)
@@ -5614,6 +5849,31 @@ def build_reasoning_dataset_from_graphs(
         schema_datatype_terms=cache.schema_datatype_terms,
         scan_cache=graph_build_scan_cache,
     )
+    sameas_canonical_map: Dict[Identifier, Identifier] = {}
+    sameas_members_by_canonical: Dict[Identifier, Tuple[Identifier, ...]] = {}
+    if (
+        native_sameas_canonicalization
+        and (
+            preprocessing_plan.materialize_sameas.enabled
+            or preprocessing_plan.materialize_haskey_equality.enabled
+        )
+    ):
+        t0 = perf_counter()
+        sameas_canonical_map, sameas_members_by_canonical = collect_native_identity_canonicalization(
+            ontology_graph=ontology_graph,
+            native_abox=native_abox,
+            explicit_sameas=preprocessing_plan.materialize_sameas.enabled,
+            has_key_axioms=active_has_key_axioms,
+            enable_haskey=preprocessing_plan.materialize_haskey_equality.enabled,
+        )
+        native_abox = canonicalize_native_abox_sameas(
+            native_abox,
+            sameas_canonical_map,
+            sameas_members_by_canonical,
+        )
+        sameas_elapsed_ms = (perf_counter() - t0) * 1000.0
+        preprocessing_timings.sameas_elapsed_ms += sameas_elapsed_ms
+        preprocessing_timings.sameas_passes_elapsed_ms.append(sameas_elapsed_ms)
     kg = native_abox_to_kgraph(
         native_abox,
         reflexive_props=reflexive_props,
@@ -5632,6 +5892,8 @@ def build_reasoning_dataset_from_graphs(
         native_abox=native_abox,
         preprocessing_plan=preprocessing_plan,
         preprocessing_timings=preprocessing_timings,
+        sameas_canonical_map=sameas_canonical_map,
+        sameas_members_by_canonical=sameas_members_by_canonical,
     )
 
 
@@ -6752,11 +7014,16 @@ def compile_normalized_sufficient_condition_to_dag(
                 class_idx=mapping.class_to_idx[term.class_term],
             )
         elif term.kind == SufficientConditionKind.NOMINAL:
-            if term.node_term is None or term.node_term not in mapping.node_to_idx:
+            canonical_node_term = (
+                mapping.sameas_canonical_map.get(term.node_term, term.node_term)
+                if term.node_term is not None
+                else None
+            )
+            if canonical_node_term is None or canonical_node_term not in mapping.node_to_idx:
                 raise KeyError(f"Node {term.node_term} not present in node mapping.")
             idx = new_node(
                 ctype=ConstraintType.NOMINAL,
-                node_idx=mapping.node_to_idx[term.node_term],
+                node_idx=mapping.node_to_idx[canonical_node_term],
             )
         elif term.kind == SufficientConditionKind.DATATYPE_CONSTRAINT:
             datatype_idx = None
@@ -7003,11 +7270,16 @@ def compile_sufficient_condition_dag(
                 class_idx=mapping.class_to_idx[term.class_term],
             )
         elif term.kind == SufficientConditionKind.NOMINAL:
-            if term.node_term is None or term.node_term not in mapping.node_to_idx:
+            canonical_node_term = (
+                mapping.sameas_canonical_map.get(term.node_term, term.node_term)
+                if term.node_term is not None
+                else None
+            )
+            if canonical_node_term is None or canonical_node_term not in mapping.node_to_idx:
                 raise KeyError(f"Node {term.node_term} not present in node mapping.")
             idx = new_node(
                 ctype=ConstraintType.NOMINAL,
-                node_idx=mapping.node_to_idx[term.node_term],
+                node_idx=mapping.node_to_idx[canonical_node_term],
             )
         elif term.kind == SufficientConditionKind.DATATYPE_CONSTRAINT:
             datatype_idx = None
@@ -8566,6 +8838,7 @@ def materialize_supported_class_inferences(
     materialize_haskey_equality: Optional[bool] = None,
     materialize_reflexive_properties: Optional[bool] = None,
     materialize_target_roles: bool = False,
+    native_sameas_canonicalization: bool = False,
     target_classes: Optional[Sequence[str | URIRef]] = None,
     threshold: float = 0.999,
     max_iterations: int = 10,
@@ -8605,6 +8878,7 @@ def materialize_supported_class_inferences(
             materialize_haskey_equality=materialize_haskey_equality,
             materialize_reflexive_properties=materialize_reflexive_properties,
             materialize_target_roles=False,
+            native_sameas_canonicalization=native_sameas_canonicalization,
         )
         closure = compute_target_dependency_closure(
             analysis_dataset.ontology_graph,
@@ -8625,6 +8899,7 @@ def materialize_supported_class_inferences(
             materialize_haskey_equality=materialize_haskey_equality,
             materialize_reflexive_properties=materialize_reflexive_properties,
             materialize_target_roles=materialize_target_roles,
+            native_sameas_canonicalization=native_sameas_canonicalization,
             target_classes=target_classes,
             dependency_closure=closure,
         )
@@ -8679,6 +8954,7 @@ def materialize_supported_class_inferences(
         materialize_haskey_equality=materialize_haskey_equality,
         materialize_reflexive_properties=materialize_reflexive_properties,
         materialize_target_roles=materialize_target_roles,
+        native_sameas_canonicalization=native_sameas_canonicalization,
         target_classes=target_classes,
         dependency_closure=closure,
     )
@@ -8701,6 +8977,7 @@ def materialize_positive_sufficient_class_inferences(
     materialize_haskey_equality: Optional[bool] = None,
     materialize_reflexive_properties: Optional[bool] = None,
     materialize_target_roles: bool = False,
+    native_sameas_canonicalization: bool = False,
     target_classes: Optional[Sequence[str | URIRef]] = None,
     threshold: float = 0.999,
     max_iterations: int = 10,
@@ -8812,7 +9089,11 @@ def materialize_positive_sufficient_class_inferences(
     loop_materialize_horn_safe_domain_range = preprocessing_plan.materialize_horn_safe_domain_range.enabled
     loop_materialize_atomic_domain_range = preprocessing_plan.materialize_atomic_domain_range.enabled
     loop_preprocessing_plan = preprocessing_plan
-    sameas_trigger_classes = set(build_cache.singleton_nominals.keys()) | set(active_has_key_axioms.keys())
+    sameas_trigger_classes = (
+        set(build_cache.singleton_nominals.keys()) | set(active_has_key_axioms.keys())
+        if not native_sameas_canonicalization
+        else set()
+    )
     sameas_state: Optional[SameAsIncrementalState] = None
     if target_terms:
         t0 = perf_counter()
@@ -8850,7 +9131,7 @@ def materialize_positive_sufficient_class_inferences(
         not preprocessing_plan.materialize_hierarchy.enabled
         and not preprocessing_plan.materialize_horn_safe_domain_range.enabled
         and not preprocessing_plan.materialize_atomic_domain_range.enabled
-        and not preprocessing_plan.materialize_sameas.enabled
+        and (native_sameas_canonicalization or not preprocessing_plan.materialize_sameas.enabled)
         and not preprocessing_plan.materialize_reflexive_properties.enabled
         and not preprocessing_plan.materialize_target_roles.enabled
         and not include_type_edges
@@ -9106,6 +9387,7 @@ def materialize_positive_sufficient_class_inferences(
                         materialize_haskey_equality=loop_materialize_haskey_equality,
                         materialize_reflexive_properties=preprocessing_plan.materialize_reflexive_properties.enabled,
                         materialize_target_roles=materialize_target_roles,
+                        native_sameas_canonicalization=native_sameas_canonicalization,
                         target_classes=target_terms,
                         dependency_closure=closure,
                         build_cache=build_cache,
@@ -9113,6 +9395,7 @@ def materialize_positive_sufficient_class_inferences(
                     if (
                         sameas_state is None
                         and preprocessing_plan.materialize_sameas.enabled
+                        and not native_sameas_canonicalization
                         and sameas_trigger_classes
                     ):
                         t0 = perf_counter()
@@ -9502,6 +9785,7 @@ def materialize_positive_sufficient_class_inferences(
             materialize_haskey_equality=loop_materialize_haskey_equality,
             materialize_reflexive_properties=preprocessing_plan.materialize_reflexive_properties.enabled,
             materialize_target_roles=materialize_target_roles,
+            native_sameas_canonicalization=native_sameas_canonicalization,
             target_classes=target_terms,
             dependency_closure=closure,
             build_cache=build_cache,
@@ -9851,6 +10135,7 @@ def materialize_stratified_class_inferences(
     materialize_haskey_equality: Optional[bool] = None,
     materialize_reflexive_properties: Optional[bool] = None,
     materialize_target_roles: bool = False,
+    native_sameas_canonicalization: bool = False,
     target_classes: Optional[Sequence[str | URIRef]] = None,
     threshold: float = 0.999,
     max_iterations: int = 10,
@@ -9878,6 +10163,7 @@ def materialize_stratified_class_inferences(
         materialize_haskey_equality=materialize_haskey_equality,
         materialize_reflexive_properties=materialize_reflexive_properties,
         materialize_target_roles=materialize_target_roles,
+        native_sameas_canonicalization=native_sameas_canonicalization,
         target_classes=target_classes,
         threshold=threshold,
         max_iterations=max_iterations,

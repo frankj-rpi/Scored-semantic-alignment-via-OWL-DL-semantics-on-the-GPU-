@@ -93,9 +93,9 @@ public final class OwlapiOracleRunner {
 
         long startNanos = System.nanoTime();
         reasoner.precomputeInferences(InferenceType.CLASS_HIERARCHY, InferenceType.CLASS_ASSERTIONS);
-        long elapsedMillis = Math.round((System.nanoTime() - startNanos) / 1_000_000.0);
+        long precomputeElapsedMillis = Math.round((System.nanoTime() - startNanos) / 1_000_000.0);
 
-        System.out.println("ELAPSED_MS\t" + elapsedMillis);
+        long queryStartNanos = System.nanoTime();
         for (Map.Entry<String, String> entry : targetToQueryClass.entrySet()) {
             String targetIri = entry.getKey();
             String queryClassIri = entry.getValue();
@@ -107,6 +107,11 @@ public final class OwlapiOracleRunner {
                 }
             }
         }
+        long queryElapsedMillis = Math.round((System.nanoTime() - queryStartNanos) / 1_000_000.0);
+
+        System.out.println("ELAPSED_MS\t" + precomputeElapsedMillis);
+        System.out.println("PREPROCESS_MS\t" + precomputeElapsedMillis);
+        System.out.println("POSTPROCESS_MS\t" + queryElapsedMillis);
 
         reasoner.dispose();
     }

@@ -352,10 +352,12 @@ def main() -> None:
         help=(
             "Reasoning profile preset. "
             "default keeps existing behavior; "
-            "gpu-el disables CPU-heavy ABox closure/materialization passes by default, "
-            "while keeping DAG/query-time domain/range augmentation on; "
-            "gpu-el-verify does the same but keeps the negative/blocker verification pass. "
-            "Aliases gpu-e1 and gpu-e1-verify are accepted."
+            "gpu-el-lite disables CPU-heavy ABox closure/materialization passes by default, "
+            "with no ABox sameAs reasoning; "
+            "gpu-el adds native sameAs canonicalization; "
+            "gpu-el-full adds HasKey-driven equality generation on top of that; "
+            "gpu-el-verify matches gpu-el but keeps the negative/blocker verification pass. "
+            "Aliases gpu-e1-lite, gpu-e1, gpu-e1-full, and gpu-e1-verify are accepted."
         ),
     )
     literal_group = parser.add_mutually_exclusive_group()
