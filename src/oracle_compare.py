@@ -8,11 +8,14 @@ import shutil
 from time import perf_counter
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 import contextlib
+import ctypes
 import io
 import os
 import subprocess
+import sys
 import tempfile
 import uuid
+from ctypes import wintypes
 
 import torch
 from rdflib import BNode, Graph, Literal, Namespace, URIRef
@@ -42,6 +45,7 @@ from .ontology_parse import (
     collect_named_class_terms,
     compile_class_to_dag,
     compile_sufficient_condition_dag,
+    describe_rdflib_graph_load_source,
     load_rdflib_graph,
     materialize_positive_sufficient_class_inferences,
     materialize_stratified_class_inferences,
@@ -141,6 +145,15 @@ class EngineQueryResult(BackendQueryResult):
     super_dag_plan: Optional[SuperDAGExecutionPlan] = None
     profile_tree: Optional[ProfileNode] = None
     profile_summary: Optional[ProfileSummary] = None
+    process_memory_start_bytes: Optional[int] = None
+    process_memory_end_bytes: Optional[int] = None
+    process_memory_peak_bytes: Optional[int] = None
+    kgraph_host_bytes: Optional[int] = None
+    compiled_dag_estimated_bytes: Optional[int] = None
+    cuda_peak_allocated_bytes: Optional[int] = None
+    cuda_peak_reserved_bytes: Optional[int] = None
+    cuda_end_allocated_bytes: Optional[int] = None
+    cuda_end_reserved_bytes: Optional[int] = None
 
 
 @dataclass
@@ -488,6 +501,166 @@ def _format_elapsed_seconds(elapsed_ms: float) -> str:
 
 def _timing_reconciliation_tolerance_ms(total_elapsed_ms: float) -> float:
     return max(50.0, total_elapsed_ms * 0.01)
+
+
+def _format_bytes(num_bytes: Optional[int]) -> str:
+    if num_bytes is None:
+        return "n/a"
+    units = ["B", "KiB", "MiB", "GiB", "TiB"]
+    value = float(num_bytes)
+    unit = units[0]
+    for unit in units:
+        if abs(value) < 1024.0 or unit == units[-1]:
+            break
+        value /= 1024.0
+    return f"{value:.2f} {unit}"
+
+
+class _PROCESS_MEMORY_COUNTERS_EX(ctypes.Structure):
+    _fields_ = [
+        ("cb", wintypes.DWORD),
+        ("PageFaultCount", wintypes.DWORD),
+        ("PeakWorkingSetSize", ctypes.c_size_t),
+        ("WorkingSetSize", ctypes.c_size_t),
+        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+        ("PagefileUsage", ctypes.c_size_t),
+        ("PeakPagefileUsage", ctypes.c_size_t),
+        ("PrivateUsage", ctypes.c_size_t),
+    ]
+
+
+def _get_process_memory_snapshot() -> tuple[Optional[int], Optional[int]]:
+    try:
+        counters = _PROCESS_MEMORY_COUNTERS_EX()
+        counters.cb = ctypes.sizeof(_PROCESS_MEMORY_COUNTERS_EX)
+        psapi = ctypes.WinDLL("psapi")
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        get_process_memory_info = psapi.GetProcessMemoryInfo
+        get_process_memory_info.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(_PROCESS_MEMORY_COUNTERS_EX),
+            wintypes.DWORD,
+        ]
+        get_process_memory_info.restype = wintypes.BOOL
+        get_current_process = kernel32.GetCurrentProcess
+        get_current_process.restype = wintypes.HANDLE
+        handle = get_current_process()
+        ok = get_process_memory_info(handle, ctypes.byref(counters), counters.cb)
+        if not ok:
+            return None, None
+        return int(counters.WorkingSetSize), int(counters.PeakWorkingSetSize)
+    except Exception:
+        return None, None
+
+
+def _estimate_kgraph_tensor_bytes(kg) -> int:
+    total = 0
+
+    def add_tensor(t: Optional[torch.Tensor]) -> None:
+        nonlocal total
+        if t is not None:
+            total += int(t.element_size() * t.nelement())
+
+    for tensor_list_name in ("offsets_p", "neighbors_p", "src_index_p", "dst_index_p", "transitive_prop_families"):
+        tensor_list = getattr(kg, tensor_list_name, None)
+        if tensor_list is not None:
+            for tensor in tensor_list:
+                add_tensor(tensor)
+    add_tensor(getattr(kg, "node_types", None))
+    add_tensor(getattr(kg, "literal_datatype_idx", None))
+    add_tensor(getattr(kg, "literal_numeric_value", None))
+    add_tensor(getattr(kg, "reflexive_prop_mask", None))
+    return total
+
+
+def _estimate_constraint_dag_bytes(dag: ConstraintDAG) -> int:
+    total = sys.getsizeof(dag)
+    total += sys.getsizeof(dag.nodes)
+    total += sys.getsizeof(dag.layers)
+    for node in dag.nodes:
+        total += sys.getsizeof(node)
+        if node.child_indices is not None:
+            total += sys.getsizeof(node.child_indices)
+            total += len(node.child_indices) * sys.getsizeof(0)
+    for layer in dag.layers:
+        total += sys.getsizeof(layer)
+        total += len(layer) * sys.getsizeof(0)
+    return total
+
+
+def _estimate_compiled_dags_bytes(engine_result: EngineQueryResult) -> Optional[int]:
+    compiled_dags = None
+    if (
+        engine_result.stratified_result is not None
+        and engine_result.stratified_result.positive_result.compiled_target_dags is not None
+    ):
+        compiled_dags = engine_result.stratified_result.positive_result.compiled_target_dags
+    elif (
+        engine_result.filtered_admissibility_result is not None
+        and engine_result.filtered_admissibility_result.stratified_result is not None
+        and engine_result.filtered_admissibility_result.stratified_result.positive_result.compiled_target_dags is not None
+    ):
+        compiled_dags = engine_result.filtered_admissibility_result.stratified_result.positive_result.compiled_target_dags
+    if not compiled_dags:
+        return None
+    return sum(_estimate_constraint_dag_bytes(dag) for dag in compiled_dags.values())
+
+
+def _build_engine_stage_summary(
+    root: ProfileNode,
+    engine_result: EngineQueryResult,
+) -> list[tuple[str, float]]:
+    _ = root
+    identity_normalization_ms = (
+        engine_result.sameas_elapsed_ms
+        + engine_result.sameas_state_init_elapsed_ms
+    )
+    graph_lowering_ms = (
+        engine_result.ontology_merge_elapsed_ms
+        + engine_result.stratified_initial_data_copy_elapsed_ms
+        + engine_result.data_copy_elapsed_ms
+        + engine_result.dataset_build_elapsed_ms
+        - identity_normalization_ms
+    )
+    if graph_lowering_ms < 0.0:
+        graph_lowering_ms = 0.0
+    engine_pre_ms = (
+        engine_result.schema_cache_elapsed_ms
+        + engine_result.preprocessing_plan_elapsed_ms
+        + engine_result.sufficient_rule_extraction_elapsed_ms
+        + engine_result.sufficient_rule_index_elapsed_ms
+        + engine_result.dependency_closure_elapsed_ms
+        + engine_result.stratified_positive_reasoner_setup_elapsed_ms
+        + engine_result.dag_compile_elapsed_ms
+    )
+    if engine_result.engine_mode == "stratified":
+        engine_iter_ms = (
+            engine_result.dag_eval_elapsed_ms
+            + engine_result.stratified_positive_assertion_update_elapsed_ms
+        )
+    else:
+        engine_iter_ms = (
+            engine_result.dag_eval_elapsed_ms
+            + engine_result.stratified_positive_assertion_update_elapsed_ms
+        )
+    engine_post_ms = (
+        engine_result.stratified_negative_blocker_elapsed_ms
+        + engine_result.stratified_assignment_status_elapsed_ms
+        + engine_result.stratified_conflict_policy_elapsed_ms
+        + engine_result.stratified_reporting_compile_elapsed_ms
+        + engine_result.result_projection_elapsed_ms
+    )
+
+    return [
+        ("graph lowering", graph_lowering_ms),
+        ("identity normalization", identity_normalization_ms),
+        ("engine preprocessing", engine_pre_ms),
+        ("engine iterations", engine_iter_ms),
+        ("engine post-processing / reporting", engine_post_ms),
+    ]
 
 
 def _build_engine_profile_tree(engine_result: EngineQueryResult) -> tuple[ProfileNode, ProfileSummary]:
@@ -851,17 +1024,41 @@ def _build_engine_profile_tree(engine_result: EngineQueryResult) -> tuple[Profil
                             "iteration": iteration_timing.iteration,
                             "refresh_count": iteration_timing.dataset_refresh_count,
                         },
-                    )
+                )
                 )
                 if iteration_timing.dataset_build_elapsed_ms:
+                    scan_total = (
+                        iteration_timing.mapping_vocab_collect_elapsed_ms
+                        + iteration_timing.mapping_graph_scan_elapsed_ms
+                    )
+                    assembly_total = (
+                        iteration_timing.data_copy_elapsed_ms
+                        + iteration_timing.ontology_merge_elapsed_ms
+                        + iteration_timing.hierarchy_elapsed_ms
+                        + iteration_timing.atomic_domain_range_elapsed_ms
+                        + iteration_timing.horn_safe_domain_range_elapsed_ms
+                        + iteration_timing.sameas_elapsed_ms
+                        + iteration_timing.reflexive_elapsed_ms
+                        + iteration_timing.target_role_elapsed_ms
+                        + iteration_timing.schema_individual_import_elapsed_ms
+                        + iteration_timing.kgraph_build_elapsed_ms
+                    )
                     dataset_refresh = iteration_node.add_child(
                         ProfileNode(
                             name="dataset_refresh",
                             label="dataset_refresh",
-                            elapsed_ms_inclusive=iteration_timing.dataset_build_elapsed_ms,
+                            elapsed_ms_inclusive=assembly_total + scan_total,
                             meta={"category": "host_runtime"},
                         )
                     )
+                    if scan_total:
+                        scan_iter = dataset_refresh.add_child(
+                            ProfileNode("scan_cache_index_prep", "scan cache/index prep", scan_total, meta={"category": "abox_once"})
+                        )
+                        if iteration_timing.mapping_vocab_collect_elapsed_ms:
+                            scan_iter.add_child(ProfileNode("mapping_vocab_collect", "vocab collect", iteration_timing.mapping_vocab_collect_elapsed_ms, meta={"category": "abox_once"}))
+                        if iteration_timing.mapping_graph_scan_elapsed_ms:
+                            scan_iter.add_child(ProfileNode("mapping_graph_scan", "graph scan", iteration_timing.mapping_graph_scan_elapsed_ms, meta={"category": "abox_once"}))
                     for name, label, elapsed in (
                         ("data_copy", "data copy", iteration_timing.data_copy_elapsed_ms),
                         ("ontology_merge", "ontology merge", iteration_timing.ontology_merge_elapsed_ms),
@@ -908,14 +1105,6 @@ def _build_engine_profile_tree(engine_result: EngineQueryResult) -> tuple[Profil
                     ):
                         if elapsed:
                             internals_iter.add_child(ProfileNode(name, label, elapsed, meta={"category": "host_runtime"}))
-                if scan_total:
-                    scan_iter = iteration_node.add_child(
-                        ProfileNode("scan_cache_index_prep", "scan cache/index prep", scan_total, meta={"category": "abox_once"})
-                    )
-                    if iteration_timing.mapping_vocab_collect_elapsed_ms:
-                        scan_iter.add_child(ProfileNode("mapping_vocab_collect", "vocab collect", iteration_timing.mapping_vocab_collect_elapsed_ms, meta={"category": "abox_once"}))
-                    if iteration_timing.mapping_graph_scan_elapsed_ms:
-                        scan_iter.add_child(ProfileNode("mapping_graph_scan", "graph scan", iteration_timing.mapping_graph_scan_elapsed_ms, meta={"category": "abox_once"}))
                 if iteration_timing.reasoner_setup_elapsed_ms:
                     iteration_node.add_child(ProfileNode("reasoner_setup", "reasoner setup", iteration_timing.reasoner_setup_elapsed_ms, meta={"category": "host_runtime", "device": engine_result.dag_effective_device}))
                 if iteration_timing.dag_compile_elapsed_ms:
@@ -1090,6 +1279,56 @@ def format_engine_timing_breakdown(
         f"effective={engine_result.dag_effective_device}, "
         f"torch.cuda.is_available={cuda_status}"
     )
+    stage_summary = _build_engine_stage_summary(root, engine_result)
+    if any(elapsed > 0.0 for _label, elapsed in stage_summary):
+        lines.append("  - stage summary:")
+        for label, elapsed_ms in stage_summary:
+            if elapsed_ms <= 0.0:
+                continue
+            pct = (elapsed_ms / summary.root_elapsed_ms * 100.0) if summary.root_elapsed_ms > 0 else 0.0
+            lines.append(
+                f"      {label}: {_format_elapsed_seconds(elapsed_ms)} ({pct:.1f}% of engine)"
+            )
+        lines.append("  - stage legend:")
+        lines.append("      graph lowering: native graph scan/build/refresh and KGraph assembly")
+        lines.append("      identity normalization: sameAs / equality canonicalization work")
+        lines.append("      engine preprocessing: compile/setup before iterative reasoning")
+        lines.append("      engine iterations: DAG eval plus assertion-update loop work")
+        lines.append("      engine post-processing / reporting: verification, status, and result shaping")
+    memory_lines: List[str] = []
+    start_bytes = engine_result.process_memory_start_bytes
+    end_bytes = engine_result.process_memory_end_bytes
+    peak_bytes = engine_result.process_memory_peak_bytes
+    if any(value is not None for value in (start_bytes, end_bytes, peak_bytes)):
+        delta_bytes = None
+        if start_bytes is not None and end_bytes is not None:
+            delta_bytes = end_bytes - start_bytes
+        delta_text = f", delta={_format_bytes(delta_bytes)}" if delta_bytes is not None else ""
+        memory_lines.append(
+            "      process working set: "
+            f"start={_format_bytes(start_bytes)}, "
+            f"end={_format_bytes(end_bytes)}, "
+            f"peak={_format_bytes(peak_bytes)}{delta_text}"
+        )
+    if engine_result.kgraph_host_bytes is not None:
+        memory_lines.append(
+            f"      estimated KGraph host tensors: {_format_bytes(engine_result.kgraph_host_bytes)}"
+        )
+    if engine_result.compiled_dag_estimated_bytes is not None:
+        memory_lines.append(
+            f"      estimated compiled DAG footprint: {_format_bytes(engine_result.compiled_dag_estimated_bytes)}"
+        )
+    if engine_result.dag_effective_device == "cuda":
+        memory_lines.append(
+            "      CUDA VRAM: "
+            f"peak allocated={_format_bytes(engine_result.cuda_peak_allocated_bytes)}, "
+            f"peak reserved={_format_bytes(engine_result.cuda_peak_reserved_bytes)}, "
+            f"end allocated={_format_bytes(engine_result.cuda_end_allocated_bytes)}, "
+            f"end reserved={_format_bytes(engine_result.cuda_end_reserved_bytes)}"
+        )
+    if memory_lines:
+        lines.append("  - memory summary:")
+        lines.extend(memory_lines)
     rendered_tree = render_profile_tree(root, warnings=summary.warnings)
     lines.extend(f"  {line}" for line in rendered_tree.splitlines())
     lines.append(
@@ -2111,6 +2350,14 @@ def run_engine_queries(
     dag_effective_device = _resolve_effective_torch_device(device)
     torch_cuda_available = _reported_torch_cuda_available(device)
     device_to_use = "cpu" if dag_effective_device == "unavailable" else dag_effective_device
+    process_memory_start_bytes, _process_memory_initial_peak_bytes = _get_process_memory_snapshot()
+    cuda_memory_device: Optional[torch.device] = None
+    if dag_effective_device == "cuda":
+        try:
+            cuda_memory_device = torch.device("cuda")
+            torch.cuda.reset_peak_memory_stats(cuda_memory_device)
+        except Exception:
+            cuda_memory_device = None
 
     t0 = perf_counter()
     engine_profiler: Optional[ProfileRecorder] = None
@@ -2949,102 +3196,26 @@ def run_engine_queries(
     )
 
     elapsed_ms = (perf_counter() - t0) * 1000.0
+    process_memory_end_bytes, process_memory_peak_bytes = _get_process_memory_snapshot()
+    cuda_peak_allocated_bytes: Optional[int] = None
+    cuda_peak_reserved_bytes: Optional[int] = None
+    cuda_end_allocated_bytes: Optional[int] = None
+    cuda_end_reserved_bytes: Optional[int] = None
+    if cuda_memory_device is not None:
+        try:
+            cuda_peak_allocated_bytes = int(torch.cuda.max_memory_allocated(cuda_memory_device))
+            cuda_peak_reserved_bytes = int(torch.cuda.max_memory_reserved(cuda_memory_device))
+            cuda_end_allocated_bytes = int(torch.cuda.memory_allocated(cuda_memory_device))
+            cuda_end_reserved_bytes = int(torch.cuda.memory_reserved(cuda_memory_device))
+        except Exception:
+            cuda_peak_allocated_bytes = None
+            cuda_peak_reserved_bytes = None
+            cuda_end_allocated_bytes = None
+            cuda_end_reserved_bytes = None
+    kgraph_host_bytes = _estimate_kgraph_tensor_bytes(dataset.kg) if dataset is not None else None
     profile_tree: Optional[ProfileNode] = None
     profile_summary: Optional[ProfileSummary] = None
-    if engine_profiler is not None:
-        profile_tree = engine_profiler.build_tree()
-        if profile_tree is not None:
-            if filtered_admissibility_result is not None:
-                filtered_admissibility_result.profile_tree = _clone_profile_node(profile_tree)
-            warnings = validate_profile_tree(profile_tree)
-            disjoint_top_level_elapsed_ms = sum(child.elapsed_ms_inclusive for child in profile_tree.children)
-            residual = profile_tree.elapsed_ms_inclusive - disjoint_top_level_elapsed_ms
-            root_tol = profile_tolerance_ms(profile_tree.elapsed_ms_inclusive)
-            if abs(residual) > root_tol:
-                warnings.append(
-                    ProfileValidationWarning(
-                        path=profile_tree.name,
-                        issue="top-level children do not reconcile to engine total",
-                        elapsed_ms=abs(residual),
-                        tolerance_ms=root_tol,
-                    )
-                )
-            profile_summary = ProfileSummary(
-                root_elapsed_ms=profile_tree.elapsed_ms_inclusive,
-                category_totals_ms=aggregate_by_category(profile_tree),
-                warnings=warnings,
-                reconciliation_residual_ms=residual,
-            )
-    if profile_tree is None or profile_summary is None:
-        profile_tree, profile_summary = _build_engine_profile_tree(
-            EngineQueryResult(
-            backend="engine",
-            elapsed_ms=elapsed_ms,
-            members_by_target=members_by_target,
-            dataset=dataset,
-            scores_by_target=scores_by_target,
-            materialization_iterations=iterations,
-            engine_mode=engine_mode,
-            conflict_policy=(conflict_policy if engine_mode in {"stratified", "filtered_admissibility"} else None),
-            stratified_result=stratified_result,
-            filtered_admissibility_result=filtered_admissibility_result,
-            consistent=None,
-            ontology_merge_elapsed_ms=ontology_merge_elapsed_ms,
-            stratified_initial_data_copy_elapsed_ms=stratified_initial_data_copy_elapsed_ms,
-            stratified_initial_ontology_merge_elapsed_ms=stratified_initial_ontology_merge_elapsed_ms,
-            schema_cache_elapsed_ms=schema_cache_elapsed_ms,
-            preprocessing_plan_elapsed_ms=preprocessing_plan_elapsed_ms,
-            sufficient_rule_extraction_elapsed_ms=sufficient_rule_extraction_elapsed_ms,
-            sufficient_rule_index_elapsed_ms=sufficient_rule_index_elapsed_ms,
-            dependency_closure_elapsed_ms=dependency_closure_elapsed_ms,
-            sameas_state_init_elapsed_ms=sameas_state_init_elapsed_ms,
-            dataset_build_elapsed_ms=dataset_build_elapsed_ms,
-            data_copy_elapsed_ms=data_copy_elapsed_ms,
-            hierarchy_elapsed_ms=hierarchy_elapsed_ms,
-            atomic_domain_range_elapsed_ms=atomic_domain_range_elapsed_ms,
-            horn_safe_domain_range_elapsed_ms=horn_safe_domain_range_elapsed_ms,
-            sameas_elapsed_ms=sameas_elapsed_ms,
-            reflexive_elapsed_ms=reflexive_elapsed_ms,
-            target_role_elapsed_ms=target_role_elapsed_ms,
-            kgraph_build_elapsed_ms=kgraph_build_elapsed_ms,
-            mapping_vocab_collect_elapsed_ms=mapping_vocab_collect_elapsed_ms,
-            mapping_graph_scan_elapsed_ms=mapping_graph_scan_elapsed_ms,
-            mapping_sort_elapsed_ms=mapping_sort_elapsed_ms,
-            mapping_index_elapsed_ms=mapping_index_elapsed_ms,
-            kgraph_edge_bucket_elapsed_ms=kgraph_edge_bucket_elapsed_ms,
-            kgraph_negative_helper_elapsed_ms=kgraph_negative_helper_elapsed_ms,
-            kgraph_literal_feature_elapsed_ms=kgraph_literal_feature_elapsed_ms,
-            kgraph_adjacency_elapsed_ms=kgraph_adjacency_elapsed_ms,
-            sameas_passes_elapsed_ms=sameas_passes_elapsed_ms,
-            stratified_positive_reasoner_setup_elapsed_ms=stratified_positive_reasoner_setup_elapsed_ms,
-            dag_compile_elapsed_ms=dag_compile_elapsed_ms,
-            dag_eval_elapsed_ms=dag_eval_elapsed_ms,
-            stratified_positive_assertion_update_elapsed_ms=stratified_positive_assertion_update_elapsed_ms,
-            stratified_positive_total_elapsed_ms=stratified_positive_total_elapsed_ms,
-            stratified_positive_iterations=stratified_positive_iterations,
-            stratified_positive_avg_dataset_build_elapsed_ms=stratified_positive_avg_dataset_build_elapsed_ms,
-            stratified_positive_avg_dag_compile_elapsed_ms=stratified_positive_avg_dag_compile_elapsed_ms,
-            stratified_positive_avg_dag_eval_elapsed_ms=stratified_positive_avg_dag_eval_elapsed_ms,
-            stratified_negative_blocker_elapsed_ms=stratified_negative_blocker_elapsed_ms,
-            stratified_assignment_status_elapsed_ms=stratified_assignment_status_elapsed_ms,
-            stratified_conflict_policy_elapsed_ms=stratified_conflict_policy_elapsed_ms,
-            stratified_reporting_compile_elapsed_ms=stratified_reporting_compile_elapsed_ms,
-            result_projection_elapsed_ms=result_projection_elapsed_ms,
-            stratified_iteration_timings=stratified_iteration_timings,
-            stratified_final_dataset_timing=stratified_final_dataset_timing,
-            dag_requested_device=dag_requested_device,
-            dag_effective_device=dag_effective_device,
-            torch_cuda_available=torch_cuda_available,
-            dag_stats_by_target=(dag_stats_by_target or None),
-            super_dag_plan=(
-                stratified_result.positive_result.super_dag_plan
-                if stratified_result is not None
-                else None
-            ),
-        )
-        )
-
-    return EngineQueryResult(
+    base_result_kwargs = dict(
         backend="engine",
         elapsed_ms=elapsed_ms,
         members_by_target=members_by_target,
@@ -3108,9 +3279,50 @@ def run_engine_queries(
             if stratified_result is not None
             else None
         ),
-        profile_tree=profile_tree,
-        profile_summary=profile_summary,
+        process_memory_start_bytes=process_memory_start_bytes,
+        process_memory_end_bytes=process_memory_end_bytes,
+        process_memory_peak_bytes=process_memory_peak_bytes,
+        kgraph_host_bytes=kgraph_host_bytes,
+        compiled_dag_estimated_bytes=None,
+        cuda_peak_allocated_bytes=cuda_peak_allocated_bytes,
+        cuda_peak_reserved_bytes=cuda_peak_reserved_bytes,
+        cuda_end_allocated_bytes=cuda_end_allocated_bytes,
+        cuda_end_reserved_bytes=cuda_end_reserved_bytes,
     )
+    if engine_profiler is not None:
+        profile_tree = engine_profiler.build_tree()
+        if profile_tree is not None:
+            if filtered_admissibility_result is not None:
+                filtered_admissibility_result.profile_tree = _clone_profile_node(profile_tree)
+            warnings = validate_profile_tree(profile_tree)
+            disjoint_top_level_elapsed_ms = sum(child.elapsed_ms_inclusive for child in profile_tree.children)
+            residual = profile_tree.elapsed_ms_inclusive - disjoint_top_level_elapsed_ms
+            root_tol = profile_tolerance_ms(profile_tree.elapsed_ms_inclusive)
+            if abs(residual) > root_tol:
+                warnings.append(
+                    ProfileValidationWarning(
+                        path=profile_tree.name,
+                        issue="top-level children do not reconcile to engine total",
+                        elapsed_ms=abs(residual),
+                        tolerance_ms=root_tol,
+                    )
+                )
+            profile_summary = ProfileSummary(
+                root_elapsed_ms=profile_tree.elapsed_ms_inclusive,
+                category_totals_ms=aggregate_by_category(profile_tree),
+                warnings=warnings,
+                reconciliation_residual_ms=residual,
+            )
+    temp_engine_result = EngineQueryResult(**base_result_kwargs)
+    temp_engine_result.compiled_dag_estimated_bytes = _estimate_compiled_dags_bytes(temp_engine_result)
+    if profile_tree is None or profile_summary is None:
+        profile_tree, profile_summary = _build_engine_profile_tree(
+            temp_engine_result
+        )
+
+    temp_engine_result.profile_tree = profile_tree
+    temp_engine_result.profile_summary = profile_summary
+    return temp_engine_result
 
 
 def run_owlrl_queries(
@@ -3810,6 +4022,9 @@ def run_oracle_comparison(
     super_dag: str = "auto",
     verbose: bool = False,
 ) -> None:
+    def _progress(message: str) -> None:
+        print(message, flush=True)
+
     engine_mode = normalize_engine_mode_name(engine_mode)
     super_dag = resolve_super_dag_mode(super_dag, profile)
     profile_options = apply_engine_profile(
@@ -3826,6 +4041,7 @@ def run_oracle_comparison(
     elk_preflight_elapsed_ms = 0.0
     resolved_elk_classpath = elk_classpath
     if "elk" in oracle_backends:
+        _progress("Starting ELK preflight...")
         preflight_t0 = perf_counter()
         ok, error_text, resolved_classpath = validate_elk_backend(
             elk_classpath=elk_classpath,
@@ -3843,7 +4059,9 @@ def run_oracle_comparison(
             print(error_text)
             return
         resolved_elk_classpath = resolved_classpath
+        _progress("Finished ELK preflight.")
     if "openllet" in oracle_backends:
+        _progress("Starting Openllet preflight...")
         preflight_t0 = perf_counter()
         ok, error_text, _resolved_classpath = validate_owlapi_reasoner_backend(
             reasoner_name="openllet",
@@ -3858,7 +4076,14 @@ def run_oracle_comparison(
             print("Openllet preflight failed before engine execution.")
             print(error_text)
             return
+        _progress("Finished Openllet preflight.")
 
+    schema_load_source = describe_rdflib_graph_load_source(
+        schema_paths,
+        cache_mode=graph_load_cache,
+        cache_dir=graph_load_cache_dir,
+    )
+    _progress(f"Loading schema graph from {schema_load_source}...")
     load_schema_t0 = perf_counter()
     schema_graph = load_rdflib_graph(
         schema_paths,
@@ -3866,6 +4091,13 @@ def run_oracle_comparison(
         cache_dir=graph_load_cache_dir,
     )
     schema_load_elapsed_ms = (perf_counter() - load_schema_t0) * 1000.0
+    _progress("Finished loading schema graph.")
+    data_load_source = describe_rdflib_graph_load_source(
+        data_paths,
+        cache_mode=graph_load_cache,
+        cache_dir=graph_load_cache_dir,
+    )
+    _progress(f"Loading data graph from {data_load_source}...")
     load_data_t0 = perf_counter()
     data_graph = load_rdflib_graph(
         data_paths,
@@ -3873,6 +4105,8 @@ def run_oracle_comparison(
         cache_dir=graph_load_cache_dir,
     )
     data_load_elapsed_ms = (perf_counter() - load_data_t0) * 1000.0
+    _progress("Finished loading data graph.")
+    _progress("Resolving target classes...")
     resolution_t0 = perf_counter()
     resolution = resolve_target_classes(
         schema_graph=schema_graph,
@@ -3885,6 +4119,7 @@ def run_oracle_comparison(
         augment_property_domain_range=profile_options.augment_property_domain_range,
     )
     resolution_elapsed_ms = (perf_counter() - resolution_t0) * 1000.0
+    _progress("Finished resolving target classes.")
     target_terms = resolution.resolved_targets
     warning_text = format_skipped_target_warnings(resolution, verbose=verbose)
     if warning_text:
@@ -3894,6 +4129,7 @@ def run_oracle_comparison(
         print("No target classes resolved for comparison.")
         return
 
+    _progress("Running engine...")
     engine_result = run_engine_queries(
         schema_graph=schema_graph,
         data_graph=data_graph,
@@ -3916,6 +4152,7 @@ def run_oracle_comparison(
         enable_negative_verification=profile_options.enable_negative_verification,
         enable_super_dag=(super_dag == "on"),
     )
+    _progress("Finished engine run.")
     if engine_result.profile_tree is None or engine_result.profile_summary is None:
         engine_result.profile_tree, engine_result.profile_summary = _build_engine_profile_tree(engine_result)
     if engine_result.profile_tree is not None and engine_result.profile_summary is not None:
@@ -3929,6 +4166,8 @@ def run_oracle_comparison(
         for aliases in engine_result.dataset.sameas_members_by_canonical.values():
             candidate_terms.update(aliases)
     ontology_graph = aggregate_rdflib_graphs((schema_graph, data_graph))
+    if oracle_backends:
+        _progress("Building oracle query graph...")
     query_graph_t0 = perf_counter()
     query_graph, query_class_by_target = build_oracle_query_graph(
         ontology_graph,
@@ -3937,9 +4176,12 @@ def run_oracle_comparison(
         bridge_supported_definitions=bridge_supported_definitions,
     )
     query_graph_elapsed_ms = (perf_counter() - query_graph_t0) * 1000.0
+    if oracle_backends:
+        _progress("Finished building oracle query graph.")
 
     oracle_results: List[BackendQueryResult] = []
     for backend in oracle_backends:
+        _progress(f"Starting oracle backend: {backend}...")
         if backend == "owlrl":
             oracle_results.append(
                 run_owlrl_queries(
@@ -3987,6 +4229,7 @@ def run_oracle_comparison(
             )
         else:
             raise ValueError(f"Unsupported oracle backend: {backend}")
+        _progress(f"Finished oracle backend: {backend}.")
 
     print(f"Schema load time: {_format_elapsed_seconds(schema_load_elapsed_ms)}")
     print(f"Data load time: {_format_elapsed_seconds(data_load_elapsed_ms)}")

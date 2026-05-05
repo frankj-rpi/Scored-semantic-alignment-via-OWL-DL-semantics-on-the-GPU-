@@ -2315,6 +2315,51 @@ def load_rdflib_graph(
     return graph
 
 
+def describe_rdflib_graph_load_source(
+    paths: str | Path | Sequence[str | Path],
+    formats: Optional[Sequence[Optional[str]]] = None,
+    *,
+    cache_mode: str = "off",
+    cache_dir: Optional[str | Path] = None,
+) -> str:
+    path_list = _ensure_sequence(paths)
+    if formats is not None and len(formats) != len(path_list):
+        raise ValueError("formats must match the number of input paths.")
+
+    normalized_cache_mode = str(cache_mode).strip().lower()
+    if normalized_cache_mode not in {"off", "on", "refresh"}:
+        raise ValueError("cache_mode must be one of: off, on, refresh.")
+    if normalized_cache_mode == "off":
+        return "source files (cache disabled)"
+
+    effective_formats = [
+        (None if formats is None else formats[i]) or guess_rdf_format(path)
+        for i, path in enumerate(path_list)
+    ]
+    cache_root = Path(cache_dir) if cache_dir is not None else Path(".cache") / "rdflib_graphs"
+    cache_payload = {
+        "rdflib_graph_cache_version": 1,
+        "inputs": [
+            {
+                "path": str(Path(path).resolve()),
+                "size": Path(path).stat().st_size,
+                "mtime_ns": Path(path).stat().st_mtime_ns,
+                "format": fmt,
+            }
+            for path, fmt in zip(path_list, effective_formats)
+        ],
+    }
+    cache_key = hashlib.sha256(
+        json.dumps(cache_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    cache_path = cache_root / f"{cache_key}.pkl"
+    if normalized_cache_mode == "refresh":
+        return f"source files (cache refresh -> {cache_path})"
+    if cache_path.exists():
+        return f"cache ({cache_path})"
+    return f"source files (cache miss -> {cache_path})"
+
+
 def merge_rdflib_graphs(graphs: Sequence[Graph]) -> Graph:
     merged = Graph()
     for graph in graphs:
@@ -3420,14 +3465,17 @@ def collect_native_identity_canonicalization(
     union_find = _UnionFind()
     forbidden_pairs: set[Tuple[Identifier, Identifier]] = set()
 
-    for left, right in _collect_all_different_pairs(ontology_graph):
-        forbidden_pairs.add(tuple(sorted((left, right), key=_term_sort_key)))
-    for left, _pred, right in ontology_graph.triples((None, OWL.differentFrom, None)):
-        if isinstance(left, Literal) or isinstance(right, Literal):
-            continue
-        forbidden_pairs.add(tuple(sorted((left, right), key=_term_sort_key)))
+    if enable_haskey:
+        for left, right in _collect_all_different_pairs(ontology_graph):
+            forbidden_pairs.add(tuple(sorted((left, right), key=_term_sort_key)))
+        for left, _pred, right in ontology_graph.triples((None, OWL.differentFrom, None)):
+            if isinstance(left, Literal) or isinstance(right, Literal):
+                continue
+            forbidden_pairs.add(tuple(sorted((left, right), key=_term_sort_key)))
 
     def _can_union(left: Identifier, right: Identifier) -> bool:
+        if not forbidden_pairs:
+            return True
         if left == right:
             return True
         root_left = union_find.find(left)
@@ -3438,12 +3486,23 @@ def collect_native_identity_canonicalization(
         return ordered not in forbidden_pairs
 
     if explicit_sameas:
-        for subj, _pred, obj in ontology_graph.triples((None, OWL.sameAs, None)):
-            if isinstance(subj, Literal) or isinstance(obj, Literal):
-                continue
-            union_find.add(subj)
-            union_find.add(obj)
-            union_find.union(subj, obj)
+        sameas_prop_idx = mapping.prop_to_idx.get(OWL.sameAs)
+        if sameas_prop_idx is not None and native_abox.edge_prop.size:
+            edge_prop = native_abox.edge_prop.astype(np.int64, copy=False)
+            edge_src = native_abox.edge_src.astype(np.int64, copy=False)
+            edge_dst = native_abox.edge_dst.astype(np.int64, copy=False)
+            sameas_mask = edge_prop == sameas_prop_idx
+            sameas_src = edge_src[sameas_mask]
+            sameas_dst = edge_dst[sameas_mask]
+            node_terms = mapping.node_terms
+            for src_idx, dst_idx in zip(sameas_src.tolist(), sameas_dst.tolist()):
+                subj = node_terms[src_idx]
+                obj = node_terms[dst_idx]
+                if isinstance(subj, Literal) or isinstance(obj, Literal):
+                    continue
+                union_find.add(subj)
+                union_find.add(obj)
+                union_find.union(subj, obj)
 
     if enable_haskey and has_key_axioms:
         type_src = native_abox.type_src.astype(np.int64, copy=False)
@@ -9179,6 +9238,22 @@ def materialize_positive_sufficient_class_inferences(
         preprocessing: PreprocessingTimings,
     ) -> None:
         scan_cache_elapsed_ms = preprocessing.scan_cache_build_elapsed_ms
+        assembly_elapsed_ms = (
+            preprocessing.data_copy_elapsed_ms
+            + preprocessing.ontology_merge_elapsed_ms
+            + preprocessing.hierarchy_elapsed_ms
+            + preprocessing.atomic_domain_range_elapsed_ms
+            + preprocessing.horn_safe_domain_range_elapsed_ms
+            + preprocessing.sameas_elapsed_ms
+            + preprocessing.reflexive_elapsed_ms
+            + preprocessing.target_role_elapsed_ms
+            + preprocessing.schema_individual_import_elapsed_ms
+            + preprocessing.kgraph_build_elapsed_ms
+        )
+        refresh_component_total_ms = assembly_elapsed_ms + scan_cache_elapsed_ms
+        refresh_tolerance_ms = max(50.0, dataset_node.elapsed_ms_inclusive * 0.01)
+        if refresh_component_total_ms > dataset_node.elapsed_ms_inclusive + refresh_tolerance_ms:
+            return
         if scan_cache_elapsed_ms:
             scan_cache_node = dataset_node.add_child(
                 ProfileNode(
@@ -9206,18 +9281,6 @@ def materialize_positive_sufficient_class_inferences(
                         meta={"category": "host_runtime"},
                     )
                 )
-        assembly_elapsed_ms = (
-            preprocessing.data_copy_elapsed_ms
-            + preprocessing.ontology_merge_elapsed_ms
-            + preprocessing.hierarchy_elapsed_ms
-            + preprocessing.atomic_domain_range_elapsed_ms
-            + preprocessing.horn_safe_domain_range_elapsed_ms
-            + preprocessing.sameas_elapsed_ms
-            + preprocessing.reflexive_elapsed_ms
-            + preprocessing.target_role_elapsed_ms
-            + preprocessing.schema_individual_import_elapsed_ms
-            + preprocessing.kgraph_build_elapsed_ms
-        )
         dataset_assembly = dataset_node.add_child(
             ProfileNode(
                 name="dataset_native_assembly",
@@ -9346,10 +9409,13 @@ def materialize_positive_sufficient_class_inferences(
             if use_native_gpu_el_loop and native_fast_dataset is not None:
                 dataset = native_fast_dataset
                 native_fast_dataset = None
+                dataset_already_on_reasoner = True
             elif seeded_dataset is not None:
                 dataset = seeded_dataset
                 seeded_dataset = None
+                dataset_already_on_reasoner = False
             elif use_incremental_rebuild:
+                dataset_already_on_reasoner = False
                 with profiler.scoped("dataset_refresh", "dataset_refresh", category="host_runtime") as dataset_node:
                     dataset = _build_reasoning_dataset_from_preprocessed_graph(
                         schema_graph=schema_graph,
@@ -9373,6 +9439,7 @@ def materialize_positive_sufficient_class_inferences(
                         )
                         _attach_dataset_refresh_breakdown(dataset_node, dataset.preprocessing_timings)
             else:
+                dataset_already_on_reasoner = False
                 with profiler.scoped("dataset_refresh", "dataset_refresh", category="host_runtime") as dataset_node:
                     dataset = build_reasoning_dataset_from_graphs(
                         schema_graph=schema_graph,
@@ -9431,7 +9498,11 @@ def materialize_positive_sufficient_class_inferences(
                         native_fast_reasoner = reasoner
                     else:
                         reasoner = native_fast_reasoner
-                        reasoner.update_node_types(dataset.kg.node_types)
+                        if dataset_already_on_reasoner:
+                            reasoner.rebind_graph_without_node_type_refresh(dataset.kg)
+                        else:
+                            reasoner.update_node_types(dataset.kg.node_types)
+                            reasoner.rebind_graph_without_node_type_refresh(dataset.kg)
                         reasoner.clear_concepts()
                 else:
                     sim_class = None

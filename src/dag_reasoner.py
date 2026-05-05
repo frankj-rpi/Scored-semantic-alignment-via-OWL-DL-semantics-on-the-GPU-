@@ -56,6 +56,10 @@ class DAGReasoner:
         self._concepts.clear()
         self._last_scores = None
 
+    def rebind_graph_without_node_type_refresh(self, graph: KGraph) -> None:
+        self.graph = graph
+        self._last_scores = None
+
     def update_node_types(self, node_types: torch.Tensor) -> None:
         self.graph.node_types = node_types
         self.eval_graph.node_types = node_types.to(self.device)

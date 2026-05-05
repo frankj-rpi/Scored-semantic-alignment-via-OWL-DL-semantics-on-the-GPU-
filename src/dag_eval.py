@@ -62,10 +62,7 @@ def eval_dag_score_matrix(
             dst_index_p.append(neighbors.long())
 
     scores = torch.zeros((num_nodes, num_constraints), device=device)
-    segment_layout_cache: dict[
-        tuple[int, str],
-        tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int],
-    ] = {}
+    segment_layout_cache = graph.segment_layout_cache
 
     def oriented_edges(
         prop_idx: int,
@@ -122,12 +119,12 @@ def eval_dag_score_matrix(
         return cached
 
     def transitive_family_props(prop_idx: int) -> list[int]:
-        if graph.transitive_prop_families is None:
+        if graph.transitive_prop_family_indices is None:
             return [prop_idx]
-        family_tensor = graph.transitive_prop_families[prop_idx]
-        if family_tensor.numel() == 0:
+        family_indices = graph.transitive_prop_family_indices[prop_idx]
+        if not family_indices:
             return [prop_idx]
-        return [int(idx) for idx in family_tensor.detach().cpu().tolist()]
+        return list(family_indices)
 
     def topk_edge_scores(
         prop_idx: int,

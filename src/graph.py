@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 import torch
 
@@ -19,6 +19,8 @@ class KGraph:
     transitive_prop_families: Optional[list[torch.Tensor]] = None  # per prop, property indices participating in transitive closure
     src_index_p: Optional[list[torch.Tensor]] = None
     dst_index_p: Optional[list[torch.Tensor]] = None
+    segment_layout_cache: dict[tuple[int, str], tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int]] = field(default_factory=dict)
+    transitive_prop_family_indices: Optional[list[tuple[int, ...]]] = None
 
 
 def prepare_kgraph_for_device(
@@ -44,6 +46,14 @@ def prepare_kgraph_for_device(
         if graph.transitive_prop_families is None
         else [family.to(target_device) for family in graph.transitive_prop_families]
     )
+    transitive_prop_family_indices = (
+        None
+        if transitive_prop_families is None
+        else [
+            tuple(int(idx) for idx in family.detach().cpu().tolist()) if family.numel() > 0 else tuple()
+            for family in transitive_prop_families
+        ]
+    )
 
     nodes = torch.arange(graph.num_nodes, device=target_device, dtype=torch.long)
     src_index_p: list[torch.Tensor] = []
@@ -65,4 +75,6 @@ def prepare_kgraph_for_device(
         transitive_prop_families=transitive_prop_families,
         src_index_p=src_index_p,
         dst_index_p=dst_index_p,
+        segment_layout_cache={},
+        transitive_prop_family_indices=transitive_prop_family_indices,
     )
