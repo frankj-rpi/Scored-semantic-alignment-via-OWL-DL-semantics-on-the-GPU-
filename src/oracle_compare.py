@@ -692,6 +692,9 @@ def _build_engine_stage_summary(
     for child in root.children:
         classify_node(child)
 
+    if totals["identity normalization"] <= 0.0 and engine_result.sameas_elapsed_ms > 0.0:
+        totals["identity normalization"] = engine_result.sameas_elapsed_ms
+
     identity_normalization_ms = totals["identity normalization"]
     graph_lowering_ms = max(0.0, totals["graph lowering"] - identity_normalization_ms)
     engine_pre_ms = totals["engine preprocessing"]
@@ -1334,10 +1337,7 @@ def format_engine_timing_breakdown(
     *,
     verbose: bool = False,
 ) -> str:
-    root = engine_result.profile_tree
-    summary = engine_result.profile_summary
-    if root is None or summary is None:
-        root, summary = _build_engine_profile_tree(engine_result)
+    root, summary = _build_engine_profile_tree(engine_result)
     lines = ["Engine timing breakdown:"]
     cuda_status = (
         "not_checked"

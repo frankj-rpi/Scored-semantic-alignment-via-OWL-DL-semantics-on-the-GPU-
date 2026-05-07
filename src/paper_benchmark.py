@@ -175,6 +175,9 @@ def _safe_mean(values: List[float]) -> Optional[float]:
 
 
 def _serialize_profile_summary(engine_result) -> dict:
+    from .oracle_compare import _build_engine_profile_tree
+
+    engine_result.profile_tree, engine_result.profile_summary = _build_engine_profile_tree(engine_result)
     stage_pairs = _build_engine_stage_summary(
         engine_result.profile_tree,
         engine_result,
