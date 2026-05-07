@@ -53,6 +53,7 @@ from .ontology_parse import (
     plan_reasoning_preprocessing,
     query_target_is_obviously_supported,
     summarize_loaded_kgraph,
+    _dataset_with_updated_native_types,
 )
 from .profiling import (
     ProfileNode,
@@ -79,6 +80,7 @@ class BackendQueryResult:
     backend: str
     elapsed_ms: float
     members_by_target: Dict[URIRef, Set[Identifier]]
+    setup_elapsed_ms: float = 0.0
     preprocess_elapsed_ms: float = 0.0
     postprocess_elapsed_ms: float = 0.0
     status: str = "ok"
@@ -613,46 +615,75 @@ def _build_engine_stage_summary(
     root: ProfileNode,
     engine_result: EngineQueryResult,
 ) -> list[tuple[str, float]]:
-    _ = root
-    identity_normalization_ms = (
-        engine_result.sameas_elapsed_ms
-        + engine_result.sameas_state_init_elapsed_ms
-    )
-    graph_lowering_ms = (
-        engine_result.ontology_merge_elapsed_ms
-        + engine_result.stratified_initial_data_copy_elapsed_ms
-        + engine_result.data_copy_elapsed_ms
-        + engine_result.dataset_build_elapsed_ms
-        - identity_normalization_ms
-    )
-    if graph_lowering_ms < 0.0:
-        graph_lowering_ms = 0.0
-    engine_pre_ms = (
-        engine_result.schema_cache_elapsed_ms
-        + engine_result.preprocessing_plan_elapsed_ms
-        + engine_result.sufficient_rule_extraction_elapsed_ms
-        + engine_result.sufficient_rule_index_elapsed_ms
-        + engine_result.dependency_closure_elapsed_ms
-        + engine_result.stratified_positive_reasoner_setup_elapsed_ms
-        + engine_result.dag_compile_elapsed_ms
-    )
-    if engine_result.engine_mode == "stratified":
-        engine_iter_ms = (
-            engine_result.dag_eval_elapsed_ms
-            + engine_result.stratified_positive_assertion_update_elapsed_ms
-        )
-    else:
-        engine_iter_ms = (
-            engine_result.dag_eval_elapsed_ms
-            + engine_result.stratified_positive_assertion_update_elapsed_ms
-        )
-    engine_post_ms = (
-        engine_result.stratified_negative_blocker_elapsed_ms
-        + engine_result.stratified_assignment_status_elapsed_ms
-        + engine_result.stratified_conflict_policy_elapsed_ms
-        + engine_result.stratified_reporting_compile_elapsed_ms
-        + engine_result.result_projection_elapsed_ms
-    )
+    totals = {
+        "graph lowering": 0.0,
+        "identity normalization": 0.0,
+        "engine preprocessing": 0.0,
+        "engine iterations": 0.0,
+        "engine post-processing / reporting": 0.0,
+    }
+
+    def add_total(stage: str, elapsed_ms: float) -> None:
+        if elapsed_ms > 0.0:
+            totals[stage] += elapsed_ms
+
+    def classify_node(node: ProfileNode) -> None:
+        if node.name.startswith("super_dag_group"):
+            add_total("engine preprocessing", max(node.self_ms, 0.0))
+        elif node.name.startswith("iteration_") or node.name.startswith("necessary_iteration_"):
+            add_total("engine preprocessing", max(node.self_ms, 0.0))
+        if node.name in {"seed_admissibility_input", "seed_closure_verification_input"}:
+            add_total("graph lowering", node.elapsed_ms_inclusive)
+            return
+        if node.name in {
+            "assignment_reporting",
+            "negative_reasoning",
+            "result_projection",
+            "filtered_score_projection",
+            "stratified_result_marshalling",
+        }:
+            add_total("engine post-processing / reporting", node.elapsed_ms_inclusive)
+            return
+        if node.name in {"input_lowering", "dataset_refresh"}:
+            add_total("graph lowering", max(node.self_ms, 0.0))
+        elif node.name in {"schema_setup", "reasoner_setup", "dag_compile"}:
+            add_total("engine preprocessing", node.elapsed_ms_inclusive)
+            return
+        elif node.name in {"dag_eval", "dag_eval_total", "assertion_update", "assertion_update_total"}:
+            add_total("engine iterations", node.elapsed_ms_inclusive)
+            return
+        elif node.name in {
+            "admissibility_evaluation",
+            "closure_verification",
+            "filtered_admissibility_stabilization",
+            "raw_admissibility",
+            "necessary_fixpoint",
+            "positive_reasoning",
+            "stratified_execution",
+        }:
+            # Container self-time in these phases is still real reasoning work, but it is
+            # orchestration / setup-heavy host work rather than DAG eval itself.
+            add_total("engine preprocessing", max(node.self_ms, 0.0))
+        elif node.name in {"sameas", "sameas_state_init"}:
+            add_total("identity normalization", node.elapsed_ms_inclusive)
+            return
+        elif node.name in {"preprocessing_plan", "dependency_closure"}:
+            add_total("engine preprocessing", node.elapsed_ms_inclusive)
+            return
+        elif node.name in {"mapping_vocab_collect", "mapping_graph_scan", "data_copy", "ontology_merge", "hierarchy", "atomic_domain_range", "horn_safe_domain_range", "reflexive", "target_roles", "kgraph_build", "mapping_finalize", "mapping_sort", "mapping_index", "kgraph_internals", "edge_buckets", "negative_helpers", "literal_features", "adjacency", "schema_individual_import"}:
+            add_total("graph lowering", node.elapsed_ms_inclusive)
+            return
+        for child in node.children:
+            classify_node(child)
+
+    for child in root.children:
+        classify_node(child)
+
+    identity_normalization_ms = totals["identity normalization"]
+    graph_lowering_ms = max(0.0, totals["graph lowering"] - identity_normalization_ms)
+    engine_pre_ms = totals["engine preprocessing"]
+    engine_iter_ms = totals["engine iterations"]
+    engine_post_ms = totals["engine post-processing / reporting"]
 
     return [
         ("graph lowering", graph_lowering_ms),
@@ -1237,10 +1268,37 @@ def _add_type_assignments(
     return augmented
 
 
+def _members_to_type_assertions(
+    members_by_target: Dict[URIRef, Set[Identifier]],
+) -> List[Tuple[Identifier, URIRef]]:
+    additions: List[Tuple[Identifier, URIRef]] = []
+    for target_term, members in members_by_target.items():
+        additions.extend((node_term, target_term) for node_term in members)
+    return additions
+
+
 def _count_members_by_target(
     members_by_target: Dict[URIRef, Set[Identifier]],
 ) -> int:
     return sum(len(members) for members in members_by_target.values())
+
+
+def _intersect_members_by_target_in_order(
+    current_members_by_target: Dict[URIRef, Set[Identifier]],
+    next_snapshot_members_by_target: Dict[URIRef, Set[Identifier]],
+    target_classes: Sequence[URIRef],
+) -> tuple[Dict[URIRef, Set[Identifier]], bool]:
+    next_members_by_target: Dict[URIRef, Set[Identifier]] = {}
+    changed = False
+    empty_members: Set[Identifier] = set()
+    for target_term in target_classes:
+        previous_members = current_members_by_target.get(target_term, empty_members)
+        next_members = next_snapshot_members_by_target.get(target_term, empty_members)
+        intersected = previous_members & next_members
+        next_members_by_target[target_term] = intersected
+        if not changed and intersected != previous_members:
+            changed = True
+    return next_members_by_target, changed
 
 
 def _build_binary_scores(
@@ -1392,6 +1450,29 @@ def _dag_is_positive_monotone(dag: ConstraintDAG) -> bool:
     return all(node.ctype in allowed_types for node in dag.nodes)
 
 
+def _dag_is_simple_disjointness_query(dag: ConstraintDAG) -> bool:
+    allowed_types = {
+        ConstraintType.CONST,
+        ConstraintType.ATOMIC_CLASS,
+        ConstraintType.NEGATION,
+        ConstraintType.INTERSECTION,
+    }
+    if not all(node.ctype in allowed_types for node in dag.nodes):
+        return False
+
+    for node in dag.nodes:
+        if node.ctype == ConstraintType.NEGATION:
+            if len(node.child_indices) != 1:
+                return False
+            child = dag.nodes[node.child_indices[0]]
+            if child.ctype not in {ConstraintType.ATOMIC_CLASS, ConstraintType.NOMINAL}:
+                return False
+        elif node.ctype == ConstraintType.INTERSECTION:
+            if not node.child_indices:
+                return False
+    return True
+
+
 def resolve_target_classes(
     *,
     schema_graph: Graph,
@@ -1434,6 +1515,27 @@ def resolve_target_classes(
     compile_context = build_ontology_compile_context(ontology_graph)
     dependency_analysis = compile_context.dependency_analysis
 
+    def cycle_component_is_simple_disjointness_only(
+        component: Sequence[URIRef],
+    ) -> bool:
+        for member in component:
+            member_query_plan = plan_reasoning_preprocessing(
+                ontology_graph,
+                target_classes=[member],
+                augment_property_domain_range=augment_property_domain_range,
+            )
+            member_dag = compile_class_to_dag(
+                ontology_graph,
+                mapping,
+                member,
+                augment_property_domain_range=member_query_plan.augment_property_domain_range.enabled,
+                dependency_analysis=dependency_analysis,
+                compile_context=compile_context,
+            )
+            if not _dag_is_simple_disjointness_query(member_dag):
+                return False
+        return True
+
     resolved_targets: List[URIRef] = []
     skipped_targets: List[Tuple[str, str]] = []
     for target_term in ordered_candidates:
@@ -1454,6 +1556,7 @@ def resolve_target_classes(
                 target_canonical = dependency_analysis.canonical_map.get(target_term, target_term)
                 has_reachable_cycle = dependency_analysis.reaches_cycle_by_class.get(target_canonical, False)
                 has_nonmonotone_cycle = False
+                allow_simple_disjointness_cycle = False
                 if has_reachable_cycle:
                     referenced_classes = collect_referenced_named_classes_for_class(
                         ontology_graph,
@@ -1484,7 +1587,20 @@ def resolve_target_classes(
                         if not _dag_is_positive_monotone(cycle_dag):
                             has_nonmonotone_cycle = True
                             break
-                if has_nonmonotone_cycle:
+                target_cycle_component = get_named_class_dependency_cycle_component(
+                    ontology_graph,
+                    target_term,
+                    dependency_analysis=dependency_analysis,
+                )
+                if (
+                    engine_mode in {"admissibility", "filtered_admissibility"}
+                    and target_cycle_component
+                    and has_nonmonotone_cycle
+                ):
+                    allow_simple_disjointness_cycle = cycle_component_is_simple_disjointness_only(
+                        target_cycle_component
+                    )
+                if has_nonmonotone_cycle and not allow_simple_disjointness_cycle:
                     skipped_targets.append(
                         (
                             _render_term(target_term),
@@ -1515,12 +1631,12 @@ def resolve_target_classes(
                     compile_context=compile_context,
                 )
                 if (
-                    get_named_class_dependency_cycle_component(
-                        ontology_graph,
-                        target_term,
-                        dependency_analysis=dependency_analysis,
-                    )
+                    target_cycle_component
                     and not _dag_is_positive_monotone(dag)
+                    and not (
+                        engine_mode in {"admissibility", "filtered_admissibility"}
+                        and cycle_component_is_simple_disjointness_only(target_cycle_component)
+                    )
                 ):
                     skipped_targets.append(
                         (
@@ -1750,9 +1866,12 @@ def _compile_and_evaluate_query_dataset(
     augment_property_domain_range: Optional[bool],
     dependency_analysis: Optional[NamedClassDependencyAnalysis] = None,
     compile_context: Optional[OntologyCompileContext] = None,
+    compile_graph: Optional[Graph] = None,
+    collect_scores: bool = True,
 ) -> Tuple[Dict[URIRef, Set[Identifier]], Dict[URIRef, Dict[Identifier, float]], Dict[URIRef, ConstraintDAG], float, float]:
+    compile_graph = compile_graph or dataset.ontology_graph
     query_plan = plan_reasoning_preprocessing(
-        dataset.ontology_graph,
+        compile_graph,
         target_classes=target_classes,
         augment_property_domain_range=augment_property_domain_range,
     )
@@ -1766,7 +1885,7 @@ def _compile_and_evaluate_query_dataset(
     compile_t0 = perf_counter()
     for target_term in target_classes:
         dag = compile_class_to_dag(
-            dataset.ontology_graph,
+            compile_graph,
             dataset.mapping,
             target_term,
             augment_property_domain_range=query_plan.augment_property_domain_range.enabled,
@@ -1783,16 +1902,24 @@ def _compile_and_evaluate_query_dataset(
 
     members_by_target: Dict[URIRef, Set[Identifier]] = {}
     scores_by_target: Dict[URIRef, Dict[Identifier, float]] = {}
-    for class_col, target_term in enumerate(target_classes):
-        members: Set[Identifier] = set()
-        scores: Dict[Identifier, float] = {}
-        for node_idx, node_term in enumerate(dataset.mapping.node_terms):
-            score = float(score_matrix[node_idx, class_col].item())
-            scores[node_term] = score
-            if score >= threshold:
-                members.add(node_term)
-        members_by_target[target_term] = members
-        scores_by_target[target_term] = scores
+    if not collect_scores:
+        members_by_target = {target_term: set() for target_term in target_classes}
+        positive_pairs = torch.nonzero(score_matrix >= threshold, as_tuple=False)
+        node_terms = dataset.mapping.node_terms
+        target_terms_list = list(target_classes)
+        for node_idx, class_col in positive_pairs.tolist():
+            members_by_target[target_terms_list[class_col]].add(node_terms[node_idx])
+    else:
+        for class_col, target_term in enumerate(target_classes):
+            members: Set[Identifier] = set()
+            scores: Dict[Identifier, float] = {}
+            for node_idx, node_term in enumerate(dataset.mapping.node_terms):
+                score = float(score_matrix[node_idx, class_col].item())
+                scores[node_term] = score
+                if score >= threshold:
+                    members.add(node_term)
+            members_by_target[target_term] = members
+            scores_by_target[target_term] = scores
 
     return members_by_target, scores_by_target, dags_by_target, dag_compile_elapsed_ms, dag_eval_elapsed_ms
 
@@ -2009,6 +2136,7 @@ def _evaluate_query_snapshot(
     materialize_target_roles: Optional[bool],
     augment_property_domain_range: Optional[bool],
     native_sameas_canonicalization: bool = False,
+    initial_dataset: Optional[ReasoningDataset] = None,
 ) -> QueryEvaluationSnapshot:
     dataset_build_elapsed_ms = 0.0
     hierarchy_elapsed_ms = 0.0
@@ -2029,182 +2157,10 @@ def _evaluate_query_snapshot(
     dag_compile_elapsed_ms = 0.0
     dag_eval_elapsed_ms = 0.0
 
-    initial_dataset = build_reasoning_dataset_from_graphs(
-        schema_graph=schema_graph,
-        data_graph=data_graph,
-        include_literals=include_literals,
-        include_type_edges=include_type_edges,
-        materialize_hierarchy=materialize_hierarchy,
-        materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
-        materialize_sameas=materialize_sameas,
-        materialize_haskey_equality=materialize_haskey_equality,
-        materialize_reflexive_properties=materialize_reflexive_properties,
-        materialize_target_roles=materialize_target_roles,
-        native_sameas_canonicalization=native_sameas_canonicalization,
-        target_classes=target_classes,
-    )
-    (
-        build_ms,
-        hierarchy_ms,
-        atomic_ms,
-        horn_ms,
-        sameas_ms,
-        reflexive_ms,
-        role_ms,
-        kgraph_ms,
-        mapping_vocab_ms,
-        mapping_scan_ms,
-        mapping_sort_ms,
-        mapping_index_ms,
-        edge_bucket_ms,
-        negative_helper_ms,
-        literal_feature_ms,
-        adjacency_ms,
-    ) = _extract_dataset_timing_breakdown(initial_dataset)
-    dataset_build_elapsed_ms += build_ms
-    hierarchy_elapsed_ms += hierarchy_ms
-    atomic_domain_range_elapsed_ms += atomic_ms
-    horn_safe_domain_range_elapsed_ms += horn_ms
-    sameas_elapsed_ms += sameas_ms
-    reflexive_elapsed_ms += reflexive_ms
-    target_role_elapsed_ms += role_ms
-    kgraph_build_elapsed_ms += kgraph_ms
-    mapping_vocab_collect_elapsed_ms += mapping_vocab_ms
-    mapping_graph_scan_elapsed_ms += mapping_scan_ms
-    mapping_sort_elapsed_ms += mapping_sort_ms
-    mapping_index_elapsed_ms += mapping_index_ms
-    kgraph_edge_bucket_elapsed_ms += edge_bucket_ms
-    kgraph_negative_helper_elapsed_ms += negative_helper_ms
-    kgraph_literal_feature_elapsed_ms += literal_feature_ms
-    kgraph_adjacency_elapsed_ms += adjacency_ms
-    compile_context = build_ontology_compile_context(
-        initial_dataset.ontology_graph,
-        schema_graph=schema_graph,
-        sameas_source_graph=initial_dataset.ontology_graph,
-    )
-    dependency_analysis = compile_context.dependency_analysis
-
-    helper_cycle_classes: Set[URIRef] = set()
-    for target_term in target_classes:
-        referenced_classes = collect_referenced_named_classes_for_class(
-            initial_dataset.ontology_graph,
-            target_term,
-            dependency_analysis=dependency_analysis,
-        )
-        for referenced_class in referenced_classes:
-            component = get_named_class_dependency_cycle_component(
-                initial_dataset.ontology_graph,
-                referenced_class,
-                dependency_analysis=dependency_analysis,
-            )
-            if component:
-                helper_cycle_classes.update(component)
-
-    monotone_cycle_classes: Set[URIRef] = set()
-    if helper_cycle_classes:
-        eval_targets = sorted(helper_cycle_classes, key=str)
-        members_by_target, _scores_by_target, dags_by_target, compile_ms, eval_ms = _compile_and_evaluate_query_dataset(
-            dataset=initial_dataset,
-            target_classes=eval_targets,
-            device=device,
-            threshold=threshold,
-            augment_property_domain_range=augment_property_domain_range,
-            dependency_analysis=dependency_analysis,
-            compile_context=compile_context,
-        )
-        dag_compile_elapsed_ms += compile_ms
-        dag_eval_elapsed_ms += eval_ms
-        for class_term, dag in dags_by_target.items():
-            if _dag_is_positive_monotone(dag):
-                monotone_cycle_classes.add(class_term)
-        helper_cycle_classes = {
-            class_term
-            for class_term in helper_cycle_classes
-            if class_term in monotone_cycle_classes
-        }
-    if helper_cycle_classes:
-        current_cycle_members: Dict[URIRef, Set[Identifier]] = {
-            class_term: set(initial_dataset.mapping.node_terms)
-            for class_term in helper_cycle_classes
-        }
-        final_dataset = initial_dataset
-        max_iterations = 25
-        for _iteration in range(max_iterations):
-            augmented_data_graph = _add_type_assignments(data_graph, current_cycle_members)
-            cycle_dataset = build_reasoning_dataset_from_graphs(
-                schema_graph=schema_graph,
-                data_graph=augmented_data_graph,
-                include_literals=include_literals,
-                include_type_edges=include_type_edges,
-                materialize_hierarchy=materialize_hierarchy,
-                materialize_horn_safe_domain_range=materialize_horn_safe_domain_range,
-                materialize_sameas=materialize_sameas,
-                materialize_haskey_equality=materialize_haskey_equality,
-                materialize_reflexive_properties=materialize_reflexive_properties,
-                materialize_target_roles=materialize_target_roles,
-                target_classes=sorted(set(target_classes) | helper_cycle_classes, key=str),
-            )
-            (
-                build_ms,
-                hierarchy_ms,
-                atomic_ms,
-                horn_ms,
-                sameas_ms,
-                reflexive_ms,
-                role_ms,
-                kgraph_ms,
-                mapping_vocab_ms,
-                mapping_scan_ms,
-                mapping_sort_ms,
-                mapping_index_ms,
-                edge_bucket_ms,
-                negative_helper_ms,
-                literal_feature_ms,
-                adjacency_ms,
-            ) = _extract_dataset_timing_breakdown(cycle_dataset)
-            dataset_build_elapsed_ms += build_ms
-            hierarchy_elapsed_ms += hierarchy_ms
-            atomic_domain_range_elapsed_ms += atomic_ms
-            horn_safe_domain_range_elapsed_ms += horn_ms
-            sameas_elapsed_ms += sameas_ms
-            reflexive_elapsed_ms += reflexive_ms
-            target_role_elapsed_ms += role_ms
-            kgraph_build_elapsed_ms += kgraph_ms
-            mapping_vocab_collect_elapsed_ms += mapping_vocab_ms
-            mapping_graph_scan_elapsed_ms += mapping_scan_ms
-            mapping_sort_elapsed_ms += mapping_sort_ms
-            mapping_index_elapsed_ms += mapping_index_ms
-            kgraph_edge_bucket_elapsed_ms += edge_bucket_ms
-            kgraph_negative_helper_elapsed_ms += negative_helper_ms
-            kgraph_literal_feature_elapsed_ms += literal_feature_ms
-            kgraph_adjacency_elapsed_ms += adjacency_ms
-
-            cycle_targets = sorted(helper_cycle_classes, key=str)
-            members_by_target, _scores_by_target, _dags_by_target, compile_ms, eval_ms = _compile_and_evaluate_query_dataset(
-                dataset=cycle_dataset,
-                target_classes=cycle_targets,
-                device=device,
-                threshold=threshold,
-                augment_property_domain_range=augment_property_domain_range,
-                dependency_analysis=dependency_analysis,
-                compile_context=compile_context,
-            )
-            dag_compile_elapsed_ms += compile_ms
-            dag_eval_elapsed_ms += eval_ms
-
-            next_cycle_members = {
-                class_term: set(members_by_target.get(class_term, set()))
-                for class_term in helper_cycle_classes
-            }
-            final_dataset = cycle_dataset
-            if next_cycle_members == current_cycle_members:
-                break
-            current_cycle_members = next_cycle_members
-
-        final_augmented_data_graph = _add_type_assignments(data_graph, current_cycle_members)
-        dataset = build_reasoning_dataset_from_graphs(
+    if initial_dataset is None:
+        initial_dataset = build_reasoning_dataset_from_graphs(
             schema_graph=schema_graph,
-            data_graph=final_augmented_data_graph,
+            data_graph=data_graph,
             include_literals=include_literals,
             include_type_edges=include_type_edges,
             materialize_hierarchy=materialize_hierarchy,
@@ -2213,6 +2169,7 @@ def _evaluate_query_snapshot(
             materialize_haskey_equality=materialize_haskey_equality,
             materialize_reflexive_properties=materialize_reflexive_properties,
             materialize_target_roles=materialize_target_roles,
+            native_sameas_canonicalization=native_sameas_canonicalization,
             target_classes=target_classes,
         )
         (
@@ -2232,7 +2189,7 @@ def _evaluate_query_snapshot(
             negative_helper_ms,
             literal_feature_ms,
             adjacency_ms,
-        ) = _extract_dataset_timing_breakdown(dataset)
+        ) = _extract_dataset_timing_breakdown(initial_dataset)
         dataset_build_elapsed_ms += build_ms
         hierarchy_elapsed_ms += hierarchy_ms
         atomic_domain_range_elapsed_ms += atomic_ms
@@ -2249,6 +2206,94 @@ def _evaluate_query_snapshot(
         kgraph_negative_helper_elapsed_ms += negative_helper_ms
         kgraph_literal_feature_elapsed_ms += literal_feature_ms
         kgraph_adjacency_elapsed_ms += adjacency_ms
+    compile_context = build_ontology_compile_context(
+        schema_graph,
+        schema_graph=schema_graph,
+        sameas_source_graph=schema_graph,
+    )
+    dependency_analysis = compile_context.dependency_analysis
+
+    helper_cycle_classes: Set[URIRef] = set()
+    for target_term in target_classes:
+        referenced_classes = collect_referenced_named_classes_for_class(
+            schema_graph,
+            target_term,
+            dependency_analysis=dependency_analysis,
+        )
+        for referenced_class in referenced_classes:
+            component = get_named_class_dependency_cycle_component(
+                schema_graph,
+                referenced_class,
+                dependency_analysis=dependency_analysis,
+            )
+            if component:
+                helper_cycle_classes.update(component)
+
+    monotone_cycle_classes: Set[URIRef] = set()
+    if helper_cycle_classes:
+        eval_targets = sorted(helper_cycle_classes, key=str)
+        members_by_target, _scores_by_target, dags_by_target, compile_ms, eval_ms = _compile_and_evaluate_query_dataset(
+            dataset=initial_dataset,
+            target_classes=eval_targets,
+            device=device,
+            threshold=threshold,
+            augment_property_domain_range=augment_property_domain_range,
+            dependency_analysis=dependency_analysis,
+            compile_context=compile_context,
+            compile_graph=schema_graph,
+            collect_scores=False,
+        )
+        dag_compile_elapsed_ms += compile_ms
+        dag_eval_elapsed_ms += eval_ms
+        for class_term, dag in dags_by_target.items():
+            if _dag_is_positive_monotone(dag):
+                monotone_cycle_classes.add(class_term)
+        helper_cycle_classes = {
+            class_term
+            for class_term in helper_cycle_classes
+            if class_term in monotone_cycle_classes
+        }
+    if helper_cycle_classes:
+        current_cycle_members: Dict[URIRef, Set[Identifier]] = {
+            class_term: set(initial_dataset.mapping.node_terms)
+            for class_term in helper_cycle_classes
+        }
+        final_dataset = initial_dataset
+        max_iterations = 25
+        for _iteration in range(max_iterations):
+            cycle_dataset = _dataset_with_updated_native_types(
+                initial_dataset,
+                _members_to_type_assertions(current_cycle_members),
+            )
+
+            cycle_targets = sorted(helper_cycle_classes, key=str)
+            members_by_target, _scores_by_target, _dags_by_target, compile_ms, eval_ms = _compile_and_evaluate_query_dataset(
+                dataset=cycle_dataset,
+                target_classes=cycle_targets,
+                device=device,
+                threshold=threshold,
+                augment_property_domain_range=augment_property_domain_range,
+                dependency_analysis=dependency_analysis,
+                compile_context=compile_context,
+                compile_graph=schema_graph,
+                collect_scores=False,
+            )
+            dag_compile_elapsed_ms += compile_ms
+            dag_eval_elapsed_ms += eval_ms
+
+            next_cycle_members = {
+                class_term: set(members_by_target.get(class_term, set()))
+                for class_term in helper_cycle_classes
+            }
+            final_dataset = cycle_dataset
+            if next_cycle_members == current_cycle_members:
+                break
+            current_cycle_members = next_cycle_members
+
+        dataset = _dataset_with_updated_native_types(
+            initial_dataset,
+            _members_to_type_assertions(current_cycle_members),
+        )
     else:
         dataset = initial_dataset
 
@@ -2260,6 +2305,8 @@ def _evaluate_query_snapshot(
         augment_property_domain_range=augment_property_domain_range,
         dependency_analysis=dependency_analysis,
         compile_context=compile_context,
+        compile_graph=schema_graph,
+        collect_scores=False,
     )
     dag_compile_elapsed_ms += compile_ms
     dag_eval_elapsed_ms += eval_ms
@@ -2299,7 +2346,11 @@ def _evaluate_query_snapshot(
     return QueryEvaluationSnapshot(
         dataset=dataset,
         members_by_target=members_by_target,
-        scores_by_target=scores_by_target,
+        scores_by_target=_build_binary_scores(
+            dataset.mapping.node_terms,
+            target_classes,
+            members_by_target,
+        ),
         dataset_build_elapsed_ms=dataset_build_elapsed_ms,
         hierarchy_elapsed_ms=hierarchy_elapsed_ms,
         atomic_domain_range_elapsed_ms=atomic_domain_range_elapsed_ms,
@@ -2415,6 +2466,7 @@ def run_engine_queries(
     stratified_iteration_timings: Optional[List[MaterializationIterationTiming]] = None
     stratified_final_dataset_timing: Optional[PreprocessingTimings] = None
     query_input_data_graph = data_graph
+    query_input_dataset: Optional[ReasoningDataset] = None
 
     if engine_mode in {"admissibility", "filtered_admissibility"}:
         if engine_profiler is not None:
@@ -2512,9 +2564,11 @@ def run_engine_queries(
                     "seed admissibility input",
                     category="host_runtime",
                 ):
-                    query_input_data_graph = _add_type_assignments(data_graph, seed_members_by_target)
+                    query_input_dataset = positive_result.dataset
             else:
-                query_input_data_graph = _add_type_assignments(data_graph, seed_members_by_target)
+                query_input_dataset = positive_result.dataset
+        else:
+            query_input_dataset = positive_result.dataset
 
     if engine_mode == "stratified":
         if engine_profiler is not None:
@@ -2620,6 +2674,7 @@ def run_engine_queries(
                     materialize_target_roles=materialize_target_roles,
                     augment_property_domain_range=augment_property_domain_range,
                     native_sameas_canonicalization=native_sameas_canonicalization,
+                    initial_dataset=query_input_dataset,
                 )
                 if raw_snapshot.profile_tree is not None:
                     raw_node.children = [
@@ -2643,6 +2698,7 @@ def run_engine_queries(
                 materialize_target_roles=materialize_target_roles,
                 augment_property_domain_range=augment_property_domain_range,
                 native_sameas_canonicalization=native_sameas_canonicalization,
+                initial_dataset=query_input_dataset,
             )
         raw_members_by_target = _clone_members_by_target(raw_snapshot.members_by_target)
         current_members_by_target = _clone_members_by_target(raw_members_by_target)
@@ -2686,10 +2742,17 @@ def run_engine_queries(
                         category="host_runtime",
                         iteration=necessary_fixpoint_iterations,
                     ) as iteration_node:
-                        augmented_data_graph = _add_type_assignments(query_input_data_graph, current_members_by_target)
+                        augmented_dataset = (
+                            _dataset_with_updated_native_types(
+                                query_input_dataset,
+                                _members_to_type_assertions(current_members_by_target),
+                            )
+                            if query_input_dataset is not None
+                            else None
+                        )
                         stable_snapshot = _evaluate_query_snapshot(
                             schema_graph=schema_graph,
-                            data_graph=augmented_data_graph,
+                            data_graph=query_input_data_graph,
                             target_classes=target_classes,
                             device=device_to_use,
                             threshold=threshold,
@@ -2703,6 +2766,7 @@ def run_engine_queries(
                             materialize_target_roles=materialize_target_roles,
                             augment_property_domain_range=augment_property_domain_range,
                             native_sameas_canonicalization=native_sameas_canonicalization,
+                            initial_dataset=augmented_dataset,
                         )
                         if stable_snapshot.profile_tree is not None:
                             iteration_node.children = [
@@ -2733,26 +2797,29 @@ def run_engine_queries(
                         preprocessing_plan_elapsed_ms += stable_snapshot.dataset.preprocessing_timings.preprocessing_plan_elapsed_ms
                         sameas_passes_elapsed_ms.extend(stable_snapshot.dataset.preprocessing_timings.sameas_passes_elapsed_ms)
 
-                    next_members_by_target: Dict[URIRef, Set[Identifier]] = {}
-                    for target_term in target_classes:
-                        previous_members = current_members_by_target.get(target_term, set())
-                        scores = stable_snapshot.scores_by_target.get(target_term, {})
-                        next_members_by_target[target_term] = {
-                            node_term
-                            for node_term in previous_members
-                            if scores.get(node_term, 0.0) >= threshold
-                        }
-                    if next_members_by_target == current_members_by_target:
+                    next_members_by_target, changed = _intersect_members_by_target_in_order(
+                        current_members_by_target,
+                        stable_snapshot.members_by_target,
+                        target_classes,
+                    )
+                    if not changed:
                         current_members_by_target = next_members_by_target
                         break
                     current_members_by_target = next_members_by_target
         else:
             while True:
                 necessary_fixpoint_iterations += 1
-                augmented_data_graph = _add_type_assignments(query_input_data_graph, current_members_by_target)
+                augmented_dataset = (
+                    _dataset_with_updated_native_types(
+                        query_input_dataset,
+                        _members_to_type_assertions(current_members_by_target),
+                    )
+                    if query_input_dataset is not None
+                    else None
+                )
                 stable_snapshot = _evaluate_query_snapshot(
                     schema_graph=schema_graph,
-                    data_graph=augmented_data_graph,
+                    data_graph=query_input_data_graph,
                     target_classes=target_classes,
                     device=device_to_use,
                     threshold=threshold,
@@ -2766,6 +2833,7 @@ def run_engine_queries(
                     materialize_target_roles=materialize_target_roles,
                     augment_property_domain_range=augment_property_domain_range,
                     native_sameas_canonicalization=native_sameas_canonicalization,
+                    initial_dataset=augmented_dataset,
                 )
                 dataset_build_elapsed_ms += stable_snapshot.dataset_build_elapsed_ms
                 hierarchy_elapsed_ms += stable_snapshot.hierarchy_elapsed_ms
@@ -2791,30 +2859,51 @@ def run_engine_queries(
                     preprocessing_plan_elapsed_ms += stable_snapshot.dataset.preprocessing_timings.preprocessing_plan_elapsed_ms
                     sameas_passes_elapsed_ms.extend(stable_snapshot.dataset.preprocessing_timings.sameas_passes_elapsed_ms)
 
-                next_members_by_target: Dict[URIRef, Set[Identifier]] = {}
-                for target_term in target_classes:
-                    previous_members = current_members_by_target.get(target_term, set())
-                    scores = stable_snapshot.scores_by_target.get(target_term, {})
-                    next_members_by_target[target_term] = {
-                        node_term
-                        for node_term in previous_members
-                        if scores.get(node_term, 0.0) >= threshold
-                    }
-                if next_members_by_target == current_members_by_target:
+                next_members_by_target, changed = _intersect_members_by_target_in_order(
+                    current_members_by_target,
+                    stable_snapshot.members_by_target,
+                    target_classes,
+                )
+                if not changed:
                     current_members_by_target = next_members_by_target
                     break
                 current_members_by_target = next_members_by_target
 
         necessary_stable_members_by_target = _clone_members_by_target(current_members_by_target)
+        filtered_input_dataset = query_input_dataset
         if engine_profiler is not None:
             with engine_profiler.scoped(
                 "seed_closure_verification_input",
                 "seed closure verification input",
                 category="host_runtime",
             ):
-                filtered_data_graph = _add_type_assignments(query_input_data_graph, necessary_stable_members_by_target)
+                filtered_input_dataset = (
+                    _dataset_with_updated_native_types(
+                        query_input_dataset,
+                        _members_to_type_assertions(necessary_stable_members_by_target),
+                    )
+                    if query_input_dataset is not None
+                    else None
+                )
+                filtered_data_graph = (
+                    query_input_data_graph
+                    if filtered_input_dataset is not None
+                    else _add_type_assignments(query_input_data_graph, necessary_stable_members_by_target)
+                )
         else:
-            filtered_data_graph = _add_type_assignments(query_input_data_graph, necessary_stable_members_by_target)
+            filtered_input_dataset = (
+                _dataset_with_updated_native_types(
+                    query_input_dataset,
+                    _members_to_type_assertions(necessary_stable_members_by_target),
+                )
+                if query_input_dataset is not None
+                else None
+            )
+            filtered_data_graph = (
+                query_input_data_graph
+                if filtered_input_dataset is not None
+                else _add_type_assignments(query_input_data_graph, necessary_stable_members_by_target)
+            )
         if engine_profiler is not None:
             with engine_profiler.scoped(
                 "closure_verification",
@@ -2824,6 +2913,7 @@ def run_engine_queries(
                 stratified_result = materialize_stratified_class_inferences(
                     schema_graph=schema_graph,
                     data_graph=filtered_data_graph,
+                    initial_dataset=filtered_input_dataset,
                     include_literals=include_literals,
                     include_type_edges=include_type_edges,
                     materialize_hierarchy=(True if materialize_hierarchy is None else materialize_hierarchy),
@@ -2849,6 +2939,7 @@ def run_engine_queries(
             stratified_result = materialize_stratified_class_inferences(
                 schema_graph=schema_graph,
                 data_graph=filtered_data_graph,
+                initial_dataset=filtered_input_dataset,
                 include_literals=include_literals,
                 include_type_edges=include_type_edges,
                 materialize_hierarchy=(True if materialize_hierarchy is None else materialize_hierarchy),
@@ -3001,6 +3092,7 @@ def run_engine_queries(
                     materialize_target_roles=materialize_target_roles,
                     augment_property_domain_range=augment_property_domain_range,
                     native_sameas_canonicalization=native_sameas_canonicalization,
+                    initial_dataset=query_input_dataset,
                 )
                 if snapshot.profile_tree is not None:
                     admissibility_node.children = [
@@ -3024,6 +3116,7 @@ def run_engine_queries(
                 materialize_target_roles=materialize_target_roles,
                 augment_property_domain_range=augment_property_domain_range,
                 native_sameas_canonicalization=native_sameas_canonicalization,
+                initial_dataset=query_input_dataset,
             )
         dataset = snapshot.dataset
         members_by_target = snapshot.members_by_target
@@ -3189,11 +3282,34 @@ def run_engine_queries(
                 if target_term in target_classes
             }
 
-    members_by_target, scores_by_target = _expand_sameas_results_for_reporting(
-        dataset,
-        members_by_target,
-        scores_by_target,
-    )
+    if engine_mode == "admissibility":
+        if engine_profiler is not None:
+            with engine_profiler.scoped(
+                "result_projection",
+                "result projection",
+                category="host_runtime",
+            ):
+                projection_t0 = perf_counter()
+                members_by_target, scores_by_target = _expand_sameas_results_for_reporting(
+                    dataset,
+                    members_by_target,
+                    scores_by_target,
+                )
+                result_projection_elapsed_ms += (perf_counter() - projection_t0) * 1000.0
+        else:
+            projection_t0 = perf_counter()
+            members_by_target, scores_by_target = _expand_sameas_results_for_reporting(
+                dataset,
+                members_by_target,
+                scores_by_target,
+            )
+            result_projection_elapsed_ms += (perf_counter() - projection_t0) * 1000.0
+    else:
+        members_by_target, scores_by_target = _expand_sameas_results_for_reporting(
+            dataset,
+            members_by_target,
+            scores_by_target,
+        )
 
     elapsed_ms = (perf_counter() - t0) * 1000.0
     process_memory_end_bytes, process_memory_peak_bytes = _get_process_memory_snapshot()
@@ -3598,6 +3714,7 @@ def run_elk_queries(
     java_command: str = "java",
     javac_command: str = "javac",
     java_options: Optional[Sequence[str]] = None,
+    timeout_seconds: Optional[float] = None,
 ) -> BackendQueryResult:
     classpath = _resolve_elk_classpath(
         elk_classpath=elk_classpath,
@@ -3667,9 +3784,11 @@ def run_elk_queries(
             check=True,
             capture_output=True,
             text=True,
+            timeout=timeout_seconds,
         )
 
         elapsed_ms = 0.0
+        setup_elapsed_ms = 0.0
         preprocess_elapsed_ms = 0.0
         postprocess_elapsed_ms = 0.0
         members_by_target: Dict[URIRef, Set[Identifier]] = {
@@ -3682,6 +3801,8 @@ def run_elk_queries(
             parts = line.split("\t")
             if parts[0] == "ELAPSED_MS" and len(parts) == 2:
                 elapsed_ms = float(parts[1])
+            elif parts[0] == "SETUP_MS" and len(parts) == 2:
+                setup_elapsed_ms = float(parts[1])
             elif parts[0] == "PREPROCESS_MS" and len(parts) == 2:
                 preprocess_elapsed_ms = float(parts[1])
             elif parts[0] == "POSTPROCESS_MS" and len(parts) == 2:
@@ -3695,6 +3816,7 @@ def run_elk_queries(
             backend="elk",
             elapsed_ms=elapsed_ms,
             members_by_target=members_by_target,
+            setup_elapsed_ms=setup_elapsed_ms,
             preprocess_elapsed_ms=preprocess_elapsed_ms,
             postprocess_elapsed_ms=postprocess_elapsed_ms,
             consistent=True,
@@ -3707,6 +3829,14 @@ def run_elk_queries(
             members_by_target={target: set() for target in query_class_by_target},
             status="error",
             error=error_text,
+        )
+    except subprocess.TimeoutExpired:
+        return BackendQueryResult(
+            backend="elk",
+            elapsed_ms=0.0,
+            members_by_target={target: set() for target in query_class_by_target},
+            status="timeout",
+            error=f"Timed out after {timeout_seconds} seconds.",
         )
     except Exception as exc:
         return BackendQueryResult(
@@ -3769,6 +3899,7 @@ def run_owlapi_reasoner_queries(
     java_command: str = "java",
     javac_command: str = "javac",
     java_options: Optional[Sequence[str]] = None,
+    timeout_seconds: Optional[float] = None,
 ) -> BackendQueryResult:
     classpath = _resolve_elk_classpath(
         elk_classpath=None,
@@ -3835,9 +3966,13 @@ def run_owlapi_reasoner_queries(
             check=True,
             capture_output=True,
             text=True,
+            timeout=timeout_seconds,
         )
 
         elapsed_ms = 0.0
+        setup_elapsed_ms = 0.0
+        preprocess_elapsed_ms = 0.0
+        postprocess_elapsed_ms = 0.0
         members_by_target: Dict[URIRef, Set[Identifier]] = {
             target: set() for target in query_class_by_target
         }
@@ -3848,6 +3983,8 @@ def run_owlapi_reasoner_queries(
             parts = line.split("\t")
             if parts[0] == "ELAPSED_MS" and len(parts) == 2:
                 elapsed_ms = float(parts[1])
+            elif parts[0] == "SETUP_MS" and len(parts) == 2:
+                setup_elapsed_ms = float(parts[1])
             elif parts[0] == "PREPROCESS_MS" and len(parts) == 2:
                 preprocess_elapsed_ms = float(parts[1])
             elif parts[0] == "POSTPROCESS_MS" and len(parts) == 2:
@@ -3856,11 +3993,14 @@ def run_owlapi_reasoner_queries(
                 target_term = URIRef(parts[1])
                 member_term = URIRef(parts[2])
                 members_by_target.setdefault(target_term, set()).add(member_term)
+        if setup_elapsed_ms or preprocess_elapsed_ms or postprocess_elapsed_ms:
+            elapsed_ms = max(elapsed_ms, setup_elapsed_ms + preprocess_elapsed_ms + postprocess_elapsed_ms)
 
         return BackendQueryResult(
             backend=backend_name,
             elapsed_ms=elapsed_ms,
             members_by_target=members_by_target,
+            setup_elapsed_ms=setup_elapsed_ms,
             preprocess_elapsed_ms=preprocess_elapsed_ms,
             postprocess_elapsed_ms=postprocess_elapsed_ms,
             status="ok",
@@ -3874,6 +4014,14 @@ def run_owlapi_reasoner_queries(
             members_by_target={target: set() for target in query_class_by_target},
             status="error",
             error=error_text,
+        )
+    except subprocess.TimeoutExpired:
+        return BackendQueryResult(
+            backend=backend_name,
+            elapsed_ms=0.0,
+            members_by_target={target: set() for target in query_class_by_target},
+            status="timeout",
+            error=f"Timed out after {timeout_seconds} seconds.",
         )
     except Exception as exc:
         return BackendQueryResult(
@@ -3935,11 +4083,12 @@ def print_comparison_report(
         elif backend.consistent is False:
             status += ", inconsistent"
         print(f"{backend.backend} time: {_format_elapsed_seconds(backend.elapsed_ms)} ({status})")
-        if backend.preprocess_elapsed_ms or backend.postprocess_elapsed_ms:
+        if backend.setup_elapsed_ms or backend.preprocess_elapsed_ms or backend.postprocess_elapsed_ms:
             print(
                 "  timing: "
-                f"preprocess={_format_elapsed_seconds(backend.preprocess_elapsed_ms)}, "
-                f"postprocess={_format_elapsed_seconds(backend.postprocess_elapsed_ms)}"
+                f"setup={_format_elapsed_seconds(backend.setup_elapsed_ms)}, "
+                f"reasoning={_format_elapsed_seconds(backend.preprocess_elapsed_ms)}, "
+                f"retrieval={_format_elapsed_seconds(backend.postprocess_elapsed_ms)}"
             )
         if backend.error:
             print(f"  error: {backend.error}")

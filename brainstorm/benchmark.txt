@@ -1,0 +1,61 @@
+Okay, perfect!
+
+I'd like to start gathering benchmarking data more seriously for my paper.
+
+Can you help me build a benchmarking harness for this? We can reuse the existing oracle compare code, but we do have to be sure to avoid the overhead of repeatedly loading the same data, repeated preflight checks, and oracle comparisons (At this stage I'm fairly confident in the correctness of our profiles). It takes about an hour to load my largest dataset -- so I'm hoping to just leave this running for a long time, and to be able to run multiple profiles across devices multiple times, taking averages of the result.
+
+What I'd like to do: 
+
+Given:
+- a schema 
+- a list of datasets 
+- an integer 'k' 
+- a list of reasoners to benchmark against
+- a timeout parameter in seconds
+- optional index 'i'
+
+Do the following:
+- For each dataset:
+  - Load the data into rdflib
+  - for each of: [gpu-el-lite,gpu-el,gpu-el-full]:
+    - for each of: [cpu,cuda]:
+      - for each of: [stratified, admissibility, filtered-admissibility]
+        - evaluate the engine k times for all-defined-classes, collecting relevant profiling data (see below)
+          - we'll record the input parameters and normal timing data output in a log file instead of stdout
+          - if any of the evaluations exceed the timeout: record TIMEOUT instead
+        - report averages for this config as a row added to a csv (see below)
+  - for each reasoner:
+    - run it k times, collecting profiling data and averaging the results (see below)
+      - we'll record the input parameters and normal timing data output in a log file instead of stdout
+      - if any of the reasoner times exceed the timeout: record TIMEOUT instead
+    - report out averages as a row added to a csv
+        
+Important notes:
+- The very large datasets can take nearly an hour to load with rdflib -- so we definitely don't want to load a dataset more than once
+- If either the engine or a reasoner exceeds 5 minutes: we'll kill it and won't repeat it. We'll report an error code in the CSV instead of averaged data for that reasoner/engine confiuration (i.e. if any runs take longer than 5 minutes: we'll ignore all of them)
+- If either the engine or a reasoner runs into an error (e.g. out of memory): we'll catch it, record an error code in the CSV (again for all averaged data for that ), and move on
+- When adding the row to the CSV: it should check if the CSV exists on disk. If it doesn't exist yet, it'll create it -- and if it DOES exist, it'll add the row immediately. Keep in mind that this should be robust against cases where the benchmarking process gets interrupted -- i.e. that shouldn't cause all data that's been added so far to be lost!
+- On that note: when starting, calculate the total number of rows that will be written (i.e. the number of (configs + reasoners) * (number of datasets) ). We'll call each row a run, even though technically they are k individual passes averaged. Assign each of these runs an index, and report out to the terminal when that completes (along with the denominator, i.e. 4/128 or whatever ). As an optional parameter, we can provide that index 'i' to start from that point -- something we could use if the benchmark got interrupted.
+- I'd also like the terminal to report when a dataset has started being loaded, and when it finishes. Other useful information: the time that it's been running so far whenever it prints a line, plus what configuration of run was just completed. However: we'll avoid printing more than one line per run to the terminal, since there will be lots of runs. 
+
+Data that should be recorded per run (ie in each CSV row):
+  - Identifier for this pass of the benchmark program (for grouping all batches) -- timestamp of when the run was begun + parameters
+  - Index of the run within the benchmark program
+  - Dataset name
+  - Number of target classes in the TBox for this dataset
+  - Some basic information about the dataset: counts for TBox classes, properties, ABox individuals, triples
+  - Name of the reasoner or engine profile 
+  - device: always cpu for reasoners, but could be cuda for engine
+  - Data that can be compared between reasoners and engine:
+    - setup: this is the headline "setup" time for reasoners, and "graph lowering" for engine 
+    - reasoning: this is headline "reasoning" for reasoners, and "identity normalization" + "engine preprocessing" + "engine iterations" for engine
+    - retrieval: this is headline "retrieval" for reasoners, and "engine post-processing / reporting" for engine
+    - Total number of type inferences made (number of new types added relative to the original data)
+  - Enginge-specifics stats:
+    - each of the headline stage summaries
+    - iterations
+    - memory usage
+    - DAG stats
+    - and finally: the more specific timing groups we are collecting (aggregated if repeated, e.g. the total for dag_eval)
+    
+Does this seem doable?

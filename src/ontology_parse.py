@@ -9028,6 +9028,7 @@ def materialize_positive_sufficient_class_inferences(
     *,
     schema_graph: Graph,
     data_graph: Graph,
+    initial_dataset: Optional[ReasoningDataset] = None,
     include_literals: bool = True,
     include_type_edges: bool = False,
     materialize_hierarchy: bool = True,
@@ -9182,7 +9183,7 @@ def materialize_positive_sufficient_class_inferences(
     native_fast_sim_class: Optional[torch.Tensor] = None
     use_incremental_rebuild = False
     previous_incremental_dataset: Optional[ReasoningDataset] = None
-    seeded_dataset: Optional[ReasoningDataset] = None
+    seeded_dataset: Optional[ReasoningDataset] = initial_dataset
     pending_type_assertions: Optional[List[Tuple[Identifier, URIRef]]] = None
     final_dataset: Optional[ReasoningDataset] = None
     terminated_early = False
@@ -10198,6 +10199,7 @@ def materialize_stratified_class_inferences(
     *,
     schema_graph: Graph,
     data_graph: Graph,
+    initial_dataset: Optional[ReasoningDataset] = None,
     include_literals: bool = True,
     include_type_edges: bool = False,
     materialize_hierarchy: bool = True,
@@ -10226,6 +10228,7 @@ def materialize_stratified_class_inferences(
     positive_result = materialize_positive_sufficient_class_inferences(
         schema_graph=schema_graph,
         data_graph=data_graph,
+        initial_dataset=initial_dataset,
         include_literals=include_literals,
         include_type_edges=include_type_edges,
         materialize_hierarchy=materialize_hierarchy,

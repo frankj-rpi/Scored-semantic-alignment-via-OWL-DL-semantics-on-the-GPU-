@@ -86,10 +86,12 @@ public final class OwlapiOracleRunner {
             }
         }
 
+        long setupStartNanos = System.nanoTime();
         OWLOntologyManager manager = OWLManager.createOWLOntologyManager();
         OWLOntology ontology = manager.loadOntologyFromOntologyDocument(new File(ontologyPath.toString()));
         OWLReasonerFactory factory = createFactory(reasonerName);
         OWLReasoner reasoner = factory.createReasoner(ontology);
+        long setupElapsedMillis = Math.round((System.nanoTime() - setupStartNanos) / 1_000_000.0);
 
         long startNanos = System.nanoTime();
         reasoner.precomputeInferences(InferenceType.CLASS_HIERARCHY, InferenceType.CLASS_ASSERTIONS);
@@ -109,7 +111,8 @@ public final class OwlapiOracleRunner {
         }
         long queryElapsedMillis = Math.round((System.nanoTime() - queryStartNanos) / 1_000_000.0);
 
-        System.out.println("ELAPSED_MS\t" + precomputeElapsedMillis);
+        System.out.println("ELAPSED_MS\t" + (setupElapsedMillis + precomputeElapsedMillis + queryElapsedMillis));
+        System.out.println("SETUP_MS\t" + setupElapsedMillis);
         System.out.println("PREPROCESS_MS\t" + precomputeElapsedMillis);
         System.out.println("POSTPROCESS_MS\t" + queryElapsedMillis);
 
