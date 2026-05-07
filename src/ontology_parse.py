@@ -5894,7 +5894,7 @@ def build_reasoning_dataset_from_graphs(
     ontology_graph = aggregate_rdflib_graphs((schema_graph, effective_data_graph))
 
     kg_source = effective_data_graph if len(effective_data_graph) > 0 else ontology_graph
-    t0 = perf_counter()
+    kgraph_build_t0 = perf_counter()
     native_abox = rdflib_graph_to_native_abox(
         kg_source,
         vocab_graph=ontology_graph,
@@ -5908,6 +5908,7 @@ def build_reasoning_dataset_from_graphs(
         schema_datatype_terms=cache.schema_datatype_terms,
         scan_cache=graph_build_scan_cache,
     )
+    kgraph_build_elapsed_ms = (perf_counter() - kgraph_build_t0) * 1000.0
     sameas_canonical_map: Dict[Identifier, Identifier] = {}
     sameas_members_by_canonical: Dict[Identifier, Tuple[Identifier, ...]] = {}
     if (
@@ -5933,6 +5934,7 @@ def build_reasoning_dataset_from_graphs(
         sameas_elapsed_ms = (perf_counter() - t0) * 1000.0
         preprocessing_timings.sameas_elapsed_ms += sameas_elapsed_ms
         preprocessing_timings.sameas_passes_elapsed_ms.append(sameas_elapsed_ms)
+    kgraph_build_t0 = perf_counter()
     kg = native_abox_to_kgraph(
         native_abox,
         reflexive_props=reflexive_props,
@@ -5940,7 +5942,8 @@ def build_reasoning_dataset_from_graphs(
         preprocessing_timings=preprocessing_timings,
     )
     mapping = native_abox.mapping
-    preprocessing_timings.kgraph_build_elapsed_ms = (perf_counter() - t0) * 1000.0
+    kgraph_build_elapsed_ms += (perf_counter() - kgraph_build_t0) * 1000.0
+    preprocessing_timings.kgraph_build_elapsed_ms = kgraph_build_elapsed_ms
 
     return ReasoningDataset(
         schema_graph=schema_graph,
@@ -8182,6 +8185,8 @@ def compile_class_to_dag(
     *,
     intersection_agg: IntersectionAgg = IntersectionAgg.MIN,
     cardinality_agg: CardinalityAgg = CardinalityAgg.STRICT,
+    fuzzy_disjointness: bool = False,
+    flatten_intersections: bool = False,
     augment_property_domain_range: bool = False,
     dependency_analysis: Optional[NamedClassDependencyAnalysis] = None,
     compile_context: Optional[OntologyCompileContext] = None,
@@ -8257,6 +8262,37 @@ def compile_class_to_dag(
         node = ConstraintNode(idx=idx, **kwargs)
         nodes.append(node)
         return idx
+
+    def new_intersection(
+        child_indices: Sequence[int],
+        *,
+        agg: Optional[IntersectionAgg] = None,
+    ) -> int:
+        deduped_children = list(dict.fromkeys(child_indices))
+        effective_agg = intersection_agg if agg is None else agg
+        if flatten_intersections:
+            flattened_children: List[int] = []
+            for child_idx in deduped_children:
+                child_node = nodes[child_idx]
+                if (
+                    child_node.ctype == ConstraintType.INTERSECTION
+                    and (child_node.intersection_agg or IntersectionAgg.MIN) == effective_agg
+                    and child_node.child_indices
+                ):
+                    flattened_children.extend(child_node.child_indices)
+                else:
+                    flattened_children.append(child_idx)
+            deduped_children = list(dict.fromkeys(flattened_children))
+
+        if not deduped_children:
+            return top_node()
+        if len(deduped_children) == 1:
+            return deduped_children[0]
+        return new_node(
+            ctype=ConstraintType.INTERSECTION,
+            child_indices=deduped_children,
+            intersection_agg=effective_agg,
+        )
 
     top_idx: Optional[int] = None
 
@@ -8382,11 +8418,13 @@ def compile_class_to_dag(
         if len(deduped_branches) == 1:
             idx = deduped_branches[0]
         else:
-            idx = new_node(
-                ctype=ConstraintType.INTERSECTION if universal else ConstraintType.UNION,
-                child_indices=deduped_branches,
-                intersection_agg=intersection_agg if universal else None,
-            )
+            if universal:
+                idx = new_intersection(deduped_branches)
+            else:
+                idx = new_node(
+                    ctype=ConstraintType.UNION,
+                    child_indices=deduped_branches,
+                )
         restriction_memo[key] = idx
         return idx
 
@@ -8435,10 +8473,36 @@ def compile_class_to_dag(
 
         if len(branch_indices) == 1:
             return branch_indices[0]
-        return new_node(
-            ctype=ConstraintType.INTERSECTION,
-            child_indices=branch_indices,
-            intersection_agg=intersection_agg,
+        return new_intersection(branch_indices)
+
+    def compile_disjointness_requirement(other_expr: Identifier) -> int:
+        other_idx = compile_expr(other_expr)
+        if not fuzzy_disjointness:
+            return new_node(
+                ctype=ConstraintType.NEGATION,
+                child_indices=[other_idx],
+            )
+
+        target_atomic_idx = compile_expr(target_term)
+        not_other_idx = new_node(
+            ctype=ConstraintType.NEGATION,
+            child_indices=[other_idx],
+        )
+        not_target_idx = new_node(
+            ctype=ConstraintType.NEGATION,
+            child_indices=[target_atomic_idx],
+        )
+        left_union_idx = new_node(
+            ctype=ConstraintType.UNION,
+            child_indices=[target_atomic_idx, not_other_idx],
+        )
+        right_union_idx = new_node(
+            ctype=ConstraintType.UNION,
+            child_indices=[other_idx, not_target_idx],
+        )
+        return new_intersection(
+            [left_union_idx, right_union_idx],
+            agg=IntersectionAgg.MEAN,
         )
 
     def compile_expr(expr: Identifier) -> int:
@@ -8531,11 +8595,7 @@ def compile_class_to_dag(
                         memo[expr] = members[0]
                         return members[0]
                     raise ValueError(f"intersectionOf for {expr.n3()} had no members.")
-                idx = new_node(
-                    ctype=ConstraintType.INTERSECTION,
-                    child_indices=members,
-                    intersection_agg=intersection_agg,
-                )
+                idx = new_intersection(members)
                 memo[expr] = idx
                 return idx
 
@@ -8648,7 +8708,11 @@ def compile_class_to_dag(
                         prop_idx=mapping.prop_to_idx[prop],
                         prop_direction=prop_direction,
                         cardinality_target=target,
-                        cardinality_agg=cardinality_agg,
+                        cardinality_agg=(
+                            cardinality_agg
+                            if ctype == ConstraintType.MIN_CARDINALITY_RESTRICTION
+                            else CardinalityAgg.STRICT
+                        ),
                         child_indices=None,
                     )
                 else:
@@ -8674,7 +8738,11 @@ def compile_class_to_dag(
                         prop_idx=mapping.prop_to_idx[prop],
                         prop_direction=prop_direction,
                         cardinality_target=target,
-                        cardinality_agg=cardinality_agg,
+                        cardinality_agg=(
+                            cardinality_agg
+                            if ctype == ConstraintType.MIN_CARDINALITY_RESTRICTION
+                            else CardinalityAgg.STRICT
+                        ),
                         child_indices=[child_idx],
                     )
                 memo[expr] = idx
@@ -8726,22 +8794,12 @@ def compile_class_to_dag(
         for expr in ontology_graph.objects(member, OWL.disjointWith):
             if canonical_class_map.get(expr, expr) == target_canonical:
                 continue
-            root_children.append(
-                new_node(
-                    ctype=ConstraintType.NEGATION,
-                    child_indices=[compile_expr(expr)],
-                )
-            )
+            root_children.append(compile_disjointness_requirement(expr))
 
         for expr in ontology_graph.subjects(OWL.disjointWith, member):
             if canonical_class_map.get(expr, expr) == target_canonical:
                 continue
-            root_children.append(
-                new_node(
-                    ctype=ConstraintType.NEGATION,
-                    child_indices=[compile_expr(expr)],
-                )
-            )
+            root_children.append(compile_disjointness_requirement(expr))
 
         for expr in ontology_graph.objects(member, OWL.intersectionOf):
             for member_expr in _rdf_list_members(ontology_graph, expr):
@@ -8755,11 +8813,7 @@ def compile_class_to_dag(
     elif len(root_children) == 1:
         base_idx = root_children[0]
     else:
-        base_idx = new_node(
-            ctype=ConstraintType.INTERSECTION,
-            child_indices=root_children,
-            intersection_agg=intersection_agg,
-        )
+        base_idx = new_intersection(root_children)
 
     if not augment_property_domain_range:
         root_idx = base_idx

@@ -23,7 +23,7 @@ from rdflib.collection import Collection
 from rdflib.namespace import OWL, RDF, RDFS
 from rdflib.term import Identifier
 
-from .constraints import ConstraintDAG, ConstraintType
+from .constraints import CardinalityAgg, ConstraintDAG, ConstraintType, IntersectionAgg
 from .dag_reasoner import DAGReasoner
 from .ontology_parse import (
     MaterializationIterationTiming,
@@ -254,8 +254,21 @@ ENGINE_MODE_ALIASES = {
     "filtered-query": "filtered_admissibility",
     "filtered_admissibility": "filtered_admissibility",
     "filtered-admissibility": "filtered_admissibility",
+    "scored_semantic_alignment": "scored_semantic_alignment",
+    "scored-semantic-alignment": "scored_semantic_alignment",
     "stratified": "stratified",
 }
+
+
+def _query_mode_compilation_kwargs(engine_mode: str) -> dict:
+    if engine_mode == "scored_semantic_alignment":
+        return {
+            "intersection_agg": IntersectionAgg.MEAN,
+            "cardinality_agg": CardinalityAgg.FUZZY,
+            "fuzzy_disjointness": True,
+            "flatten_intersections": True,
+        }
+    return {}
 
 
 def _render_term(term: Identifier) -> str:
@@ -1000,7 +1013,7 @@ def _build_engine_profile_tree(engine_result: EngineQueryResult) -> tuple[Profil
     positive_profile_tree: Optional[ProfileNode] = None
     if engine_result.stratified_result is not None:
         positive_profile_tree = engine_result.stratified_result.positive_result.profile_tree
-    elif engine_result.filtered_admissibility_result is None and engine_result.engine_mode in {"admissibility", "filtered_admissibility"}:
+    elif engine_result.filtered_admissibility_result is None and engine_result.engine_mode in {"admissibility", "filtered_admissibility", "scored_semantic_alignment"}:
         positive_profile_tree = None
 
     if has_positive_loop:
@@ -1514,6 +1527,7 @@ def resolve_target_classes(
     )
     compile_context = build_ontology_compile_context(ontology_graph)
     dependency_analysis = compile_context.dependency_analysis
+    query_compile_kwargs = _query_mode_compilation_kwargs(engine_mode)
 
     def cycle_component_is_simple_disjointness_only(
         component: Sequence[URIRef],
@@ -1531,6 +1545,7 @@ def resolve_target_classes(
                 augment_property_domain_range=member_query_plan.augment_property_domain_range.enabled,
                 dependency_analysis=dependency_analysis,
                 compile_context=compile_context,
+                **query_compile_kwargs,
             )
             if not _dag_is_simple_disjointness_query(member_dag):
                 return False
@@ -1583,6 +1598,7 @@ def resolve_target_classes(
                             augment_property_domain_range=cycle_query_plan.augment_property_domain_range.enabled,
                             dependency_analysis=dependency_analysis,
                             compile_context=compile_context,
+                            **query_compile_kwargs,
                         )
                         if not _dag_is_positive_monotone(cycle_dag):
                             has_nonmonotone_cycle = True
@@ -1593,7 +1609,7 @@ def resolve_target_classes(
                     dependency_analysis=dependency_analysis,
                 )
                 if (
-                    engine_mode in {"admissibility", "filtered_admissibility"}
+                    engine_mode in {"admissibility", "filtered_admissibility", "scored_semantic_alignment"}
                     and target_cycle_component
                     and has_nonmonotone_cycle
                 ):
@@ -1629,12 +1645,13 @@ def resolve_target_classes(
                     augment_property_domain_range=query_plan.augment_property_domain_range.enabled,
                     dependency_analysis=dependency_analysis,
                     compile_context=compile_context,
+                    **query_compile_kwargs,
                 )
                 if (
                     target_cycle_component
                     and not _dag_is_positive_monotone(dag)
                     and not (
-                        engine_mode in {"admissibility", "filtered_admissibility"}
+                        engine_mode in {"admissibility", "filtered_admissibility", "scored_semantic_alignment"}
                         and cycle_component_is_simple_disjointness_only(target_cycle_component)
                     )
                 ):
@@ -1863,6 +1880,7 @@ def _compile_and_evaluate_query_dataset(
     target_classes: Sequence[URIRef],
     device: str,
     threshold: float,
+    engine_mode: str,
     augment_property_domain_range: Optional[bool],
     dependency_analysis: Optional[NamedClassDependencyAnalysis] = None,
     compile_context: Optional[OntologyCompileContext] = None,
@@ -1882,6 +1900,7 @@ def _compile_and_evaluate_query_dataset(
 
     reasoner = DAGReasoner(dataset.kg, device=device, sim_class=sim_class)
     dags_by_target: Dict[URIRef, ConstraintDAG] = {}
+    compile_kwargs = _query_mode_compilation_kwargs(engine_mode)
     compile_t0 = perf_counter()
     for target_term in target_classes:
         dag = compile_class_to_dag(
@@ -1891,6 +1910,7 @@ def _compile_and_evaluate_query_dataset(
             augment_property_domain_range=query_plan.augment_property_domain_range.enabled,
             dependency_analysis=dependency_analysis,
             compile_context=compile_context,
+            **compile_kwargs,
         )
         dags_by_target[target_term] = dag
         reasoner.add_concept(str(target_term), dag)
@@ -2124,6 +2144,7 @@ def _evaluate_query_snapshot(
     schema_graph: Graph,
     data_graph: Graph,
     target_classes: Sequence[URIRef],
+    engine_mode: str,
     device: str,
     threshold: float,
     include_literals: bool,
@@ -2237,6 +2258,7 @@ def _evaluate_query_snapshot(
             target_classes=eval_targets,
             device=device,
             threshold=threshold,
+            engine_mode=engine_mode,
             augment_property_domain_range=augment_property_domain_range,
             dependency_analysis=dependency_analysis,
             compile_context=compile_context,
@@ -2272,6 +2294,7 @@ def _evaluate_query_snapshot(
                 target_classes=cycle_targets,
                 device=device,
                 threshold=threshold,
+                engine_mode=engine_mode,
                 augment_property_domain_range=augment_property_domain_range,
                 dependency_analysis=dependency_analysis,
                 compile_context=compile_context,
@@ -2302,6 +2325,7 @@ def _evaluate_query_snapshot(
         target_classes=target_classes,
         device=device,
         threshold=threshold,
+        engine_mode=engine_mode,
         augment_property_domain_range=augment_property_domain_range,
         dependency_analysis=dependency_analysis,
         compile_context=compile_context,
@@ -2412,7 +2436,7 @@ def run_engine_queries(
 
     t0 = perf_counter()
     engine_profiler: Optional[ProfileRecorder] = None
-    if engine_mode in {"admissibility", "filtered_admissibility", "stratified"}:
+    if engine_mode in {"admissibility", "filtered_admissibility", "scored_semantic_alignment", "stratified"}:
         engine_profiler = ProfileRecorder()
         engine_profiler.start_root(
             "engine_total",
@@ -2468,7 +2492,7 @@ def run_engine_queries(
     query_input_data_graph = data_graph
     query_input_dataset: Optional[ReasoningDataset] = None
 
-    if engine_mode in {"admissibility", "filtered_admissibility"}:
+    if engine_mode in {"admissibility", "filtered_admissibility", "scored_semantic_alignment"}:
         if engine_profiler is not None:
             with engine_profiler.scoped(
                 "positive_reasoning",
@@ -2662,6 +2686,7 @@ def run_engine_queries(
                     schema_graph=schema_graph,
                     data_graph=query_input_data_graph,
                     target_classes=target_classes,
+                    engine_mode=engine_mode,
                     device=device_to_use,
                     threshold=threshold,
                     include_literals=include_literals,
@@ -2686,6 +2711,7 @@ def run_engine_queries(
                 schema_graph=schema_graph,
                 data_graph=query_input_data_graph,
                 target_classes=target_classes,
+                engine_mode=engine_mode,
                 device=device_to_use,
                 threshold=threshold,
                 include_literals=include_literals,
@@ -2754,6 +2780,7 @@ def run_engine_queries(
                             schema_graph=schema_graph,
                             data_graph=query_input_data_graph,
                             target_classes=target_classes,
+                            engine_mode=engine_mode,
                             device=device_to_use,
                             threshold=threshold,
                             include_literals=include_literals,
@@ -2821,6 +2848,7 @@ def run_engine_queries(
                     schema_graph=schema_graph,
                     data_graph=query_input_data_graph,
                     target_classes=target_classes,
+                    engine_mode=engine_mode,
                     device=device_to_use,
                     threshold=threshold,
                     include_literals=include_literals,
@@ -3080,6 +3108,7 @@ def run_engine_queries(
                     schema_graph=schema_graph,
                     data_graph=query_input_data_graph,
                     target_classes=target_classes,
+                    engine_mode=engine_mode,
                     device=device_to_use,
                     threshold=threshold,
                     include_literals=include_literals,
@@ -3104,6 +3133,7 @@ def run_engine_queries(
                 schema_graph=schema_graph,
                 data_graph=query_input_data_graph,
                 target_classes=target_classes,
+                engine_mode=engine_mode,
                 device=device_to_use,
                 threshold=threshold,
                 include_literals=include_literals,
@@ -3282,7 +3312,7 @@ def run_engine_queries(
                 if target_term in target_classes
             }
 
-    if engine_mode == "admissibility":
+    if engine_mode in {"admissibility", "scored_semantic_alignment"}:
         if engine_profiler is not None:
             with engine_profiler.scoped(
                 "result_projection",
@@ -4586,11 +4616,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--engine-mode",
-        choices=["admissibility", "filtered_admissibility", "stratified", "query", "filtered_query"],
+        choices=["admissibility", "filtered_admissibility", "scored_semantic_alignment", "stratified", "query", "filtered_query"],
         default="admissibility",
         help=(
             "admissibility = necessary-condition admissibility; "
             "filtered_admissibility = admissibility candidates pruned by synchronous recheck plus stratified blockers; "
+            "scored_semantic_alignment = admissibility-style Task M + Task A with fuzzy backward scoring; "
             "stratified = positive sufficient-condition closure plus negative blocker policy."
         ),
     )

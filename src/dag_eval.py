@@ -299,11 +299,6 @@ def eval_dag_score_matrix(
                 ConstraintType.MAX_CARDINALITY_RESTRICTION,
                 ConstraintType.EXACT_CARDINALITY_RESTRICTION,
             }:
-                if cnode.cardinality_agg != CardinalityAgg.STRICT:
-                    raise NotImplementedError(
-                        "Fuzzy cardinality operators are currently disabled."
-                    )
-
                 prop_idx = cnode.prop_idx
                 target = cnode.cardinality_target
                 if target is None:
@@ -325,6 +320,26 @@ def eval_dag_score_matrix(
                         return torch.ones(num_nodes, dtype=torch.float32, device=device)
                     top_values = topk_edge_scores(prop_idx, cnode.prop_direction, edge_scores, k)
                     return top_values[:, -1]
+
+                if cnode.cardinality_agg == CardinalityAgg.FUZZY:
+                    if cnode.ctype != ConstraintType.MIN_CARDINALITY_RESTRICTION:
+                        raise NotImplementedError(
+                            "Fuzzy cardinality is currently only supported for MIN_CARDINALITY_RESTRICTION."
+                        )
+                    if target <= 0:
+                        out = torch.ones(num_nodes, dtype=torch.float32, device=device)
+                    else:
+                        edge_present = (edge_scores > 0.0).to(torch.float32)
+                        reduce_index, _next_nodes = oriented_edges(prop_idx, cnode.prop_direction)
+                        observed = torch.zeros(num_nodes, dtype=torch.float32, device=device)
+                        observed.scatter_add_(0, reduce_index, edge_present)
+                        out = torch.clamp(observed / float(target), min=0.0, max=1.0)
+                    scores[:, node_idx] = out
+                    continue
+                if cnode.cardinality_agg != CardinalityAgg.STRICT:
+                    raise NotImplementedError(
+                        f"Unsupported cardinality aggregation mode: {cnode.cardinality_agg}."
+                    )
 
                 at_least_k = at_least_score(target)
                 at_most_k = 1.0 - at_least_score(target + 1)

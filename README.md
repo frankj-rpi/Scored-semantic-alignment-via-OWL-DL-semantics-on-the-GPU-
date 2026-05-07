@@ -28,7 +28,25 @@ watch that the device is correct. see jupyter notebook if it doesnt print that a
 Oracle comparison for owl2bench, one class, stratified
 
 ```
-./.venv/Scripts/python.exe -m src.oracle_compare --schema data/owl2bench/UNIV-BENCH-OWL2EL.owl --data data/owl2bench/O
-WL2EL-1.owl --target-class http://benchmark/OWL2Bench#Employee --engine-mode stratified --oracles elk --owlapi-home com
-parison/owlapi-5.5.1 --profile gpu-el --device cpu --show-timing-breakdown
+./.venv/Scripts/python.exe -m src.oracle_compare --show-timing-breakdown \
+  --schema data/owl2bench/UNIV-BENCH-OWL2EL.owl --data data/owl2bench/OWL2EL-1.owl \
+  --target-class http://benchmark/OWL2Bench#Employee \
+  --engine-mode stratified --profile gpu-el --device cpu \
+  --oracles elk --owlapi-home comparison/owlapi-5.5.1
+```
+
+Benchmark:
+```
+python -m src.paper_benchmark \
+  --schema data/owl2bench/UNIV-BENCH-OWL2EL.owl \
+  --datasets data/owl2bench/OWL2EL-1.owl data/owl2bench/OWL2EL-2.owl  data/owl2bench/OWL2EL-5.owl data/owl2bench/OWL2EL-10.owl data/owl2bench/OWL2EL-50.owl  data/owl2bench/OWL2EL-100.owl data/owl2bench/OWL2EL-200.owl\
+  -k 5 \
+  --profiles gpu-el-lite gpu-el gpu-el-full \
+  --devices cpu cuda \
+  --engine-modes stratified admissibility filtered_admissibility \
+  --reasoners elk openllet \
+  --timeout-seconds 600 \
+  --csv-path .results/laptop-benchmark.csv \
+  --log-path .results/laptop-benchmark.jsonl \
+  --owlapi-home comparison/owlapi-5.5.1 
 ```

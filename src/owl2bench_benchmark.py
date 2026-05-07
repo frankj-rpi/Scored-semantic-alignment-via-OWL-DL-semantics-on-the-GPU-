@@ -153,7 +153,7 @@ def run_owl2bench_benchmark(
     for engine_mode in modes:
         print("")
         print(f"--- Engine mode: {engine_mode} ---")
-        resolution_key = "admissibility-like" if engine_mode in {"admissibility", "filtered_admissibility", "query", "filtered_query"} else engine_mode
+        resolution_key = "admissibility-like" if engine_mode in {"admissibility", "filtered_admissibility", "scored_semantic_alignment", "query", "filtered_query"} else engine_mode
         cached_resolution = resolution_cache.get(resolution_key)
         if cached_resolution is None:
             resolution_t0 = perf_counter()
@@ -313,8 +313,8 @@ def main() -> None:
     parser.add_argument(
         "--modes",
         nargs="+",
-        choices=["admissibility", "filtered_admissibility", "stratified", "query", "filtered_query"],
-        default=["admissibility", "filtered_admissibility", "stratified"],
+        choices=["admissibility", "filtered_admissibility", "scored_semantic_alignment", "stratified", "query", "filtered_query"],
+        default=["admissibility", "filtered_admissibility", "scored_semantic_alignment", "stratified"],
         help="Engine modes to benchmark.",
     )
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
