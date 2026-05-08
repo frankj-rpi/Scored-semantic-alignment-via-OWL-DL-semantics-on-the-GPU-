@@ -1,0 +1,13 @@
+@prefix ex: <http://example.org/sameas-native#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+ex:anchor a owl:NamedIndividual .
+ex:alias a owl:NamedIndividual ;
+    owl:sameAs ex:anchor .
+
+ex:bob a ex:Person ;
+    ex:likes ex:alias .
+
+ex:carol a ex:Person ;
+    ex:likes ex:anchor .

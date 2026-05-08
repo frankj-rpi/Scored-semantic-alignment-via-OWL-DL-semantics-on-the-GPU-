@@ -1,0 +1,18 @@
+@prefix ex: <http://example.org/disjunction-chain#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:Seed a owl:Class .
+ex:Left a owl:Class .
+ex:Right a owl:Class .
+ex:Covered a owl:Class .
+
+ex:Seed rdfs:subClassOf [
+    a owl:Class ;
+    owl:unionOf ( ex:Left ex:Right )
+] .
+
+[
+    a owl:Class ;
+    owl:unionOf ( ex:Left ex:Right )
+] rdfs:subClassOf ex:Covered .

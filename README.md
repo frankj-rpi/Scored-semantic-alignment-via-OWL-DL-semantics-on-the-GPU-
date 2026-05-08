@@ -1,4 +1,4 @@
-# Scored Semantic Alignment via OWL-DL Semantics on the GPU
+# TensorKG
 
 This repository contains an experimental GPU-oriented reasoning framework for ontology-guided knowledge graph analysis. The project focuses on compiling a restricted OWL-style fragment into native graph operators, preprocessing the graph into a tensor-friendly representation, and evaluating class constraints in parallel on CPU or GPU.
 
@@ -52,6 +52,16 @@ Always confirm that the selected device is the one you intend to benchmark with.
 ## Quick start
 
 ### Synthetic exact-comparison demo
+=======
+####  Other tests
+
+Batch correctness tests:
+
+```
+./.venv/Scripts/python.exe -m src.test_gpu_dl_toys --device cpu --owlapi-home comparison/owlapi-5.5.1
+```
+
+Oracle comparison for owl2bench, one class, stratified
 
 ```bash
 python -m src.compare_exact \

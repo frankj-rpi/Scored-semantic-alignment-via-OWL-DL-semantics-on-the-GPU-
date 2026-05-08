@@ -1,0 +1,77 @@
+{
+  "augment_property_domain_range": true,
+  "base_consistent": true,
+  "config": {
+    "allowed_constructs": [
+      "subclass",
+      "intersection",
+      "exists",
+      "datatype",
+      "has-value",
+      "data-oneof",
+      "nominal",
+      "has-self",
+      "reflexive",
+      "disjoint",
+      "domain",
+      "range",
+      "functional-data-property",
+      "negative-object-property",
+      "negative-data-property",
+      "has-key"
+    ],
+    "datatype_edge_probability": 0.35,
+    "disjoint_pair_probability": 0.1,
+    "domain_range_axiom_probability": 0.35,
+    "edge_probability": 0.18,
+    "max_axioms_per_target": 3,
+    "min_axioms_per_target": 1,
+    "num_datatype_properties": 2,
+    "num_individuals": 8,
+    "num_primitive_classes": 5,
+    "num_properties": 3,
+    "num_target_classes": 4,
+    "type_probability": 0.35
+  },
+  "conflict_policy": "suppress_derived_keep_asserted",
+  "engine_mode": "stratified",
+  "generated_at": "2026-05-08T06:08:50+00:00",
+  "materialize_hierarchy": true,
+  "seed": 76,
+  "target_classes": [
+    "urn:dag-consistency:76#TargetClass0",
+    "urn:dag-consistency:76#TargetClass1",
+    "urn:dag-consistency:76#TargetClass2",
+    "urn:dag-consistency:76#TargetClass3"
+  ],
+  "target_constructs": {
+    "urn:dag-consistency:76#TargetClass0": [
+      "atomic",
+      "domain",
+      "has-self",
+      "has-value",
+      "nominal",
+      "subclass"
+    ],
+    "urn:dag-consistency:76#TargetClass1": [
+      "datatype",
+      "has-self",
+      "has-value",
+      "reflexive",
+      "subclass"
+    ],
+    "urn:dag-consistency:76#TargetClass2": [
+      "has-value",
+      "negative-object-property",
+      "nominal",
+      "subclass"
+    ],
+    "urn:dag-consistency:76#TargetClass3": [
+      "datatype",
+      "has-value",
+      "nominal",
+      "subclass"
+    ]
+  },
+  "threshold": 0.999
+}

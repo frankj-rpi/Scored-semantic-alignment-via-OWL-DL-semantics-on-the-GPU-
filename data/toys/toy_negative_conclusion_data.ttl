@@ -1,0 +1,6 @@
+@prefix ex: <http://example.org/negative-conclusion#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+ex:alice a owl:NamedIndividual, ex:Hero .
+ex:bob a owl:NamedIndividual .
+

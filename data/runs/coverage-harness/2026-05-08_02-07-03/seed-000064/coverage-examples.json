@@ -1,0 +1,198 @@
+{
+  "false_negatives": [
+    {
+      "constructs": [
+        "atomic",
+        "datatype",
+        "domain",
+        "exists",
+        "intersection",
+        "subclass",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "<urn:dag-consistency:64#node7>",
+      "profile": "gpu-dl",
+      "seed": 64,
+      "target_class": "urn:dag-consistency:64#TargetClass0"
+    },
+    {
+      "constructs": [
+        "atomic",
+        "datatype",
+        "exists",
+        "has-value",
+        "range",
+        "subclass",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "<urn:dag-consistency:64#node1>",
+      "profile": "gpu-dl",
+      "seed": 64,
+      "target_class": "urn:dag-consistency:64#TargetClass1"
+    },
+    {
+      "constructs": [
+        "atomic",
+        "datatype",
+        "exists",
+        "has-value",
+        "range",
+        "subclass",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "<urn:dag-consistency:64#node2>",
+      "profile": "gpu-dl",
+      "seed": 64,
+      "target_class": "urn:dag-consistency:64#TargetClass1"
+    },
+    {
+      "constructs": [
+        "atomic",
+        "datatype",
+        "exists",
+        "has-value",
+        "range",
+        "subclass",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "<urn:dag-consistency:64#node6>",
+      "profile": "gpu-dl",
+      "seed": 64,
+      "target_class": "urn:dag-consistency:64#TargetClass1"
+    },
+    {
+      "constructs": [
+        "atomic",
+        "datatype",
+        "exists",
+        "has-value",
+        "range",
+        "subclass",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "<urn:dag-consistency:64#node7>",
+      "profile": "gpu-dl",
+      "seed": 64,
+      "target_class": "urn:dag-consistency:64#TargetClass1"
+    },
+    {
+      "constructs": [
+        "atomic",
+        "data-oneof",
+        "datatype",
+        "exists",
+        "intersection",
+        "range",
+        "subclass",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "<urn:dag-consistency:64#node7>",
+      "profile": "gpu-dl",
+      "seed": 64,
+      "target_class": "urn:dag-consistency:64#TargetClass2"
+    },
+    {
+      "constructs": [
+        "atomic",
+        "data-oneof",
+        "datatype",
+        "has-key",
+        "nominal",
+        "subclass",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "<urn:dag-consistency:64#node0>",
+      "profile": "gpu-dl",
+      "seed": 64,
+      "target_class": "urn:dag-consistency:64#TargetClass3"
+    },
+    {
+      "constructs": [
+        "atomic",
+        "data-oneof",
+        "datatype",
+        "has-key",
+        "nominal",
+        "subclass",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "<urn:dag-consistency:64#node1>",
+      "profile": "gpu-dl",
+      "seed": 64,
+      "target_class": "urn:dag-consistency:64#TargetClass3"
+    },
+    {
+      "constructs": [
+        "atomic",
+        "data-oneof",
+        "datatype",
+        "has-key",
+        "nominal",
+        "subclass",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "<urn:dag-consistency:64#node2>",
+      "profile": "gpu-dl",
+      "seed": 64,
+      "target_class": "urn:dag-consistency:64#TargetClass3"
+    },
+    {
+      "constructs": [
+        "atomic",
+        "data-oneof",
+        "datatype",
+        "has-key",
+        "nominal",
+        "subclass",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "<urn:dag-consistency:64#node3>",
+      "profile": "gpu-dl",
+      "seed": 64,
+      "target_class": "urn:dag-consistency:64#TargetClass3"
+    },
+    {
+      "constructs": [
+        "atomic",
+        "data-oneof",
+        "datatype",
+        "has-key",
+        "nominal",
+        "subclass",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "<urn:dag-consistency:64#node6>",
+      "profile": "gpu-dl",
+      "seed": 64,
+      "target_class": "urn:dag-consistency:64#TargetClass3"
+    },
+    {
+      "constructs": [
+        "atomic",
+        "data-oneof",
+        "datatype",
+        "has-key",
+        "nominal",
+        "subclass",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "<urn:dag-consistency:64#node7>",
+      "profile": "gpu-dl",
+      "seed": 64,
+      "target_class": "urn:dag-consistency:64#TargetClass3"
+    }
+  ],
+  "false_positives": []
+}

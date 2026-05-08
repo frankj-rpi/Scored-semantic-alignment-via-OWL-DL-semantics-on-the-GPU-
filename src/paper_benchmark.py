@@ -24,6 +24,7 @@ from .oracle_compare import (
     build_oracle_query_graph,
     describe_rdflib_graph_load_source,
     format_engine_timing_breakdown,
+    normalize_engine_profile_name,
     resolve_super_dag_mode,
     resolve_target_classes,
     run_elk_queries,
@@ -345,6 +346,7 @@ def _run_engine_attempt(
     device: str,
     engine_mode: str,
 ) -> dict:
+    resolved_profile = normalize_engine_profile_name(profile)
     profile_options = apply_engine_profile(
         profile=profile,
         materialize_hierarchy=None,
@@ -357,13 +359,14 @@ def _run_engine_attempt(
         enable_negative_verification=None,
     )
     super_dag = resolve_super_dag_mode("auto", profile)
+    effective_include_literals = resolved_profile == "gpu-dl"
     engine_result = run_engine_queries(
         schema_graph=schema_graph,
         data_graph=data_graph,
         target_classes=target_terms,
         device=device,
         threshold=0.999,
-        include_literals=False,
+        include_literals=effective_include_literals,
         include_type_edges=False,
         materialize_hierarchy=profile_options.materialize_hierarchy,
         materialize_horn_safe_domain_range=profile_options.materialize_horn_safe_domain_range,
@@ -377,6 +380,7 @@ def _run_engine_attempt(
         engine_mode=engine_mode,
         conflict_policy="suppress_derived_keep_asserted",
         enable_negative_verification=profile_options.enable_negative_verification,
+        enable_negative_materialization=profile_options.enable_negative_materialization,
         enable_super_dag=(super_dag == "on"),
     )
     if engine_result.profile_tree is None or engine_result.profile_summary is None:
@@ -468,6 +472,9 @@ def run_paper_benchmark(
     log_output_path = Path(log_path) if log_path is not None else csv_output_path.with_suffix(".log.jsonl")
     planned_runs = _plan_runs(dataset_paths, reasoners, profiles, devices, engine_modes)
     total_runs = len(planned_runs)
+    benchmark_include_literals = any(
+        normalize_engine_profile_name(profile) == "gpu-dl" for profile in profiles
+    )
 
     _progress(start_t0, f"Benchmark session {benchmark_id} starting ({total_runs} runs total, start index {start_index}).")
 
@@ -540,7 +547,7 @@ def run_paper_benchmark(
             data_graph=data_graph,
             target_class_specs=DEFAULT_TARGET_SPECS,
             engine_mode="stratified",
-            include_literals=False,
+            include_literals=benchmark_include_literals,
             include_type_edges=False,
             materialize_hierarchy=False,
             augment_property_domain_range=True,

@@ -1,0 +1,12 @@
+@prefix ex: <http://example.org/negative-conclusion#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+ex:Hero a owl:Class .
+ex:Villain a owl:Class .
+ex:Trusted a owl:Class ;
+    owl:equivalentClass [
+        a owl:Class ;
+        owl:complementOf ex:Villain
+    ] .
+
+ex:Hero owl:disjointWith ex:Villain .

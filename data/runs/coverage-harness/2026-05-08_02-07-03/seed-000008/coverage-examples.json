@@ -1,0 +1,18 @@
+{
+  "false_negatives": [
+    {
+      "constructs": [
+        "atomic",
+        "has-key",
+        "nominal",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "<urn:dag-consistency:8#node5>",
+      "profile": "gpu-dl",
+      "seed": 8,
+      "target_class": "urn:dag-consistency:8#TargetClass0"
+    }
+  ],
+  "false_positives": []
+}

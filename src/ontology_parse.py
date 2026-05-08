@@ -221,6 +221,21 @@ class NegativeBlockerResult:
 
 
 @dataclass
+class NegativeMaterializationResult:
+    dataset: ReasoningDataset
+    inferred_positive_assertions: List[Tuple[Identifier, URIRef]]
+    blocked_assertions: List[BlockedClassAssertion]
+    conflicting_positive_assertions: List[BlockedClassAssertion]
+
+
+@dataclass(frozen=True)
+class NegativeFragmentSupportStatus:
+    target_class: URIRef
+    is_complete: bool
+    reasons: Tuple[str, ...] = ()
+
+
+@dataclass
 class ClassAssignmentStatus:
     node_term: Identifier
     target_class: URIRef
@@ -315,6 +330,7 @@ class SufficientConditionKind(Enum):
     DATATYPE_CONSTRAINT = "datatype_constraint"
     HAS_SELF = "has_self"
     EXISTS = "exists"
+    UNION = "union"
     INTERSECTION = "intersection"
     MIN_CARDINALITY = "min_cardinality"
 
@@ -1700,7 +1716,10 @@ def _import_referenced_schema_individual_closure(
 
 def build_reasoning_build_cache(schema_graph: Graph) -> ReasoningBuildCache:
     schema_property_terms = frozenset(_collect_property_terms(schema_graph))
-    schema_class_terms = frozenset(_collect_named_class_terms(schema_graph))
+    schema_class_terms = frozenset(
+        _collect_named_class_terms(schema_graph)
+        | _collect_supported_anonymous_class_helper_terms(schema_graph)
+    )
     schema_datatype_terms = frozenset(_collect_datatype_terms(schema_graph))
     subproperty_supers = _compute_transitive_super_map(schema_graph, RDFS.subPropertyOf)
     property_axioms = collect_property_expression_axioms(schema_graph)
@@ -2384,6 +2403,12 @@ def _copy_graph(graph: Graph) -> Graph:
     return copied
 
 
+def _ensure_mutable_graph(graph: Graph) -> Graph:
+    if isinstance(graph, ReadOnlyGraphAggregate):
+        return _copy_graph(graph)
+    return graph
+
+
 def _compute_transitive_super_map(graph: Graph, predicate: URIRef) -> Dict[URIRef, set[URIRef]]:
     direct_supers: Dict[URIRef, set[URIRef]] = defaultdict(set)
     nodes: set[URIRef] = set()
@@ -2653,6 +2678,10 @@ def _extract_horn_safe_named_class_consequents(
             members.extend(sub_terms)
         deduped = list(dict.fromkeys(members))
         return deduped if deduped else None
+
+    helper = _supported_anonymous_class_helper_term(ontology_graph, expr)
+    if helper is not None:
+        return [helper]
 
     return None
 
@@ -3870,6 +3899,73 @@ def _collect_negative_property_assertions(
     return assertions
 
 
+def _collect_explicit_negative_class_assertions(
+    graph: Graph,
+) -> set[Tuple[Identifier, URIRef]]:
+    assertions: set[Tuple[Identifier, URIRef]] = set()
+    for source, prop, target in _collect_negative_property_assertions(graph):
+        if prop != RDF.type or not isinstance(target, URIRef) or _is_datatype_term(target):
+            continue
+        assertions.add((source, target))
+    for source, _pred, asserted_class in graph.triples((None, RDF.type, None)):
+        complement_target = graph.value(asserted_class, OWL.complementOf)
+        if not isinstance(complement_target, URIRef) or _is_datatype_term(complement_target):
+            continue
+        assertions.add((source, complement_target))
+    return assertions
+
+
+def _collect_named_disjoint_class_pairs(
+    ontology_graph: Graph,
+) -> List[Tuple[URIRef, URIRef]]:
+    pairs: set[Tuple[URIRef, URIRef]] = set()
+    for left, _pred, right in ontology_graph.triples((None, OWL.disjointWith, None)):
+        if not isinstance(left, URIRef) or not isinstance(right, URIRef):
+            continue
+        if _is_datatype_term(left) or _is_datatype_term(right):
+            continue
+        if left == right:
+            continue
+        ordered = (left, right) if str(left) <= str(right) else (right, left)
+        pairs.add(ordered)
+    return sorted(pairs, key=lambda item: (str(item[0]), str(item[1])))
+
+
+def _collect_named_complement_class_pairs(
+    ontology_graph: Graph,
+) -> List[Tuple[URIRef, URIRef]]:
+    pairs: set[Tuple[URIRef, URIRef]] = set()
+
+    def maybe_add_pair(left: Identifier, right: Identifier) -> None:
+        if not isinstance(left, URIRef) or not isinstance(right, URIRef):
+            return
+        if _is_datatype_term(left) or _is_datatype_term(right):
+            return
+        if left == right:
+            return
+        ordered = (left, right) if str(left) <= str(right) else (right, left)
+        pairs.add(ordered)
+
+    for left, _pred, right in ontology_graph.triples((None, OWL.complementOf, None)):
+        maybe_add_pair(left, right)
+
+    for named_class, _pred, expr in ontology_graph.triples((None, OWL.equivalentClass, None)):
+        if not isinstance(named_class, URIRef):
+            continue
+        complement_target = ontology_graph.value(expr, OWL.complementOf)
+        if complement_target is not None:
+            maybe_add_pair(named_class, complement_target)
+
+    for expr, _pred, named_class in ontology_graph.triples((None, OWL.equivalentClass, None)):
+        if not isinstance(named_class, URIRef):
+            continue
+        complement_target = ontology_graph.value(expr, OWL.complementOf)
+        if complement_target is not None:
+            maybe_add_pair(named_class, complement_target)
+
+    return sorted(pairs, key=lambda item: (str(item[0]), str(item[1])))
+
+
 def _negative_property_helper_term(prop_term: URIRef) -> URIRef:
     return URIRef(f"urn:dag:negative-property:{str(prop_term)}")
 
@@ -4878,6 +4974,21 @@ def _collect_named_class_terms(graph: Graph) -> set[Identifier]:
     return class_terms
 
 
+def _collect_supported_anonymous_class_helper_terms(graph: Graph) -> set[URIRef]:
+    helpers: set[URIRef] = set()
+    seen_bnodes: set[BNode] = set()
+    for subj, _pred, obj in graph:
+        if isinstance(subj, BNode):
+            seen_bnodes.add(subj)
+        if isinstance(obj, BNode):
+            seen_bnodes.add(obj)
+    for expr in seen_bnodes:
+        helper = _supported_anonymous_class_helper_term(graph, expr)
+        if helper is not None:
+            helpers.add(helper)
+    return helpers
+
+
 def collect_named_class_terms(ontology_graph: Graph) -> List[URIRef]:
     """
     Return all named class IRIs referenced in the ontology graph, excluding
@@ -5423,7 +5534,10 @@ def build_rdflib_mapping(
     class_terms_set: set[Identifier] = (
         set(schema_class_terms)
         if schema_class_terms is not None
-        else _collect_named_class_terms(vocab_source)
+        else (
+            _collect_named_class_terms(vocab_source)
+            | _collect_supported_anonymous_class_helper_terms(vocab_source)
+        )
     )
     datatype_terms_set: set[URIRef] = (
         set(schema_datatype_terms)
@@ -6119,6 +6233,27 @@ def describe_owl_expression(
     return expr.n3()
 
 
+def _anonymous_class_helper_term(expr: Identifier, rendered_expr: Optional[str] = None) -> URIRef:
+    rendered = rendered_expr if rendered_expr is not None else repr(expr)
+    digest = hashlib.sha1(rendered.encode("utf-8")).hexdigest()
+    return URIRef(f"urn:dag:anon-class:{digest}")
+
+
+def _supported_anonymous_class_helper_term(
+    ontology_graph: Graph,
+    expr: Identifier,
+) -> Optional[URIRef]:
+    if not isinstance(expr, BNode):
+        return None
+    union_head = ontology_graph.value(expr, OWL.unionOf)
+    if isinstance(union_head, BNode):
+        return _anonymous_class_helper_term(
+            expr,
+            rendered_expr=describe_owl_expression(ontology_graph, expr),
+        )
+    return None
+
+
 def _parse_datatype_restriction(
     ontology_graph: Graph,
     expr: Identifier,
@@ -6197,6 +6332,18 @@ def _flatten_intersection_conditions(
     return tuple(flattened)
 
 
+def _flatten_union_conditions(
+    children: Sequence[NormalizedSufficientCondition],
+) -> Tuple[NormalizedSufficientCondition, ...]:
+    flattened: List[NormalizedSufficientCondition] = []
+    for child in children:
+        if child.kind == SufficientConditionKind.UNION:
+            flattened.extend(child.children)
+        else:
+            flattened.append(child)
+    return tuple(flattened)
+
+
 def _normalize_positive_sufficient_conditions(
     ontology_graph: Graph,
     expr: Identifier,
@@ -6254,7 +6401,23 @@ def _normalize_positive_sufficient_conditions(
 
     union_head = ontology_graph.value(expr, OWL.unionOf)
     if isinstance(union_head, BNode):
-        return None
+        members: List[NormalizedSufficientCondition] = []
+        for member in Collection(ontology_graph, union_head):
+            normalized_member_conditions = _normalize_positive_sufficient_conditions(ontology_graph, member)
+            if normalized_member_conditions is None or len(normalized_member_conditions) != 1:
+                return None
+            members.append(normalized_member_conditions[0])
+        flattened = _flatten_union_conditions(members)
+        if not flattened:
+            return [_top_sufficient_condition()]
+        if len(flattened) == 1:
+            return [flattened[0]]
+        return [
+            NormalizedSufficientCondition(
+                kind=SufficientConditionKind.UNION,
+                children=flattened,
+            )
+        ]
 
     intersection_head = ontology_graph.value(expr, OWL.intersectionOf)
     if isinstance(intersection_head, BNode):
@@ -6387,6 +6550,8 @@ def describe_normalized_sufficient_condition(
         )
         child = condition.children[0] if condition.children else _top_sufficient_condition()
         return f"exists({prop_rendered}, {describe_normalized_sufficient_condition(child)})"
+    if condition.kind == SufficientConditionKind.UNION:
+        return "union(" + ", ".join(describe_normalized_sufficient_condition(child) for child in condition.children) + ")"
     if condition.kind == SufficientConditionKind.INTERSECTION:
         return "intersection(" + ", ".join(describe_normalized_sufficient_condition(child) for child in condition.children) + ")"
     if condition.kind == SufficientConditionKind.MIN_CARDINALITY and condition.prop_term is not None:
@@ -6456,6 +6621,29 @@ def collect_normalized_sufficient_condition_rules(
             )
         )
 
+    def maybe_add_helper_bridge_rules(
+        *,
+        consequent_classes: Sequence[URIRef],
+        antecedent_expr: Identifier,
+        source_kind: str,
+        source_term: Optional[Identifier],
+    ) -> None:
+        helper_term = _supported_anonymous_class_helper_term(ontology_graph, antecedent_expr)
+        if helper_term is None:
+            return
+        helper_antecedent = NormalizedSufficientCondition(
+            kind=SufficientConditionKind.ATOMIC_CLASS,
+            class_term=helper_term,
+        )
+        for consequent_class in consequent_classes:
+            add_rule(
+                consequent_class=consequent_class,
+                antecedent=helper_antecedent,
+                source_kind=source_kind,
+                source_term=source_term,
+                tags=["anonymous-helper-bridge", SufficientConditionKind.ATOMIC_CLASS.value],
+            )
+
     for consequent_class in sorted(_collect_named_class_terms(ontology_graph), key=str):
         if not isinstance(consequent_class, URIRef) or _is_datatype_term(consequent_class):
             continue
@@ -6475,6 +6663,12 @@ def collect_normalized_sufficient_condition_rules(
                     source_term=antecedent_expr,
                     tags=[antecedent.kind.value],
                 )
+            maybe_add_helper_bridge_rules(
+                consequent_classes=[consequent_class],
+                antecedent_expr=antecedent_expr,
+                source_kind="subClassOfHelperBridge",
+                source_term=antecedent_expr,
+            )
 
         equivalent_sources = set(ontology_graph.objects(consequent_class, OWL.equivalentClass))
         equivalent_sources.update(ontology_graph.subjects(OWL.equivalentClass, consequent_class))
@@ -6526,6 +6720,12 @@ def collect_normalized_sufficient_condition_rules(
                         source_term=right,
                         tags=[antecedent.kind.value, "horn-safe-consequent"],
                     )
+            maybe_add_helper_bridge_rules(
+                consequent_classes=right_consequents,
+                antecedent_expr=left,
+                source_kind="equivalentClassHornSafeConsequentHelperBridge",
+                source_term=left,
+            )
 
         normalized_right = _normalize_positive_sufficient_conditions(ontology_graph, right)
         left_consequents = _extract_horn_safe_named_class_consequents(ontology_graph, left)
@@ -6539,6 +6739,12 @@ def collect_normalized_sufficient_condition_rules(
                         source_term=left,
                         tags=[antecedent.kind.value, "horn-safe-consequent"],
                     )
+            maybe_add_helper_bridge_rules(
+                consequent_classes=left_consequents,
+                antecedent_expr=right,
+                source_kind="equivalentClassHornSafeConsequentHelperBridge",
+                source_term=right,
+            )
 
     property_axioms = collect_property_expression_axioms(ontology_graph)
     top_condition = _top_sufficient_condition()
@@ -7034,6 +7240,97 @@ def collect_negative_blocker_specs(
     return specs
 
 
+def _negative_fragment_has_disjunctive_structure(
+    ontology_graph: Graph,
+    expr: Identifier,
+    *,
+    visited: set[Identifier],
+) -> bool:
+    if expr in visited:
+        return False
+    visited.add(expr)
+
+    if ontology_graph.value(expr, OWL.unionOf) is not None:
+        return True
+
+    for head in ontology_graph.objects(expr, OWL.intersectionOf):
+        if isinstance(head, BNode):
+            for member in Collection(ontology_graph, head):
+                if _negative_fragment_has_disjunctive_structure(
+                    ontology_graph,
+                    member,
+                    visited=visited,
+                ):
+                    return True
+
+    for sub_expr in ontology_graph.objects(expr, RDFS.subClassOf):
+        if _negative_fragment_has_disjunctive_structure(
+            ontology_graph,
+            sub_expr,
+            visited=visited,
+        ):
+            return True
+    for eq_expr in ontology_graph.objects(expr, OWL.equivalentClass):
+        if eq_expr != expr and _negative_fragment_has_disjunctive_structure(
+            ontology_graph,
+            eq_expr,
+            visited=visited,
+        ):
+            return True
+    for eq_expr in ontology_graph.subjects(OWL.equivalentClass, expr):
+        if eq_expr != expr and _negative_fragment_has_disjunctive_structure(
+            ontology_graph,
+            eq_expr,
+            visited=visited,
+        ):
+            return True
+    complement_target = ontology_graph.value(expr, OWL.complementOf)
+    if complement_target is not None and _negative_fragment_has_disjunctive_structure(
+        ontology_graph,
+        complement_target,
+        visited=visited,
+    ):
+        return True
+    return False
+
+
+def collect_negative_fragment_support_status(
+    ontology_graph: Graph,
+    target_classes: Optional[Sequence[str | URIRef]] = None,
+) -> Dict[URIRef, NegativeFragmentSupportStatus]:
+    specs = collect_negative_blocker_specs(ontology_graph, target_classes)
+    statuses: Dict[URIRef, NegativeFragmentSupportStatus] = {}
+    for target_term, spec in specs.items():
+        reasons: List[str] = []
+        if spec.skipped_negative_axioms:
+            reasons.append("unsupported negative blocker axioms")
+        for root_expr in _collect_target_root_expressions(ontology_graph, target_term):
+            if _negative_fragment_has_disjunctive_structure(
+                ontology_graph,
+                root_expr,
+                visited=set(),
+            ):
+                reasons.append("disjunctive negative-side structure")
+                break
+        statuses[target_term] = NegativeFragmentSupportStatus(
+            target_class=target_term,
+            is_complete=not reasons,
+            reasons=tuple(reasons),
+        )
+    return statuses
+
+
+def collect_negative_fragment_completeness(
+    ontology_graph: Graph,
+    target_classes: Optional[Sequence[str | URIRef]] = None,
+) -> Dict[URIRef, bool]:
+    statuses = collect_negative_fragment_support_status(ontology_graph, target_classes)
+    return {
+        target_term: status.is_complete
+        for target_term, status in statuses.items()
+    }
+
+
 def compile_normalized_sufficient_condition_to_dag(
     mapping: RDFKGraphMapping,
     condition: NormalizedSufficientCondition,
@@ -7119,6 +7416,12 @@ def compile_normalized_sufficient_condition_to_dag(
                 prop=term.prop_term,
                 prop_direction=term.prop_direction,
                 child_idx=child_idx,
+            )
+        elif term.kind == SufficientConditionKind.UNION:
+            child_indices = [compile_condition(child) for child in term.children]
+            idx = new_node(
+                ctype=ConstraintType.UNION,
+                child_indices=child_indices,
             )
         elif term.kind == SufficientConditionKind.INTERSECTION:
             child_indices = [compile_condition(child) for child in term.children]
@@ -7375,6 +7678,12 @@ def compile_sufficient_condition_dag(
                 prop=term.prop_term,
                 prop_direction=term.prop_direction,
                 child_idx=child_idx,
+            )
+        elif term.kind == SufficientConditionKind.UNION:
+            child_indices = [compile_condition(child) for child in term.children]
+            idx = new_node(
+                ctype=ConstraintType.UNION,
+                child_indices=child_indices,
             )
         elif term.kind == SufficientConditionKind.INTERSECTION:
             child_indices = [compile_condition(child) for child in term.children]
@@ -8540,11 +8849,19 @@ def compile_class_to_dag(
                 seen_nominal_terms: set[Identifier] = set()
                 for head in one_of_heads:
                     for member in _rdf_list_members(ontology_graph, head):
+                        canonical_member = mapping.sameas_canonical_map.get(member, member)
                         expanded_members = sameas_equivalence_map.get(member, [member])
+                        if canonical_member not in expanded_members:
+                            expanded_members = [canonical_member, *expanded_members]
                         for expanded_member in expanded_members:
+                            canonical_expanded_member = mapping.sameas_canonical_map.get(
+                                expanded_member,
+                                expanded_member,
+                            )
+                            lookup_member = canonical_expanded_member
                             if expanded_member in seen_nominal_terms:
                                 continue
-                            if expanded_member not in mapping.node_to_idx:
+                            if lookup_member not in mapping.node_to_idx:
                                 if expanded_member == member:
                                     raise KeyError(
                                         f"Nominal member {expanded_member!r} not present in KGraph node mapping."
@@ -8554,7 +8871,7 @@ def compile_class_to_dag(
                             members.append(
                                 new_node(
                                     ctype=ConstraintType.NOMINAL,
-                                    node_idx=mapping.node_to_idx[expanded_member],
+                                    node_idx=mapping.node_to_idx[lookup_member],
                                 )
                             )
                 if len(members) < 1:
@@ -9766,7 +10083,7 @@ def materialize_positive_sufficient_class_inferences(
                         torch.cat(added_node_index_chunks, dim=0),
                         torch.cat(added_class_index_chunks, dim=0),
                     )
-                current_data_graph = dataset.data_graph
+                current_data_graph = _ensure_mutable_graph(dataset.data_graph)
                 pending_type_assertions = additions_this_iteration
                 native_fast_dataset = dataset
                 timings.iteration_timings.append(iteration_timing)
@@ -9823,7 +10140,7 @@ def materialize_positive_sufficient_class_inferences(
                     for node_idx, class_col_idx in zip(added_node_indices_cpu, added_class_col_indices_cpu)
                 ]
                 inferred_assertions.extend(additions_this_round)
-                current_data_graph = dataset.data_graph
+                current_data_graph = _ensure_mutable_graph(dataset.data_graph)
                 triggering_sameas_classes = sorted(
                     {
                         class_term
@@ -9864,7 +10181,7 @@ def materialize_positive_sufficient_class_inferences(
                             dataset.preprocessing_timings,
                             iteration_timing=iteration_timing,
                         )
-                    current_data_graph = dataset.data_graph
+                    current_data_graph = _ensure_mutable_graph(dataset.data_graph)
                     previous_incremental_dataset = dataset
                     seeded_dataset = dataset
                     pending_type_assertions = None
@@ -10052,6 +10369,195 @@ def materialize_negative_class_blockers(
     return NegativeBlockerResult(
         dataset=dataset,
         blocker_specs=blocker_specs,
+        blocked_assertions=blocked_assertions,
+        conflicting_positive_assertions=conflicting_positive_assertions,
+    )
+
+
+def materialize_negative_class_inferences(
+    *,
+    dataset: ReasoningDataset,
+    target_classes: Optional[Sequence[str | URIRef]] = None,
+    threshold: float = 0.999,
+) -> NegativeMaterializationResult:
+    """
+    Materialize a safe native negative class fragment over the current positive closure.
+
+    Supported sources:
+    - explicit negative rdf:type assertions encoded as owl:NegativePropertyAssertion
+    - named class disjointness: A disjointWith B, so A(x) => not B(x)
+    - exact named complements: A == not B, so A(x) => not B(x) and not A(x) => B(x)
+
+    This intentionally does not apply arbitrary contraposition over sufficient rules.
+    """
+
+    target_filter = (
+        {URIRef(term) if isinstance(term, str) else term for term in target_classes}
+        if target_classes is not None
+        else None
+    )
+
+    explicit_negative_assertions = _collect_explicit_negative_class_assertions(dataset.ontology_graph)
+    disjoint_pairs = _collect_named_disjoint_class_pairs(dataset.ontology_graph)
+    complement_pairs = _collect_named_complement_class_pairs(dataset.ontology_graph)
+
+    relevant_class_terms: set[URIRef] = {
+        class_term
+        for _node_term, class_term in explicit_negative_assertions
+        if isinstance(class_term, URIRef)
+    }
+    for left, right in disjoint_pairs:
+        relevant_class_terms.add(left)
+        relevant_class_terms.add(right)
+    for left, right in complement_pairs:
+        relevant_class_terms.add(left)
+        relevant_class_terms.add(right)
+    if target_filter is not None:
+        relevant_class_terms.update(target_filter)
+
+    if not relevant_class_terms:
+        return NegativeMaterializationResult(
+            dataset=dataset,
+            inferred_positive_assertions=[],
+            blocked_assertions=[],
+            conflicting_positive_assertions=[],
+        )
+
+    relevant_class_order = sorted(
+        (
+            class_term
+            for class_term in relevant_class_terms
+            if class_term in dataset.mapping.class_to_idx
+        ),
+        key=str,
+    )
+    if not relevant_class_order:
+        return NegativeMaterializationResult(
+            dataset=dataset,
+            inferred_positive_assertions=[],
+            blocked_assertions=[],
+            conflicting_positive_assertions=[],
+        )
+
+    class_indices = [dataset.mapping.class_to_idx[class_term] for class_term in relevant_class_order]
+    rel_pos = {class_term: idx for idx, class_term in enumerate(relevant_class_order)}
+    pos_matrix = (dataset.kg.node_types[:, class_indices] >= threshold).detach().cpu().clone()
+    neg_matrix = torch.zeros_like(pos_matrix, dtype=torch.bool)
+
+    for node_term, class_term in explicit_negative_assertions:
+        node_idx = dataset.mapping.node_to_idx.get(node_term)
+        rel_idx = rel_pos.get(class_term)
+        if node_idx is None or rel_idx is None:
+            continue
+        neg_matrix[node_idx, rel_idx] = True
+
+    pair_specs: List[Tuple[int, int, bool]] = []
+    for left, right in disjoint_pairs:
+        left_idx = rel_pos.get(left)
+        right_idx = rel_pos.get(right)
+        if left_idx is None or right_idx is None:
+            continue
+        pair_specs.append((left_idx, right_idx, False))
+    for left, right in complement_pairs:
+        left_idx = rel_pos.get(left)
+        right_idx = rel_pos.get(right)
+        if left_idx is None or right_idx is None:
+            continue
+        pair_specs.append((left_idx, right_idx, True))
+
+    changed = True
+    while changed:
+        changed = False
+        for left_idx, right_idx, is_complement in pair_specs:
+            if torch.any(pos_matrix[:, left_idx] & ~neg_matrix[:, right_idx]).item():
+                neg_matrix[:, right_idx] |= pos_matrix[:, left_idx]
+                changed = True
+            if torch.any(pos_matrix[:, right_idx] & ~neg_matrix[:, left_idx]).item():
+                neg_matrix[:, left_idx] |= pos_matrix[:, right_idx]
+                changed = True
+            if is_complement:
+                if torch.any(neg_matrix[:, left_idx] & ~pos_matrix[:, right_idx]).item():
+                    pos_matrix[:, right_idx] |= neg_matrix[:, left_idx]
+                    changed = True
+                if torch.any(neg_matrix[:, right_idx] & ~pos_matrix[:, left_idx]).item():
+                    pos_matrix[:, left_idx] |= neg_matrix[:, right_idx]
+                    changed = True
+
+    inferred_positive_assertions: List[Tuple[Identifier, URIRef]] = []
+    blocked_assertions: List[BlockedClassAssertion] = []
+    conflicting_positive_assertions: List[BlockedClassAssertion] = []
+    added_node_indices: List[int] = []
+    added_class_indices: List[int] = []
+    blocker_term = URIRef("urn:dag:blocker:negativeTypeClosure")
+
+    for rel_idx, class_term in enumerate(relevant_class_order):
+        class_idx = class_indices[rel_idx]
+        if target_filter is not None and class_term not in target_filter:
+            include_block_status = False
+        else:
+            include_block_status = True
+        positive_nodes = torch.nonzero(pos_matrix[:, rel_idx], as_tuple=False).flatten().tolist()
+        negative_nodes = torch.nonzero(neg_matrix[:, rel_idx], as_tuple=False).flatten().tolist()
+        positive_node_set = set(positive_nodes)
+        original_positive_nodes = torch.nonzero(
+            dataset.kg.node_types[:, class_idx].detach().cpu() >= threshold,
+            as_tuple=False,
+        ).flatten().tolist()
+        original_positive_node_set = set(original_positive_nodes)
+
+        for node_idx in positive_nodes:
+            if node_idx in original_positive_node_set:
+                continue
+            node_term = dataset.mapping.node_terms[node_idx]
+            inferred_positive_assertions.append((node_term, class_term))
+            added_node_indices.append(node_idx)
+            added_class_indices.append(class_idx)
+
+        if include_block_status:
+            for node_idx in negative_nodes:
+                node_term = dataset.mapping.node_terms[node_idx]
+                blocked = BlockedClassAssertion(
+                    node_term=node_term,
+                    target_class=class_term,
+                    blocker_class=blocker_term,
+                )
+                blocked_assertions.append(blocked)
+                if node_idx in positive_node_set:
+                    conflicting_positive_assertions.append(blocked)
+
+    if added_node_indices:
+        dataset = _dataset_with_updated_native_type_indices(
+            dataset,
+            torch.tensor(added_node_indices, dtype=torch.long),
+            torch.tensor(added_class_indices, dtype=torch.long),
+        )
+
+    blocked_assertions = list(
+        {
+            (item.node_term, item.target_class, item.blocker_class): item
+            for item in blocked_assertions
+        }.values()
+    )
+    conflicting_positive_assertions = list(
+        {
+            (item.node_term, item.target_class, item.blocker_class): item
+            for item in conflicting_positive_assertions
+        }.values()
+    )
+    inferred_positive_assertions = sorted(
+        dict.fromkeys(inferred_positive_assertions),
+        key=lambda pair: (str(pair[1]), str(pair[0])),
+    )
+    blocked_assertions.sort(
+        key=lambda item: (str(item.target_class), str(item.node_term), str(item.blocker_class))
+    )
+    conflicting_positive_assertions.sort(
+        key=lambda item: (str(item.target_class), str(item.node_term), str(item.blocker_class))
+    )
+
+    return NegativeMaterializationResult(
+        dataset=dataset,
+        inferred_positive_assertions=inferred_positive_assertions,
         blocked_assertions=blocked_assertions,
         conflicting_positive_assertions=conflicting_positive_assertions,
     )
@@ -10270,6 +10776,7 @@ def materialize_stratified_class_inferences(
     enable_super_dag: bool = False,
     conflict_policy: ConflictPolicy = ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED,
     enable_negative_verification: bool = True,
+    enable_negative_materialization: bool = False,
 ) -> StratifiedMaterializationResult:
     total_t0 = perf_counter()
     profiler = ProfileRecorder()
@@ -10301,6 +10808,51 @@ def materialize_stratified_class_inferences(
     positive_profile = positive_result.profile_tree
     if positive_profile is not None:
         profiler.snapshot().add_child(positive_profile)
+    if enable_negative_materialization:
+        with profiler.scoped(
+            "negative_materialization",
+            "negative materialization",
+            category="host_runtime",
+        ) as negative_materialization_parent:
+            negative_materialization_t0 = perf_counter()
+            negative_materialization_result = materialize_negative_class_inferences(
+                dataset=positive_result.dataset,
+                target_classes=target_classes,
+                threshold=threshold,
+            )
+            negative_materialization_elapsed_ms = (
+                perf_counter() - negative_materialization_t0
+            ) * 1000.0
+            negative_materialization_parent.add_child(
+                ProfileNode(
+                    name="negative_materialization_closure",
+                    label="negative materialization closure",
+                    elapsed_ms_inclusive=negative_materialization_elapsed_ms,
+                    meta={"category": "host_runtime"},
+                )
+            )
+        positive_result = ClassMaterializationResult(
+            dataset=negative_materialization_result.dataset,
+            inferred_assertions=sorted(
+                dict.fromkeys(
+                    list(positive_result.inferred_assertions)
+                    + list(negative_materialization_result.inferred_positive_assertions)
+                ),
+                key=lambda pair: (str(pair[1]), str(pair[0])),
+            ),
+            iterations=positive_result.iterations,
+            timings=positive_result.timings,
+            compiled_target_dags=positive_result.compiled_target_dags,
+            profile_tree=positive_result.profile_tree,
+            super_dag_plan=positive_result.super_dag_plan,
+        )
+    else:
+        negative_materialization_result = NegativeMaterializationResult(
+            dataset=positive_result.dataset,
+            inferred_positive_assertions=[],
+            blocked_assertions=[],
+            conflicting_positive_assertions=[],
+        )
     with profiler.scoped("negative_reasoning", "negative_reasoning", category="host_runtime") as negative_parent:
         negative_t0 = perf_counter()
         if enable_negative_verification:
@@ -10314,6 +10866,42 @@ def materialize_stratified_class_inferences(
                 blocker_specs={},
                 blocked_assertions=[],
                 conflicting_positive_assertions=[],
+            )
+        if (
+            negative_materialization_result.blocked_assertions
+            or negative_materialization_result.conflicting_positive_assertions
+        ):
+            negative_result = NegativeBlockerResult(
+                dataset=negative_result.dataset,
+                blocker_specs=negative_result.blocker_specs,
+                blocked_assertions=sorted(
+                    {
+                        (item.node_term, item.target_class, item.blocker_class): item
+                        for item in (
+                            list(negative_result.blocked_assertions)
+                            + list(negative_materialization_result.blocked_assertions)
+                        )
+                    }.values(),
+                    key=lambda item: (
+                        str(item.target_class),
+                        str(item.node_term),
+                        str(item.blocker_class),
+                    ),
+                ),
+                conflicting_positive_assertions=sorted(
+                    {
+                        (item.node_term, item.target_class, item.blocker_class): item
+                        for item in (
+                            list(negative_result.conflicting_positive_assertions)
+                            + list(negative_materialization_result.conflicting_positive_assertions)
+                        )
+                    }.values(),
+                    key=lambda item: (
+                        str(item.target_class),
+                        str(item.node_term),
+                        str(item.blocker_class),
+                    ),
+                ),
             )
         negative_elapsed_ms = (perf_counter() - negative_t0) * 1000.0
         negative_parent.add_child(

@@ -1,0 +1,14 @@
+@prefix ex: <http://example.org/datasome#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:alice a owl:NamedIndividual ;
+    ex:nickname "Ace"^^xsd:string .
+
+ex:bob a owl:NamedIndividual ;
+    ex:nickname "Bee"^^xsd:string .
+
+ex:carol a owl:NamedIndividual .
+
+ex:dave a owl:NamedIndividual ;
+    ex:nickname "7"^^xsd:integer .

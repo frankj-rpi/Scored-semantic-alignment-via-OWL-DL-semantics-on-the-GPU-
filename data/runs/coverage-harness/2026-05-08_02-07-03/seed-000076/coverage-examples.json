@@ -1,0 +1,39 @@
+{
+  "false_negatives": [],
+  "false_positives": [
+    {
+      "constructs": [
+        "atomic",
+        "domain",
+        "exists",
+        "has-self",
+        "has-value",
+        "nominal",
+        "subclass",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "_:N9e17916df65d49428f749a4d5b47d54d",
+      "profile": "gpu-dl",
+      "seed": 76,
+      "target_class": "urn:dag-consistency:76#TargetClass0"
+    },
+    {
+      "constructs": [
+        "atomic",
+        "domain",
+        "exists",
+        "has-self",
+        "has-value",
+        "nominal",
+        "subclass",
+        "union"
+      ],
+      "engine_mode": "stratified",
+      "node_term": "<urn:dag-consistency:76#prop1>",
+      "profile": "gpu-dl",
+      "seed": 76,
+      "target_class": "urn:dag-consistency:76#TargetClass0"
+    }
+  ]
+}

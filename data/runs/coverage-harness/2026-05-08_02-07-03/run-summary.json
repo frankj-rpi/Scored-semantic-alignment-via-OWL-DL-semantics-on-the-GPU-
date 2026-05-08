@@ -1,0 +1,506 @@
+{
+  "attempts": 80,
+  "base_consistent_cases": 6,
+  "buckets": {
+    "atomic, data-oneof, datatype, exists, intersection, range, subclass, union": {
+      "engine_pairs": 6,
+      "false_negative_examples": [
+        {
+          "constructs": [
+            "atomic",
+            "data-oneof",
+            "datatype",
+            "exists",
+            "intersection",
+            "range",
+            "subclass",
+            "union"
+          ],
+          "node_term": "<urn:dag-consistency:64#node7>",
+          "seed": 64,
+          "target_class": "urn:dag-consistency:64#TargetClass2"
+        }
+      ],
+      "false_negatives": 1,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 7,
+      "precision": 1.0,
+      "recall": 0.8571428571428571,
+      "true_positives": 6
+    },
+    "atomic, data-oneof, datatype, has-key, nominal, subclass, union": {
+      "engine_pairs": 1,
+      "false_negative_examples": [
+        {
+          "constructs": [
+            "atomic",
+            "data-oneof",
+            "datatype",
+            "has-key",
+            "nominal",
+            "subclass",
+            "union"
+          ],
+          "node_term": "<urn:dag-consistency:64#node0>",
+          "seed": 64,
+          "target_class": "urn:dag-consistency:64#TargetClass3"
+        },
+        {
+          "constructs": [
+            "atomic",
+            "data-oneof",
+            "datatype",
+            "has-key",
+            "nominal",
+            "subclass",
+            "union"
+          ],
+          "node_term": "<urn:dag-consistency:64#node1>",
+          "seed": 64,
+          "target_class": "urn:dag-consistency:64#TargetClass3"
+        },
+        {
+          "constructs": [
+            "atomic",
+            "data-oneof",
+            "datatype",
+            "has-key",
+            "nominal",
+            "subclass",
+            "union"
+          ],
+          "node_term": "<urn:dag-consistency:64#node2>",
+          "seed": 64,
+          "target_class": "urn:dag-consistency:64#TargetClass3"
+        }
+      ],
+      "false_negatives": 6,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 7,
+      "precision": 1.0,
+      "recall": 0.14285714285714285,
+      "true_positives": 1
+    },
+    "atomic, data-oneof, datatype, subclass": {
+      "engine_pairs": 0,
+      "false_negative_examples": [],
+      "false_negatives": 0,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "true_positives": 0
+    },
+    "atomic, datatype, domain, exists, intersection, subclass, union": {
+      "engine_pairs": 7,
+      "false_negative_examples": [
+        {
+          "constructs": [
+            "atomic",
+            "datatype",
+            "domain",
+            "exists",
+            "intersection",
+            "subclass",
+            "union"
+          ],
+          "node_term": "<urn:dag-consistency:64#node7>",
+          "seed": 64,
+          "target_class": "urn:dag-consistency:64#TargetClass0"
+        }
+      ],
+      "false_negatives": 1,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 8,
+      "precision": 1.0,
+      "recall": 0.875,
+      "true_positives": 7
+    },
+    "atomic, datatype, exists, has-value, intersection, range, subclass, union": {
+      "engine_pairs": 6,
+      "false_negative_examples": [],
+      "false_negatives": 0,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 6,
+      "precision": 1.0,
+      "recall": 1.0,
+      "true_positives": 6
+    },
+    "atomic, datatype, exists, has-value, range, subclass, union": {
+      "engine_pairs": 7,
+      "false_negative_examples": [
+        {
+          "constructs": [
+            "atomic",
+            "datatype",
+            "exists",
+            "has-value",
+            "range",
+            "subclass",
+            "union"
+          ],
+          "node_term": "<urn:dag-consistency:64#node1>",
+          "seed": 64,
+          "target_class": "urn:dag-consistency:64#TargetClass1"
+        },
+        {
+          "constructs": [
+            "atomic",
+            "datatype",
+            "exists",
+            "has-value",
+            "range",
+            "subclass",
+            "union"
+          ],
+          "node_term": "<urn:dag-consistency:64#node2>",
+          "seed": 64,
+          "target_class": "urn:dag-consistency:64#TargetClass1"
+        },
+        {
+          "constructs": [
+            "atomic",
+            "datatype",
+            "exists",
+            "has-value",
+            "range",
+            "subclass",
+            "union"
+          ],
+          "node_term": "<urn:dag-consistency:64#node6>",
+          "seed": 64,
+          "target_class": "urn:dag-consistency:64#TargetClass1"
+        }
+      ],
+      "false_negatives": 4,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 11,
+      "precision": 1.0,
+      "recall": 0.6363636363636364,
+      "true_positives": 7
+    },
+    "atomic, datatype, has-self, has-value, reflexive, subclass": {
+      "engine_pairs": 0,
+      "false_negative_examples": [],
+      "false_negatives": 0,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "true_positives": 0
+    },
+    "atomic, datatype, has-value, nominal, subclass": {
+      "engine_pairs": 0,
+      "false_negative_examples": [],
+      "false_negatives": 0,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "true_positives": 0
+    },
+    "atomic, datatype, intersection, subclass": {
+      "engine_pairs": 0,
+      "false_negative_examples": [],
+      "false_negatives": 0,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "true_positives": 0
+    },
+    "atomic, datatype, subclass": {
+      "engine_pairs": 0,
+      "false_negative_examples": [
+        {
+          "constructs": [
+            "atomic",
+            "datatype",
+            "subclass"
+          ],
+          "node_term": "<urn:dag-consistency:52#node0>",
+          "seed": 52,
+          "target_class": "urn:dag-consistency:52#TargetClass2"
+        },
+        {
+          "constructs": [
+            "atomic",
+            "datatype",
+            "subclass"
+          ],
+          "node_term": "<urn:dag-consistency:52#node4>",
+          "seed": 52,
+          "target_class": "urn:dag-consistency:52#TargetClass2"
+        }
+      ],
+      "false_negatives": 2,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 2,
+      "precision": 0.0,
+      "recall": 0.0,
+      "true_positives": 0
+    },
+    "atomic, disjoint, union": {
+      "engine_pairs": 0,
+      "false_negative_examples": [],
+      "false_negatives": 0,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "true_positives": 0
+    },
+    "atomic, domain, exists, has-self, has-value, nominal, subclass, union": {
+      "engine_pairs": 10,
+      "false_negative_examples": [],
+      "false_negatives": 0,
+      "false_positive_examples": [
+        {
+          "constructs": [
+            "atomic",
+            "domain",
+            "exists",
+            "has-self",
+            "has-value",
+            "nominal",
+            "subclass",
+            "union"
+          ],
+          "node_term": "_:N9e17916df65d49428f749a4d5b47d54d",
+          "seed": 76,
+          "target_class": "urn:dag-consistency:76#TargetClass0"
+        },
+        {
+          "constructs": [
+            "atomic",
+            "domain",
+            "exists",
+            "has-self",
+            "has-value",
+            "nominal",
+            "subclass",
+            "union"
+          ],
+          "node_term": "<urn:dag-consistency:76#prop1>",
+          "seed": 76,
+          "target_class": "urn:dag-consistency:76#TargetClass0"
+        }
+      ],
+      "false_positives": 2,
+      "oracle_pairs": 8,
+      "precision": 0.8,
+      "recall": 1.0,
+      "true_positives": 8
+    },
+    "atomic, exists, has-self, intersection, range, subclass, union": {
+      "engine_pairs": 6,
+      "false_negative_examples": [
+        {
+          "constructs": [
+            "atomic",
+            "exists",
+            "has-self",
+            "intersection",
+            "range",
+            "subclass",
+            "union"
+          ],
+          "node_term": "<urn:dag-consistency:52#node4>",
+          "seed": 52,
+          "target_class": "urn:dag-consistency:52#TargetClass3"
+        }
+      ],
+      "false_negatives": 1,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 7,
+      "precision": 1.0,
+      "recall": 0.8571428571428571,
+      "true_positives": 6
+    },
+    "atomic, exists, has-self, subclass, union": {
+      "engine_pairs": 6,
+      "false_negative_examples": [],
+      "false_negatives": 0,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 6,
+      "precision": 1.0,
+      "recall": 1.0,
+      "true_positives": 6
+    },
+    "atomic, has-key, nominal, union": {
+      "engine_pairs": 2,
+      "false_negative_examples": [
+        {
+          "constructs": [
+            "atomic",
+            "has-key",
+            "nominal",
+            "union"
+          ],
+          "node_term": "<urn:dag-consistency:8#node5>",
+          "seed": 8,
+          "target_class": "urn:dag-consistency:8#TargetClass0"
+        },
+        {
+          "constructs": [
+            "atomic",
+            "has-key",
+            "nominal",
+            "union"
+          ],
+          "node_term": "<urn:dag-consistency:52#node4>",
+          "seed": 52,
+          "target_class": "urn:dag-consistency:52#TargetClass1"
+        }
+      ],
+      "false_negatives": 2,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 4,
+      "precision": 1.0,
+      "recall": 0.5,
+      "true_positives": 2
+    },
+    "atomic, has-self, intersection, reflexive, subclass": {
+      "engine_pairs": 0,
+      "false_negative_examples": [],
+      "false_negatives": 0,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "true_positives": 0
+    },
+    "atomic, has-self, reflexive, subclass": {
+      "engine_pairs": 0,
+      "false_negative_examples": [],
+      "false_negatives": 0,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "true_positives": 0
+    },
+    "atomic, has-self, subclass": {
+      "engine_pairs": 0,
+      "false_negative_examples": [],
+      "false_negatives": 0,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "true_positives": 0
+    },
+    "atomic, has-self, subclass, union": {
+      "engine_pairs": 0,
+      "false_negative_examples": [],
+      "false_negatives": 0,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "true_positives": 0
+    },
+    "atomic, has-value, negative-object-property, nominal, subclass": {
+      "engine_pairs": 0,
+      "false_negative_examples": [],
+      "false_negatives": 0,
+      "false_positive_examples": [],
+      "false_positives": 0,
+      "oracle_pairs": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "true_positives": 0
+    }
+  },
+  "engine_mode": "stratified",
+  "engine_profile": "gpu-dl",
+  "generated_cases": 6,
+  "oracle_backend": "openllet",
+  "oracle_completed_cases": 6,
+  "oracle_error_cases": 0,
+  "oracle_timeout_cases": 0,
+  "requested_cases": 20,
+  "run_settings": {
+    "augment_property_domain_range": null,
+    "device": "cpu",
+    "engine_mode": "stratified",
+    "engine_profile": "gpu-dl",
+    "generator_config": {
+      "allowed_constructs": [
+        "subclass",
+        "intersection",
+        "exists",
+        "datatype",
+        "has-value",
+        "data-oneof",
+        "nominal",
+        "has-self",
+        "reflexive",
+        "disjoint",
+        "domain",
+        "range",
+        "functional-data-property",
+        "negative-object-property",
+        "negative-data-property",
+        "has-key"
+      ],
+      "datatype_edge_probability": 0.35,
+      "disjoint_pair_probability": 0.1,
+      "domain_range_axiom_probability": 0.35,
+      "edge_probability": 0.18,
+      "max_axioms_per_target": 3,
+      "min_axioms_per_target": 1,
+      "num_datatype_properties": 2,
+      "num_individuals": 8,
+      "num_primitive_classes": 5,
+      "num_properties": 3,
+      "num_target_classes": 4,
+      "type_probability": 0.35
+    },
+    "materialize_hierarchy": null,
+    "max_attempts": 80,
+    "max_examples_per_bucket": 3,
+    "num_cases": 20,
+    "owlready2_reasoner": "hermit",
+    "save_cases": true,
+    "save_dir": "data\\runs\\coverage-harness",
+    "start_seed": 0,
+    "threshold": 0.999,
+    "timeout_seconds": 20.0
+  },
+  "timeout_seconds": 20.0,
+  "timings_ms": {
+    "base_consistency_check": 99005.28119999944,
+    "engine": 168.84410000784555,
+    "generation": 220.3610000142362,
+    "oracle": 14907.546699992963
+  },
+  "totals": {
+    "engine_pairs": 51,
+    "false_negatives": 17,
+    "false_positive_rate_over_engine_claims": 0.0392156862745098,
+    "false_positives": 2,
+    "oracle_pairs": 66,
+    "precision": 0.9607843137254902,
+    "recall": 0.7424242424242424,
+    "true_positives": 49
+  }
+}

@@ -1,0 +1,53 @@
+=== Coverage Harness ===
+Engine mode: stratified
+Engine profile: gpu-dl
+Oracle backend: openllet
+Oracle timeout: 20.0 s
+Requested cases: 20
+Generated base-consistent cases: 6
+Generation attempts: 80
+Oracle-completed cases: 6
+Oracle timeouts: 0
+Oracle errors: 0
+Engine novel pairs: 51
+Oracle novel pairs: 66
+True positives: 49
+False positives: 2
+False negatives: 17
+Precision: 0.9608
+Recall: 0.7424
+False-positive rate over engine claims: 0.0392
+Saved cases: data\runs\coverage-harness\2026-05-08_02-07-03
+
+Stage timings:
+  - Random case generation: 220.361 ms
+  - Base consistency filtering: 99005.281 ms
+  - Engine runs: 168.844 ms
+  - Openllet runs: 14907.547 ms
+
+Coverage buckets by construct set:
+  - [atomic, domain, exists, has-self, has-value, nominal, subclass, union] engine=10, oracle=8, tp=8, fp=2, fn=0, precision=0.800, recall=1.000
+      fp example: seed=76, node=_:N9e17916df65d49428f749a4d5b47d54d, target=<urn:dag-consistency:76#TargetClass0>
+      fp example: seed=76, node=<urn:dag-consistency:76#prop1>, target=<urn:dag-consistency:76#TargetClass0>
+  - [atomic, data-oneof, datatype, has-key, nominal, subclass, union] engine=1, oracle=7, tp=1, fp=0, fn=6, precision=1.000, recall=0.143
+      fn example: seed=64, node=<urn:dag-consistency:64#node0>, target=<urn:dag-consistency:64#TargetClass3>
+      fn example: seed=64, node=<urn:dag-consistency:64#node1>, target=<urn:dag-consistency:64#TargetClass3>
+      fn example: seed=64, node=<urn:dag-consistency:64#node2>, target=<urn:dag-consistency:64#TargetClass3>
+  - [atomic, datatype, exists, has-value, range, subclass, union] engine=7, oracle=11, tp=7, fp=0, fn=4, precision=1.000, recall=0.636
+      fn example: seed=64, node=<urn:dag-consistency:64#node1>, target=<urn:dag-consistency:64#TargetClass1>
+      fn example: seed=64, node=<urn:dag-consistency:64#node2>, target=<urn:dag-consistency:64#TargetClass1>
+      fn example: seed=64, node=<urn:dag-consistency:64#node6>, target=<urn:dag-consistency:64#TargetClass1>
+  - [atomic, has-key, nominal, union] engine=2, oracle=4, tp=2, fp=0, fn=2, precision=1.000, recall=0.500
+      fn example: seed=8, node=<urn:dag-consistency:8#node5>, target=<urn:dag-consistency:8#TargetClass0>
+      fn example: seed=52, node=<urn:dag-consistency:52#node4>, target=<urn:dag-consistency:52#TargetClass1>
+  - [atomic, datatype, subclass] engine=0, oracle=2, tp=0, fp=0, fn=2, precision=0.000, recall=0.000
+      fn example: seed=52, node=<urn:dag-consistency:52#node0>, target=<urn:dag-consistency:52#TargetClass2>
+      fn example: seed=52, node=<urn:dag-consistency:52#node4>, target=<urn:dag-consistency:52#TargetClass2>
+  - [atomic, datatype, domain, exists, intersection, subclass, union] engine=7, oracle=8, tp=7, fp=0, fn=1, precision=1.000, recall=0.875
+      fn example: seed=64, node=<urn:dag-consistency:64#node7>, target=<urn:dag-consistency:64#TargetClass0>
+  - [atomic, data-oneof, datatype, exists, intersection, range, subclass, union] engine=6, oracle=7, tp=6, fp=0, fn=1, precision=1.000, recall=0.857
+      fn example: seed=64, node=<urn:dag-consistency:64#node7>, target=<urn:dag-consistency:64#TargetClass2>
+  - [atomic, exists, has-self, intersection, range, subclass, union] engine=6, oracle=7, tp=6, fp=0, fn=1, precision=1.000, recall=0.857
+      fn example: seed=52, node=<urn:dag-consistency:52#node4>, target=<urn:dag-consistency:52#TargetClass3>
+  - [atomic, datatype, exists, has-value, intersection, range, subclass, union] engine=6, oracle=6, tp=6, fp=0, fn=0, precision=1.000, recall=1.000
+  - [atomic, exists, has-self, subclass, union] engine=6, oracle=6, tp=6, fp=0, fn=0, precision=1.000, recall=1.000
