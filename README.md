@@ -14,6 +14,7 @@ It also exposes multiple execution profiles, including `gpu-el-lite`, `gpu-el`, 
 ## Repository layout
 
 - `src/`: main implementation
+- `.results/`: Results for the ISWC paper evaluation. Additional data was gathered that could not be included due to space and time constraints, including performance results on several devices for each of the modes 'admissibility' 'filtered-admissibility', and 'stratified'. The .xlsx file contains most results in one location.
 - `data/`: datasets, profiling output, and benchmark inputs
 - `comparison/`: external reasoner integration assets
 - `methods.tex`: current methods section draft for the paper
