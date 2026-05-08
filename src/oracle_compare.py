@@ -42,12 +42,15 @@ from .ontology_parse import (
     collect_referenced_named_classes_for_class,
     get_named_class_dependency_cycle_component,
     collect_inferable_named_classes,
+    collect_negative_fragment_support_status,
     collect_named_class_terms,
     compile_class_to_dag,
     compile_sufficient_condition_dag,
     describe_rdflib_graph_load_source,
     load_rdflib_graph,
     materialize_positive_sufficient_class_inferences,
+    materialize_negative_class_blockers,
+    materialize_negative_class_inferences,
     materialize_stratified_class_inferences,
     materialize_supported_class_inferences,
     plan_reasoning_preprocessing,
@@ -219,6 +222,7 @@ class EngineProfileOptions:
     materialize_target_roles: Optional[bool]
     augment_property_domain_range: Optional[bool]
     enable_negative_verification: Optional[bool]
+    enable_negative_materialization: bool
     native_sameas_canonicalization: bool
 
 
@@ -239,6 +243,7 @@ PROFILE_ALIASES = {
     "default": "default",
     "gpu-el-lite": "gpu-el-lite",
     "gpu-el": "gpu-el",
+    "gpu-dl": "gpu-dl",
     "gpu-el-full": "gpu-el-full",
     "gpu-el-verify": "gpu-el-verify",
     "gpu-e1-lite": "gpu-el-lite",
@@ -269,6 +274,21 @@ def _query_mode_compilation_kwargs(engine_mode: str) -> dict:
             "flatten_intersections": True,
         }
     return {}
+
+
+def resolve_oracle_query_mode(
+    query_mode: Optional[str],
+    engine_mode: str,
+) -> str:
+    normalized_engine_mode = normalize_engine_mode_name(engine_mode)
+    if query_mode is None or query_mode == "auto":
+        if normalized_engine_mode == "stratified":
+            return "native"
+        return "query"
+    normalized = query_mode.strip().lower()
+    if normalized not in {"query", "native"}:
+        raise ValueError("query_mode must be one of: auto, query, native")
+    return normalized
 
 
 def _render_term(term: Identifier) -> str:
@@ -445,7 +465,7 @@ def resolve_super_dag_mode(super_dag: str, profile: Optional[str]) -> str:
     if normalized != "auto":
         return normalized
     resolved_profile = normalize_engine_profile_name(profile)
-    if resolved_profile.startswith("gpu-el"):
+    if resolved_profile.startswith("gpu-el") or resolved_profile == "gpu-dl":
         return "on"
     return "off"
 
@@ -484,11 +504,26 @@ def apply_engine_profile(
             materialize_target_roles=materialize_target_roles,
             augment_property_domain_range=augment_property_domain_range,
             enable_negative_verification=enable_negative_verification,
+            enable_negative_materialization=False,
             native_sameas_canonicalization=False,
         )
 
     def choose(explicit: Optional[bool], profile_default: bool) -> bool:
         return explicit if explicit is not None else profile_default
+
+    if resolved_profile == "gpu-dl":
+        return EngineProfileOptions(
+            materialize_hierarchy=choose(materialize_hierarchy, True),
+            materialize_horn_safe_domain_range=choose(materialize_horn_safe_domain_range, True),
+            materialize_reflexive_properties=choose(materialize_reflexive_properties, True),
+            materialize_sameas=choose(materialize_sameas, True),
+            materialize_haskey_equality=choose(materialize_haskey_equality, True),
+            materialize_target_roles=choose(materialize_target_roles, True),
+            augment_property_domain_range=choose(augment_property_domain_range, True),
+            enable_negative_verification=choose(enable_negative_verification, True),
+            enable_negative_materialization=True,
+            native_sameas_canonicalization=True,
+        )
 
     verification_default = resolved_profile == "gpu-el-verify"
     sameas_default = resolved_profile in {"gpu-el", "gpu-el-full", "gpu-el-verify"}
@@ -502,6 +537,7 @@ def apply_engine_profile(
         materialize_target_roles=choose(materialize_target_roles, False),
         augment_property_domain_range=choose(augment_property_domain_range, True),
         enable_negative_verification=choose(enable_negative_verification, verification_default),
+        enable_negative_materialization=False,
         native_sameas_canonicalization=sameas_default,
     )
 
@@ -1297,6 +1333,75 @@ def _count_members_by_target(
     members_by_target: Dict[URIRef, Set[Identifier]],
 ) -> int:
     return sum(len(members) for members in members_by_target.values())
+
+
+def _filter_members_by_target_for_negative_completeness(
+    members_by_target: Dict[URIRef, Set[Identifier]],
+    negative_completeness_by_target: Dict[URIRef, bool],
+) -> Dict[URIRef, Set[Identifier]]:
+    filtered: Dict[URIRef, Set[Identifier]] = {}
+    for target_term, members in members_by_target.items():
+        if not negative_completeness_by_target.get(target_term, True):
+            filtered[target_term] = set()
+            continue
+        filtered[target_term] = set(members)
+    return filtered
+
+
+def _remove_blocked_members_by_target(
+    members_by_target: Dict[URIRef, Set[Identifier]],
+    blocked_members_by_target: Dict[URIRef, Set[Identifier]],
+) -> Dict[URIRef, Set[Identifier]]:
+    filtered: Dict[URIRef, Set[Identifier]] = {}
+    for target_term, members in members_by_target.items():
+        filtered[target_term] = set(members) - blocked_members_by_target.get(target_term, set())
+    return filtered
+
+
+def _collect_supported_negative_blocked_members_by_target(
+    dataset: ReasoningDataset,
+    target_classes: Sequence[URIRef],
+    threshold: float,
+) -> Dict[URIRef, Set[Identifier]]:
+    negative_materialization = materialize_negative_class_inferences(
+        dataset=dataset,
+        target_classes=target_classes,
+        threshold=threshold,
+    )
+    negative_blockers = materialize_negative_class_blockers(
+        dataset=negative_materialization.dataset,
+        target_classes=target_classes,
+    )
+    blocked_members_by_target: Dict[URIRef, Set[Identifier]] = {
+        target_term: set() for target_term in target_classes
+    }
+    for blocked in negative_materialization.blocked_assertions:
+        if blocked.target_class in blocked_members_by_target:
+            blocked_members_by_target[blocked.target_class].add(blocked.node_term)
+    for blocked in negative_blockers.blocked_assertions:
+        if blocked.target_class in blocked_members_by_target:
+            blocked_members_by_target[blocked.target_class].add(blocked.node_term)
+    return blocked_members_by_target
+
+
+def _certify_supported_admissibility_members(
+    *,
+    dataset: ReasoningDataset,
+    members_by_target: Dict[URIRef, Set[Identifier]],
+    target_classes: Sequence[URIRef],
+    threshold: float,
+    negative_completeness_by_target: Dict[URIRef, bool],
+) -> Dict[URIRef, Set[Identifier]]:
+    filtered_members = _filter_members_by_target_for_negative_completeness(
+        members_by_target,
+        negative_completeness_by_target,
+    )
+    blocked_members = _collect_supported_negative_blocked_members_by_target(
+        dataset,
+        target_classes,
+        threshold,
+    )
+    return _remove_blocked_members_by_target(filtered_members, blocked_members)
 
 
 def _intersect_members_by_target_in_order(
@@ -2277,7 +2382,7 @@ def _evaluate_query_snapshot(
         }
     if helper_cycle_classes:
         current_cycle_members: Dict[URIRef, Set[Identifier]] = {
-            class_term: set(initial_dataset.mapping.node_terms)
+            class_term: set()
             for class_term in helper_cycle_classes
         }
         final_dataset = initial_dataset
@@ -2418,6 +2523,7 @@ def run_engine_queries(
     engine_mode: str = "admissibility",
     conflict_policy: str = ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED.value,
     enable_negative_verification: Optional[bool] = None,
+    enable_negative_materialization: bool = False,
     enable_super_dag: bool = False,
 ) -> EngineQueryResult:
     engine_mode = normalize_engine_mode_name(engine_mode)
@@ -2491,6 +2597,17 @@ def run_engine_queries(
     stratified_final_dataset_timing: Optional[PreprocessingTimings] = None
     query_input_data_graph = data_graph
     query_input_dataset: Optional[ReasoningDataset] = None
+    negative_completeness_by_target: Dict[URIRef, bool] = {}
+
+    if engine_mode in {"admissibility", "filtered_admissibility", "scored_semantic_alignment"}:
+        negative_support_status_by_target = collect_negative_fragment_support_status(
+            schema_graph,
+            target_classes,
+        )
+        negative_completeness_by_target = {
+            target_term: status.is_complete
+            for target_term, status in negative_support_status_by_target.items()
+        }
 
     if engine_mode in {"admissibility", "filtered_admissibility", "scored_semantic_alignment"}:
         if engine_profiler is not None:
@@ -2619,6 +2736,7 @@ def run_engine_queries(
                     enable_super_dag=enable_super_dag,
                     conflict_policy=ConflictPolicy(conflict_policy),
                     enable_negative_verification=(True if enable_negative_verification is None else enable_negative_verification),
+                    enable_negative_materialization=enable_negative_materialization,
                 )
                 if stratified_result.profile_tree is not None:
                     stratified_node.children = [
@@ -2644,6 +2762,7 @@ def run_engine_queries(
                 enable_super_dag=enable_super_dag,
                 conflict_policy=ConflictPolicy(conflict_policy),
                 enable_negative_verification=(True if enable_negative_verification is None else enable_negative_verification),
+                enable_negative_materialization=enable_negative_materialization,
             )
         if engine_profiler is not None:
             engine_profiler.push(
@@ -2726,7 +2845,13 @@ def run_engine_queries(
                 native_sameas_canonicalization=native_sameas_canonicalization,
                 initial_dataset=query_input_dataset,
             )
-        raw_members_by_target = _clone_members_by_target(raw_snapshot.members_by_target)
+        raw_members_by_target = _certify_supported_admissibility_members(
+            dataset=raw_snapshot.dataset,
+            members_by_target=raw_snapshot.members_by_target,
+            target_classes=target_classes,
+            threshold=threshold,
+            negative_completeness_by_target=negative_completeness_by_target,
+        )
         current_members_by_target = _clone_members_by_target(raw_members_by_target)
         stable_snapshot = raw_snapshot
         dataset_build_elapsed_ms += raw_snapshot.dataset_build_elapsed_ms
@@ -2824,9 +2949,16 @@ def run_engine_queries(
                         preprocessing_plan_elapsed_ms += stable_snapshot.dataset.preprocessing_timings.preprocessing_plan_elapsed_ms
                         sameas_passes_elapsed_ms.extend(stable_snapshot.dataset.preprocessing_timings.sameas_passes_elapsed_ms)
 
+                    certified_stable_members = _certify_supported_admissibility_members(
+                        dataset=stable_snapshot.dataset,
+                        members_by_target=stable_snapshot.members_by_target,
+                        target_classes=target_classes,
+                        threshold=threshold,
+                        negative_completeness_by_target=negative_completeness_by_target,
+                    )
                     next_members_by_target, changed = _intersect_members_by_target_in_order(
                         current_members_by_target,
-                        stable_snapshot.members_by_target,
+                        certified_stable_members,
                         target_classes,
                     )
                     if not changed:
@@ -2887,9 +3019,16 @@ def run_engine_queries(
                     preprocessing_plan_elapsed_ms += stable_snapshot.dataset.preprocessing_timings.preprocessing_plan_elapsed_ms
                     sameas_passes_elapsed_ms.extend(stable_snapshot.dataset.preprocessing_timings.sameas_passes_elapsed_ms)
 
+                certified_stable_members = _certify_supported_admissibility_members(
+                    dataset=stable_snapshot.dataset,
+                    members_by_target=stable_snapshot.members_by_target,
+                    target_classes=target_classes,
+                    threshold=threshold,
+                    negative_completeness_by_target=negative_completeness_by_target,
+                )
                 next_members_by_target, changed = _intersect_members_by_target_in_order(
                     current_members_by_target,
-                    stable_snapshot.members_by_target,
+                    certified_stable_members,
                     target_classes,
                 )
                 if not changed:
@@ -3149,8 +3288,18 @@ def run_engine_queries(
                 initial_dataset=query_input_dataset,
             )
         dataset = snapshot.dataset
-        members_by_target = snapshot.members_by_target
-        scores_by_target = snapshot.scores_by_target
+        members_by_target = _certify_supported_admissibility_members(
+            dataset=snapshot.dataset,
+            members_by_target=snapshot.members_by_target,
+            target_classes=target_classes,
+            threshold=threshold,
+            negative_completeness_by_target=negative_completeness_by_target,
+        )
+        scores_by_target = _build_binary_scores(
+            snapshot.dataset.mapping.node_terms,
+            target_classes,
+            members_by_target,
+        )
         dataset_build_elapsed_ms += snapshot.dataset_build_elapsed_ms
         ontology_merge_elapsed_ms += (
             snapshot.dataset.preprocessing_timings.ontology_merge_elapsed_ms
@@ -4180,7 +4329,7 @@ def run_oracle_comparison(
     engine_mode: str = "query",
     conflict_policy: str = ConflictPolicy.SUPPRESS_DERIVED_KEEP_ASSERTED.value,
     enable_negative_verification: Optional[bool] = None,
-    query_mode: str = "query",
+    query_mode: Optional[str] = "auto",
     bridge_supported_definitions: bool = False,
     oracle_backends: Sequence[str] = (),
     owlready2_reasoner: str = "hermit",
@@ -4205,7 +4354,9 @@ def run_oracle_comparison(
         print(message, flush=True)
 
     engine_mode = normalize_engine_mode_name(engine_mode)
+    effective_query_mode = resolve_oracle_query_mode(query_mode, engine_mode)
     super_dag = resolve_super_dag_mode(super_dag, profile)
+    resolved_profile = normalize_engine_profile_name(profile)
     profile_options = apply_engine_profile(
         profile=profile,
         materialize_hierarchy=materialize_hierarchy,
@@ -4217,6 +4368,7 @@ def run_oracle_comparison(
         augment_property_domain_range=augment_property_domain_range,
         enable_negative_verification=enable_negative_verification,
     )
+    effective_include_literals = include_literals or resolved_profile == "gpu-dl"
     elk_preflight_elapsed_ms = 0.0
     resolved_elk_classpath = elk_classpath
     if "elk" in oracle_backends:
@@ -4292,7 +4444,7 @@ def run_oracle_comparison(
         data_graph=data_graph,
         target_class_specs=target_class_specs,
         engine_mode=engine_mode,
-        include_literals=include_literals,
+        include_literals=effective_include_literals,
         include_type_edges=include_type_edges,
         materialize_hierarchy=profile_options.materialize_hierarchy,
         augment_property_domain_range=profile_options.augment_property_domain_range,
@@ -4315,7 +4467,7 @@ def run_oracle_comparison(
         target_classes=target_terms,
         device=device,
         threshold=threshold,
-        include_literals=include_literals,
+        include_literals=effective_include_literals,
         include_type_edges=include_type_edges,
         materialize_hierarchy=profile_options.materialize_hierarchy,
         materialize_horn_safe_domain_range=profile_options.materialize_horn_safe_domain_range,
@@ -4329,6 +4481,7 @@ def run_oracle_comparison(
         engine_mode=engine_mode,
         conflict_policy=conflict_policy,
         enable_negative_verification=profile_options.enable_negative_verification,
+        enable_negative_materialization=profile_options.enable_negative_materialization,
         enable_super_dag=(super_dag == "on"),
     )
     _progress("Finished engine run.")
@@ -4351,7 +4504,7 @@ def run_oracle_comparison(
     query_graph, query_class_by_target = build_oracle_query_graph(
         ontology_graph,
         target_terms,
-        mode=query_mode,
+        mode=effective_query_mode,
         bridge_supported_definitions=bridge_supported_definitions,
     )
     query_graph_elapsed_ms = (perf_counter() - query_graph_t0) * 1000.0
@@ -4492,6 +4645,7 @@ def main() -> None:
             "gpu-el-lite disables CPU-heavy ABox closure/materialization passes by default, "
             "with no ABox sameAs reasoning; "
             "gpu-el adds native sameAs canonicalization; "
+            "gpu-dl enables a broader tractable OWL-DL-style preprocessing mix on the native architecture; "
             "gpu-el-full adds HasKey-driven equality generation on top of that; "
             "gpu-el-verify matches gpu-el but keeps the negative/blocker verification pass. "
             "Aliases gpu-e1-lite, gpu-e1, gpu-e1-full, and gpu-e1-verify are accepted."
@@ -4633,12 +4787,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--query-mode",
-        choices=["query", "native"],
-        default="query",
+        choices=["auto", "query", "native"],
+        default="auto",
         help=(
-            "query = compare against a synthetic equivalentClass oracle query "
-            "that mirrors DAG semantics; native = compare against inferred "
-            "membership in the original target classes."
+            "Oracle comparison mode. "
+            "auto derives the oracle semantics from --engine-mode: "
+            "stratified -> native class membership, "
+            "admissibility/filtered_admissibility/scored_semantic_alignment -> synthetic query semantics. "
+            "query = force synthetic equivalentClass oracle queries; "
+            "native = force inferred membership in the original target classes."
         ),
     )
     parser.add_argument(

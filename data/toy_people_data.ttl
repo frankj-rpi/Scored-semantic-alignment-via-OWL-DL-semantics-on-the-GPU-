@@ -1,8 +1,0 @@
-@prefix ex: <http://example.org/toy#> .
-
-ex:item0 a ex:Furniture ;
-    ex:hasPart ex:wheel0 .
-
-ex:item1 a ex:Furniture .
-
-ex:wheel0 a ex:Wheel .

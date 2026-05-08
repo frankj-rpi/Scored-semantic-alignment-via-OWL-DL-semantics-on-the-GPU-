@@ -1,0 +1,29 @@
+timestamp,cpu_name,gpu_name,device,num_nodes,num_props,num_classes,avg_degree_per_prop,num_steps,num_edges,backend,engine_time_ms,rdf_build_time_ms,sparql_time_ms,ttl_export_time_ms,fuseki_clear_time_ms,fuseki_upload_time_ms,agreement
+2025-12-11_14-40-23,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,50,10,10,5.0,125,2500,engine_only,297.44255900004646,,,,,,True
+2025-12-11_14-40-33,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,500,10,10,5.0,125,25000,engine_only,305.650139998761,,,,,,True
+2025-12-11_14-40-45,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,5000,10,10,5.0,125,250000,engine_only,318.61075699998764,,,,,,True
+2025-12-11_14-40-53,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,50000,10,10,5.0,125,2500000,engine_only,348.9160089993675,,,,,,True
+2025-12-11_14-41-04,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,500000,10,10,5.0,125,25000000,engine_only,1235.1011139999173,,,,,,True
+2025-12-11_14-41-27,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,50,10,10,5.0,625,2500,engine_only,341.9291889986198,,,,,,True
+2025-12-11_14-41-37,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,500,10,10,5.0,625,25000,engine_only,332.0023919986852,,,,,,True
+2025-12-11_14-41-47,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,5000,10,10,5.0,625,250000,engine_only,350.0813430000562,,,,,,True
+2025-12-11_14-41-57,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,50000,10,10,5.0,625,2500000,engine_only,676.1446359996626,,,,,,True
+2025-12-11_14-42-12,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,500000,10,10,5.0,625,25000000,engine_only,5210.967835999327,,,,,,True
+2025-12-11_14-42-37,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,10,10,5.0,100,500000,engine_only,295.90505299893266,,,,,,True
+2025-12-11_14-42-45,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,10,100,5.0,100,500000,engine_only,283.14209199925244,,,,,,True
+2025-12-11_14-42-54,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,10,1000,5.0,100,500000,engine_only,286.2438129996008,,,,,,True
+2025-12-11_14-43-02,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,10,10000,5.0,100,500000,engine_only,414.13481299969135,,,,,,True
+2025-12-11_14-43-28,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,100,10,5.0,100,5000000,engine_only,307.5316960002965,,,,,,True
+2025-12-11_14-43-36,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,100,100,5.0,100,5000000,engine_only,310.1265549994423,,,,,,True
+2025-12-11_14-43-44,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,100,1000,5.0,100,5000000,engine_only,324.5026570002665,,,,,,True
+2025-12-11_14-43-53,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,100,10000,5.0,100,5000000,engine_only,451.43485100015823,,,,,,True
+2025-12-11_14-44-17,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,10,5.0,100,50000000,engine_only,489.0551869993942,,,,,,True
+2025-12-11_14-44-26,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,100,5.0,100,50000000,engine_only,486.1457799997879,,,,,,True
+2025-12-11_14-44-37,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,1000,5.0,100,50000000,engine_only,502.9354139987845,,,,,,True
+2025-12-11_14-44-46,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,10000,5.0,100,50000000,engine_only,626.1170369998581,,,,,,True
+2025-12-11_14-46-12,Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz,NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,1000,5.0,10000,50000000,engine_only,1568.5045509999327,,,,,,True
+2026-05-01_16-09-19,"Intel64 Family 6 Model 158 Stepping 10, GenuineIntel",NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,1000,5.0,10000,50000000,engine_only,3168.895100010559,,,,,,True
+2026-05-01_16-27-59,"Intel64 Family 6 Model 158 Stepping 10, GenuineIntel",NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,1000,5.0,10000,50000000,engine_only,3053.813499995158,,,,,,True
+2026-05-01_16-34-41,"Intel64 Family 6 Model 158 Stepping 10, GenuineIntel",NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,10000,5.0,100,50000000,engine_only,603.2017999968957,,,,,,True
+2026-05-05_18-42-03,"Intel64 Family 6 Model 158 Stepping 10, GenuineIntel",NVIDIA GeForce GTX 1650 with Max-Q Design,cuda,10000,1000,1000,5.0,10000,50000000,engine_only,2851.7436999973143,,,,,,True
+2026-05-07_15-57-06,"AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",NVIDIA GeForce RTX 4070 SUPER,cuda,10000,1000,1000,5.0,10000,50000000,engine_only,719.5438999915496,,,,,,True

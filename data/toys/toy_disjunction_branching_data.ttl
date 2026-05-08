@@ -1,0 +1,10 @@
+@prefix ex: <http://example.org/disjunction-branching#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+ex:alice a owl:NamedIndividual, ex:Seed .
+
+[] a owl:NegativePropertyAssertion ;
+   owl:sourceIndividual ex:alice ;
+   owl:assertionProperty rdf:type ;
+   owl:targetIndividual ex:Left .

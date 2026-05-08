@@ -1,0 +1,17 @@
+@prefix : <http://example.org/hobby#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+:alice a owl:NamedIndividual, :Person ;
+    :likes :chess1 .
+
+:bob a owl:NamedIndividual, :Person ;
+    :likes :alice .
+
+:carol a owl:NamedIndividual, :Person ;
+    :likes :bob .
+
+:dave a owl:NamedIndividual, :Person ;
+    :likes :carol .
+
+:chess1 a owl:NamedIndividual, :Chess .

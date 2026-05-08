@@ -355,6 +355,7 @@ def main() -> None:
             "gpu-el-lite disables CPU-heavy ABox closure/materialization passes by default, "
             "with no ABox sameAs reasoning; "
             "gpu-el adds native sameAs canonicalization; "
+            "gpu-dl enables a broader tractable OWL-DL-style preprocessing mix on the native architecture; "
             "gpu-el-full adds HasKey-driven equality generation on top of that; "
             "gpu-el-verify matches gpu-el but keeps the negative/blocker verification pass. "
             "Aliases gpu-e1-lite, gpu-e1, gpu-e1-full, and gpu-e1-verify are accepted."

@@ -1,0 +1,41 @@
+@prefix ex: <http://example.org/superdag-multiscc#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+ex:alice rdf:type ex:Person, ex:A1 ;
+    ex:likes ex:bob .
+
+ex:bob rdf:type ex:Person ;
+    ex:likes ex:alice .
+
+ex:c1seed rdf:type ex:Person ;
+    ex:likes ex:bob .
+
+ex:d1seed rdf:type ex:Person ;
+    ex:likes ex:alice .
+
+ex:erin rdf:type ex:Person ;
+    ex:likes ex:frank, ex:c1seed .
+
+ex:frank rdf:type ex:Person ;
+    ex:likes ex:erin, ex:d1seed .
+
+ex:e2seed rdf:type ex:Person ;
+    ex:likes ex:erin .
+
+ex:f2seed rdf:type ex:Person ;
+    ex:likes ex:frank .
+
+ex:ian rdf:type ex:Person ;
+    ex:likes ex:jane, ex:e2seed .
+
+ex:jane rdf:type ex:Person ;
+    ex:likes ex:ian, ex:f2seed .
+
+ex:kate rdf:type ex:Person ;
+    ex:likes ex:ian .
+
+ex:lisa rdf:type ex:Person ;
+    ex:likes ex:jane .
+
+ex:mike rdf:type ex:Person ;
+    ex:likes ex:kate, ex:lisa .

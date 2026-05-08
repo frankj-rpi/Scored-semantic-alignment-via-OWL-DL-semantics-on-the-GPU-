@@ -25,6 +25,12 @@ watch that the device is correct. see jupyter notebook if it doesnt print that a
 
 ####  Other tests
 
+Batch correctness tests:
+
+```
+./.venv/Scripts/python.exe -m src.test_gpu_dl_toys --device cpu --owlapi-home comparison/owlapi-5.5.1
+```
+
 Oracle comparison for owl2bench, one class, stratified
 
 ```

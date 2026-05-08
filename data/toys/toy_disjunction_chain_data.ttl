@@ -1,0 +1,6 @@
+@prefix ex: <http://example.org/disjunction-chain#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+ex:alice a owl:NamedIndividual, ex:Seed .
+ex:bob a owl:NamedIndividual .
+

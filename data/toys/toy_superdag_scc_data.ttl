@@ -1,0 +1,14 @@
+@prefix ex: <http://example.org/superdag-scc#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+ex:alice rdf:type ex:Person, ex:A ;
+    ex:likes ex:bob .
+
+ex:bob rdf:type ex:Person ;
+    ex:likes ex:alice .
+
+ex:carol rdf:type ex:Person ;
+    ex:likes ex:bob .
+
+ex:dave rdf:type ex:Person ;
+    ex:likes ex:carol .

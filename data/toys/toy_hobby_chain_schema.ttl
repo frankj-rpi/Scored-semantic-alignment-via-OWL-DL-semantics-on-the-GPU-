@@ -1,0 +1,64 @@
+@prefix : <http://example.org/hobby#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+:Person a owl:Class .
+:Interest a owl:Class .
+:Chess a owl:Class ;
+    rdfs:subClassOf :Interest .
+
+:likes a owl:ObjectProperty ;
+    rdfs:domain :Person .
+
+:PeopleWithHobby a owl:Class ;
+    owl:equivalentClass [
+        a owl:Class ;
+        owl:intersectionOf (
+            :Person
+            [
+                a owl:Restriction ;
+                owl:onProperty :likes ;
+                owl:someValuesFrom :Interest
+            ]
+        )
+    ] .
+
+:PeopleWithHobbyFan a owl:Class ;
+    owl:equivalentClass [
+        a owl:Class ;
+        owl:intersectionOf (
+            :Person
+            [
+                a owl:Restriction ;
+                owl:onProperty :likes ;
+                owl:someValuesFrom :PeopleWithHobby
+            ]
+        )
+    ] .
+
+:PeopleWithHobbyFanFan a owl:Class ;
+    owl:equivalentClass [
+        a owl:Class ;
+        owl:intersectionOf (
+            :Person
+            [
+                a owl:Restriction ;
+                owl:onProperty :likes ;
+                owl:someValuesFrom :PeopleWithHobbyFan
+            ]
+        )
+    ] .
+
+:PeopleWithHobbyFanFanFan a owl:Class ;
+    owl:equivalentClass [
+        a owl:Class ;
+        owl:intersectionOf (
+            :Person
+            [
+                a owl:Restriction ;
+                owl:onProperty :likes ;
+                owl:someValuesFrom :PeopleWithHobbyFanFan
+            ]
+        )
+    ] .

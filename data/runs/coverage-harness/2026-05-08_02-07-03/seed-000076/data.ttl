@@ -1,0 +1,79 @@
+@prefix ns1: <urn:dag-consistency:76#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ns1:node0 a owl:NamedIndividual,
+        ns1:BaseClass1,
+        ns1:BaseClass2 ;
+    ns1:prop0 ns1:node3 ;
+    ns1:prop1 ns1:node3,
+        ns1:node4,
+        ns1:node5,
+        ns1:node7 ;
+    ns1:prop2 ns1:node2,
+        ns1:node3,
+        ns1:node5,
+        ns1:node7 .
+
+ns1:node1 a owl:NamedIndividual,
+        ns1:BaseClass0 ;
+    ns1:dataProp0 27 ;
+    ns1:prop0 ns1:node0,
+        ns1:node6 ;
+    ns1:prop1 ns1:node2 .
+
+ns1:node4 a owl:NamedIndividual,
+        ns1:BaseClass0,
+        ns1:BaseClass2,
+        ns1:BaseClass3 ;
+    ns1:prop0 ns1:node4 ;
+    ns1:prop1 ns1:node2,
+        ns1:node6,
+        ns1:node7 .
+
+ns1:node2 a owl:NamedIndividual,
+        ns1:BaseClass0,
+        ns1:BaseClass2,
+        ns1:BaseClass3,
+        ns1:BaseClass4 ;
+    ns1:prop1 ns1:node3 ;
+    ns1:prop2 ns1:node5 .
+
+ns1:node5 a owl:NamedIndividual,
+        ns1:BaseClass0,
+        ns1:BaseClass1 ;
+    ns1:dataProp1 "alpha"^^xsd:string ;
+    ns1:prop0 ns1:node3 ;
+    ns1:prop1 ns1:node3,
+        ns1:node6 ;
+    ns1:prop2 ns1:node6,
+        ns1:node7 .
+
+ns1:node7 a owl:NamedIndividual,
+        ns1:BaseClass3 ;
+    ns1:dataProp1 21 ;
+    ns1:prop0 ns1:node1 ;
+    ns1:prop1 ns1:node2,
+        ns1:node6 ;
+    ns1:prop2 ns1:node1 .
+
+ns1:node6 a owl:NamedIndividual,
+        ns1:BaseClass0 ;
+    ns1:dataProp0 27,
+        "alpha"^^xsd:string ;
+    ns1:prop0 ns1:node4,
+        ns1:node7 ;
+    ns1:prop2 ns1:node3 .
+
+ns1:node3 a owl:NamedIndividual,
+        ns1:BaseClass3 ;
+    ns1:dataProp0 18 ;
+    ns1:prop0 ns1:node5 ;
+    ns1:prop1 ns1:node0 ;
+    ns1:prop2 ns1:node6 .
+
+[] a owl:NegativePropertyAssertion ;
+    owl:assertionProperty ns1:prop1 ;
+    owl:sourceIndividual ns1:node3 ;
+    owl:targetIndividual ns1:node6 .
+
