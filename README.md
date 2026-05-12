@@ -8,9 +8,9 @@ TensorKG has been evaluated against [ELK](https://github.com/liveontologies/elk-
 
 For usage information, see the [API](docs/api.md). TensorKG can be used for the following reasoning tasks:
 
-- forward reasoning: materializing type assignments supported by sufficient conditions. In other words: can we infer *n* must be a *C* from known information?
-- admissibility testing: checking which KG nodes satisfy the necessary conditions of which classes, according to known information. In other words, it answers: "would asserting node *n* as class *C* be consistent with everything we know about *n* and *C*?" 
-- scored semantic alignment: scoring the degree to which each KG node satisfies the necessary conditions of each class. In other words, for some node *n* and class *C*, a score **s**(*n*,*C*)=0.0 means *n* is not known to satisfy any conditions of *C*, and a score **s**(*n*,*C*)=1.0 means *n* is known to satisfy all known requirements of *C*. 
+- Forward reasoning: materializing type assignments supported by sufficient conditions. In other words: can we infer *n* must be a *C* from known information?
+- Admissibility testing: checking which KG nodes satisfy the necessary conditions of which classes, according to known information. In other words, it answers: "would asserting node *n* as class *C* be consistent with everything we know about *n* and *C*?" 
+- Scored semantic alignment: scoring the degree to which each KG node satisfies the necessary conditions of each class. In other words, for some node *n* and class *C*, a score **s**(*n*,*C*)=0.0 means *n* is not known to satisfy any conditions of *C*, and a score **s**(*n*,*C*)=1.0 means *n* is known to satisfy all known requirements of *C*. 
 
 ## Documentation Guide
 
