@@ -615,6 +615,6 @@ Cycle handling is explicit:
 If you only need the bottom line:
 
 - `stratified` is the strongest current reasoning mode
-- EL profiles are where the repo makes its strongest positive claim: complete OWL 2 EL reasoning
+- EL profiles are where the repo makes its strongest positive claim: fully validated OWL 2 EL reasoning
 - `gpu-dl` is experimental but native and increasingly robust
 - scored semantic alignment is a structural compatibility score, not a probability and not a substitute for complete OWL entailment
