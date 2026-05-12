@@ -1,13 +1,16 @@
 # TensorKG
 
-TensorKG is an experimental GPU-oriented reasoning and scoring engine for OWL-backed knowledge graphs. It compiles a restricted OWL-style fragment into tensor-friendly graph operators, performs schema- and ABox-side preprocessing on the host, and evaluates compiled constraints in parallel on CPU or GPU.
+TensorKG is an experimental GPU-oriented reasoning and concept alignment scoring engine for OWL-backed KGs. It compiles OWL class restrictions into a directed acyclic graph of constraints, converts KGs into a GPU-friendly tensor representation, and then evaluates each layer of constraints against all KG nodes simultaneously on the CPU or GPU (via CUDA bindings).
 
-The project supports two closely related use cases:
+The project supports [OWL 2 EL](https://www.w3.org/TR/owl2-profiles/#OWL_2_EL) semantics. It also includes limited experimental support for some OWL DL operations; for more informarion on exactly what is supported and how, see [docs/semantics.md](docs/semantics.md). 
 
-- forward reasoning: materializing type assignments supported by sufficient conditions
-- semantic alignment: checking how well a node satisfies ontology-derived necessary conditions for a candidate class (either scores or exact matches)
+TensorKG has been evaluated against [ELK](https://github.com/liveontologies/elk-reasoner) and [openllet](https://github.com/Galigator/openllet) on the [OWL2bench](https://github.com/kracr/owl2bench) datasets, as well as randomly generated and [hand-built graphs](data/toys). See [docs/evaluation.md](docs/evaluation.md) for more evaluation information, including how to recreate the evaluation results.
 
-TensorKG is not a complete OWL 2 DL reasoner. However, it does implement a complete OWL 2 EL reasoning path, validated repeatedly against OWL2Bench, hand-built fixtures, and randomly generated graphs. The implementation is intentionally conservative beyond that boundary, with the strongest non-EL guarantees in `stratified` mode.
+For usage information, see the [API](docs/api.md). TensorKG can be used for the following reasoning tasks:
+
+- forward reasoning: materializing type assignments supported by sufficient conditions. In other words: can we infer *n* must be a *C* from known information?
+- admissibility testing: checking which KG nodes satisfy the necessary conditions of which classes, according to known information. In other words, it answers: "would asserting node *n* as class *C* be consistent with everything we know about *n* and *C*?" 
+- scored semantic alignment: scoring the degree to which each KG node satisfies the necessary conditions of each class. In other words, for some node *n* and class *C*, a score **s**(*n*,*C*)=0.0 means *n* is not known to satisfy any conditions of *C*, and a score **s**(*n*,*C*)=1.0 means *n* is known to satisfy all known requirements of *C*. 
 
 ## Documentation Guide
 
