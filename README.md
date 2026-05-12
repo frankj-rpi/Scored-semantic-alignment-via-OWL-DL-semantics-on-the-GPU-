@@ -2,11 +2,11 @@
 
 TensorKG is an experimental GPU-oriented reasoning and concept alignment scoring engine for OWL-backed KGs. It compiles OWL class restrictions into a directed acyclic graph of constraints, converts KGs into a GPU-friendly tensor representation, and then evaluates each layer of constraints against all KG nodes simultaneously on the CPU or GPU (via CUDA bindings).
 
-The project supports [OWL 2 EL](https://www.w3.org/TR/owl2-profiles/#OWL_2_EL) semantics. It also includes limited experimental support for some OWL DL operations; for more informarion on exactly what is supported and how, see [docs/semantics.md](docs/semantics.md). 
+The project supports [OWL 2 EL](https://www.w3.org/TR/owl2-profiles/#OWL_2_EL) semantics. It also includes limited experimental support for some OWL DL operations; **for more informarion on exactly what is supported and how, see [docs/semantics.md](docs/semantics.md)**. 
 
-TensorKG has been evaluated against [ELK](https://github.com/liveontologies/elk-reasoner) and [openllet](https://github.com/Galigator/openllet) on the [OWL2bench](https://github.com/kracr/owl2bench) datasets, as well as randomly generated and [hand-built graphs](data/toys). See [docs/evaluation.md](docs/evaluation.md) for more evaluation information, including how to recreate the evaluation results.
+TensorKG has been evaluated against [ELK](https://github.com/liveontologies/elk-reasoner) and [openllet](https://github.com/Galigator/openllet) on the [OWL2bench](https://github.com/kracr/owl2bench) datasets, as well as randomly generated and [hand-built graphs](data/toys). **See [docs/evaluation.md](docs/evaluation.md) for more evaluation information, including how to recreate the evaluation results.**
 
-For usage information, see the [API](docs/api.md). TensorKG can be used for the following reasoning tasks:
+**For usage information, see the [API](docs/api.md).** TensorKG can be used for the following reasoning tasks:
 
 - Forward reasoning: materializing type assignments supported by sufficient conditions. In other words: can we infer *n* must be a *C* from known information?
 - Admissibility testing: checking which KG nodes satisfy the necessary conditions of which classes, according to known information. In other words, it answers: "would asserting node *n* as class *C* be consistent with everything we know about *n* and *C*?" 
