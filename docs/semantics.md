@@ -13,7 +13,7 @@
 
 ## Two Core Tasks
 
-TensorKG is organized around two different tasks over node-class pairs `(v, C)`.
+TensorKG is organized around two different tasks over node-class pairs `(n, C)`.
 
 ### 1. Type materialization and the forward score
 
@@ -21,13 +21,13 @@ This is the forward, sufficient-condition task.
 
 Concretely:
 
-- TensorKG computes a forward score for the pair `(v, C)` by propagating sufficient-condition support through the compiled DAG for `C`
-- when that forward score reaches the engine's exact threshold, the engine treats `v` as supported strongly enough to materialize `C(v)`
-- in other words, the forward score is a native execution view of the question "do the known sufficient conditions for `C` hold for `v`?"
+- TensorKG computes a forward score for the pair `(n, C)` by propagating sufficient-condition support through the compiled DAG for `C`
+- when that forward score reaches the engine's exact threshold, the engine treats `n` as supported strongly enough to materialize `C(n)`
+- in other words, the forward score is a native execution view of the question "do the known sufficient conditions for `C` hold for `n`?"
 
 Semantically, this is the task that is closest to ordinary OWL-style entailment. A materialized class assignment is meant to mean:
 
-- inside the supported fragment, TensorKG has enough positive support to conclude `C(v)`
+- inside the supported fragment, TensorKG has enough positive support to conclude `C(n)`
 - for the validated EL path, this is the main place where the repo makes a completeness claim rather than only a conservative soundness-oriented claim
 
 This is the semantic core of `stratified` mode.
@@ -44,14 +44,14 @@ This is the backward, necessary-condition task.
 
 Concretely:
 
-- TensorKG computes a backward score for the pair `(v, C)` by propagating necessary-condition requirements for `C` through the compiled DAG
-- this score answers the question "how well does the currently known graph satisfy what membership in `C` would require of `v`?"
+- TensorKG computes a backward score for the pair `(n, C)` by propagating necessary-condition requirements for `C` through the compiled DAG
+- this score answers the question "how well does the currently known graph satisfy what membership in `C` would require of `n`?"
 - an exact admissibility-style result means that all compiled necessary conditions were satisfied strongly enough to pass the engine's threshold
 
 Semantically, admissibility is weaker than materialization:
 
-- an admissibility result does not, by itself, mean that `C(v)` is entailed
-- it means that the known graph structure is compatible with `v` being an instance of `C`, as far as the current fragment and current graph state can certify
+- an admissibility result does not, by itself, mean that `C(n)` is entailed
+- it means that the known graph structure is compatible with `n` being an instance of `C`, as far as the current fragment and current graph state can certify
 - when the engine suppresses a result here, that often means `unknown`, not "proved false"
 
 This is the semantic core of `admissibility` and `scored_semantic_alignment`.
