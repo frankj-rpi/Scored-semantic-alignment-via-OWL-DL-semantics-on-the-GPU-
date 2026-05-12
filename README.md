@@ -45,9 +45,9 @@ When the engine omits a conclusion outside the currently supported fragment, tha
 | Mode | Best used for | Main output | Current intent |
 | --- | --- | --- | --- |
 | `stratified` | forward reasoning, especially complete OWL 2 EL materialization | materialized class assignments | complete on the supported OWL 2 EL path; strongest current mode beyond EL as well |
-| `admissibility` | checking whether a candidate class assignment is locally compatible with known structure | admissible members or scores for requested targets | conservative necessary-condition evaluation |
+| `admissibility` | checking whether a candidate class assignment is locally compatible with known structure (i.e. for enriching a KG with type information) | admissible members or scores for requested targets | conservative necessary-condition evaluation |
 | `scored_semantic_alignment` | dense node-to-class compatibility scoring | graded scores in `[0,1]` | same structural view as admissibility, but keeping fuzzy partial satisfaction |
-| `filtered_admissibility` | candidate generation followed by stricter recheck/pruning | filtered admissible assignments | conservative query-style mode with synchronous recheck and closure-based filtering |
+| `filtered_admissibility` | candidate generation followed by forward materialization and pruning of incompatible results | filtered admissible assignments | conservative query-style mode with synchronous recheck and closure-based filtering |
 
 More precise semantics and caveats are documented in [docs/semantics.md](docs/semantics.md).
 
