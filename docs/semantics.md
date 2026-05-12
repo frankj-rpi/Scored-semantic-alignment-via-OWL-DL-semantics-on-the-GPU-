@@ -62,6 +62,15 @@ How to read the backward score:
 - intermediate score: the node satisfies some but not all compiled structural requirements
 - `0.0`: no compiled necessary-condition support was found
 
+### Admissibility versus filtered admissibility
+
+Amissibility and filtered-admissibility are both intended to be used in the context of knowledge graph completion: enriching a semantically shallower KG with additional type information. Both modes essentially check whether it is ``safe" to emit an assertion `n typeof C` for each pair of *n* and *C*---i.e. are the implications/necessary conditions for `n typeof C` already represented in the graph? 
+
+However, the semantics for the two are slightly different, as filtered-admissibility performs additional forward reasoning after emitting admissibility assertions:
+
+- Admissibility checks whether each pair *n* and *C* are *individually* admissible--i.e., even though all *n* are checked against all *C* at once, they shouldn't be taken as evidence that all `n typeof C` assertions are mutually compatible
+- Filtered admissibility mode removes all mutually incompatible assertions. If some `n1 typeof C1` and `n2 typeof C2` would conflict, then the two are removed from the set.
+
 ### Admissibility versus scored semantic alignment
 
 `admissibility` and `scored_semantic_alignment` use the same backward, necessary-condition view, but they use it differently.
@@ -559,10 +568,10 @@ The EL-oriented profiles are the most mature part of the system. They are the ri
 
 In particular, the repo's intended positive claim is:
 
-- complete OWL 2 EL reasoning in the validated EL execution path
+- complete OWL 2 EL reasoning in the validated EL execution path, according to the OWL 2 EL [specification](https://www.w3.org/TR/owl2-profiles/#Feature_Overview) and [semantics](https://www.w3.org/TR/owl2-direct-semantics/).
 - agreement with ELK on the tested OWL2Bench runs
-- additional native support for some equality- and preprocessing-related effects that classical ELK-style comparisons do not always foreground
-
+- additional native support for equality-related reasoning that classical ELK-style comparisons do not always foreground. In our testing, GPU-EL-full matched the  inferences made by openllet test cases within OWL EL, and on owl2bench/randomly generated graphs. GPU-EL and GPU-EL-Lite have lighted equality reasoning that does not always match openllet.
+ 
 ### `gpu-dl`
 
 `gpu-dl` is best described as:
@@ -572,14 +581,7 @@ In particular, the repo's intended positive claim is:
 - soundness-oriented
 - strongest in `stratified`
 
-It supports a broader OWL-DL-like fragment than the EL profiles, but the repo should not claim complete OWL 2 DL reasoning.
-
-### Query-style modes
-
-`admissibility` and `filtered_admissibility` are designed to be conservative:
-
-- if they emit a result, that result is intended to have passed the currently supported certification path
-- if they suppress a result, that often means `unknown`
+It supports a broader OWL-DL-like fragment than the EL profiles, but the repo should not claim complete OWL 2 DL reasoning. An evaluation of GPU-DL for determination of the exact coverage boundary is ongoing.
 
 ## Preprocessing Pipeline
 
