@@ -33,12 +33,12 @@ TensorKG is:
 
 TensorKG is not:
 
-- a complete OWL 2 DL reasoner
+- an OWL 2 DL reasoner
 - a drop-in replacement for tableau reasoners on arbitrary ontologies
 - a probability model
 - a calibrated entity-ranking model for knowledge graph completion
 
-When the engine omits a conclusion outside the currently supported fragment, that should usually be interpreted as `unknown`, not as a proof that the conclusion is false.
+When the engine omits a conclusion outside the currently supported fragment, that should be interpreted as `unknown`, not as a proof that the conclusion is false.
 
 ## Engine Modes
 
