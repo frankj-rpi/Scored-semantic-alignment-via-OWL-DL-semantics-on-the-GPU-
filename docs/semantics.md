@@ -155,7 +155,7 @@ In particular:
 
 | Construct family | `gpu-el-lite` | `gpu-el` | `gpu-el-full` | `gpu-dl` | Notes |
 | --- | --- | --- | --- | --- | --- |
-| named classes / subclassing | yes | yes | yes | yes | core compiled fragment |
+| named classes / subclassing] | yes | yes | yes | yes | core compiled fragment |
 | intersections | yes | yes | yes | yes | native DAG aggregation |
 | existential restrictions | yes | yes | yes | yes | core neighbor traversal operator |
 | universal restrictions | limited | limited | limited | yes | used more defensibly in admissibility-style views |
@@ -173,6 +173,9 @@ In particular:
 | complements / negative class effects | no | no | no | limited | mostly blocker- or negative-fragment-oriented, not unrestricted DL negation |
 | general branching/tableau reasoning | no | no | no | no | unsupported frontier |
 
+Note that the GPU-DL profile is specifically for **sound but incomplete** inferences. In other words: if the input KG/ontology are consistent, and some inference is inferred, then it is guaranteed to be a sound inference. However: if it is NOT inferred, that means it is unknown whether it is true or false. 
+
+In other words: GPU-DL prioritizes tractability and soundness over completeness. If an inference would require general tableau reasoning in order to determine if it is true or false, we stop at that ``unkown" for that assertion and any other assertions that may directly or indirectly be influenced by it (conservatively estimated).
 
 ## Feature Notes And Validation Hooks
 
