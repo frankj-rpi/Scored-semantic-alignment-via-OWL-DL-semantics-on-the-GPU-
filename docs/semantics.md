@@ -1,11 +1,5 @@
 # TensorKG Semantics
 
-At a high level:
-
-- TensorKG provides a complete OWL 2 EL reasoning path in its EL-oriented execution profiles
-- TensorKG also provides additional native machinery for equality, admissibility, scored alignment, and selected OWL-DL-like constructs
-- outside the validated OWL 2 EL boundary, the implementation is intentionally conservative and should be described as incomplete
-
 ## Contents
 
 - [Two Core Tasks](#two-core-tasks)
