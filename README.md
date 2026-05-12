@@ -33,7 +33,7 @@ TensorKG is:
 
 TensorKG is not:
 
-- an OWL 2 DL reasoner
+- a complete OWL 2 DL reasoner
 - a drop-in replacement for tableau reasoners on arbitrary ontologies
 - a probability model
 - a calibrated entity-ranking model for knowledge graph completion
