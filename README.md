@@ -220,13 +220,12 @@ More detail on result artifacts, correctness checks, and result interpretation i
 
 ## Known Limitations
 
-- TensorKG is not complete for OWL 2 DL and should not be presented as such.
-- TensorKG does make a strong positive claim for complete OWL 2 EL reasoning; the main incompleteness caveats begin when moving beyond that fragment.
+- TensorKG is not complete for OWL 2 DL and should not be presented as such. In addition, although "sound but incomplete support" is intended for the limited OWL DL fragment, it is only validated by comparison to openllet, not logically proven as such.
 - The strongest current non-EL semantic claim is in `stratified`; query-style modes are intentionally more conservative.
 - `scored_semantic_alignment` scores are structural compatibility scores, not probabilities.
 - GPU speedups are strongest when preprocessing is modest and the compiled execution is largely acyclic or batchable.
 - CPU-side preprocessing, equality handling, fixpoint orchestration, and oracle interop can dominate end-to-end runtime on some workloads.
-- Memory usage can become substantial because the evaluator stores graph structure plus per-node, per-DAG intermediate scores.
+- Memory usage can become substantial because the evaluator stores graph structure plus per-node, per-DAG intermediate scores. See the evaluation results for some of our recorded data on memory usage.
 
 ## Implementation Pointers
 
